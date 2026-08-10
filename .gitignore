@@ -34,6 +34,7 @@ secrets.json
 /test-output/
 /test-results/
 /diagnostics/
+/comfyui_extension/MMH3PromptBridge/data/
 
 runtime/cpu/*
 runtime/cuda/*
