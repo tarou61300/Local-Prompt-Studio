@@ -1,0 +1,20 @@
+MMH3 Prompt Builder Release Manifest
+
+MMH3 Prompt Builder version: {{APP_VERSION}}
+Release date: {{RELEASE_DATE}}
+Build type: Windows x64 portable / PyInstaller onedir
+
+llama.cpp version: {{LLAMA_CPP_VERSION}}
+llama.cpp commit: {{LLAMA_CPP_COMMIT}}
+
+CPU runtime asset name: {{CPU_ASSET_NAME}}
+CPU runtime asset SHA256: {{CPU_ASSET_SHA256}}
+
+Vulkan runtime asset name: {{VULKAN_ASSET_NAME}}
+Vulkan runtime asset SHA256: {{VULKAN_ASSET_SHA256}}
+
+MMH3PromptBuilder.exe SHA256: {{EXE_SHA256}}
+Release ZIP SHA256: {{ZIP_SHA256}}
+
+GGUF models are not bundled.
+The MiniMax H3 Prompt Skill is not bundled.
