@@ -6,7 +6,7 @@ import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.main_window import MainWindow
 from app.setup_dialog import SetupDialog
@@ -60,6 +60,8 @@ def test_generate_button_flow_uses_mock_without_model(tmp_path):
         window.request_text.setPlainText("女性が手を振る。台詞は「またね」")
         window.generate()
         assert window.worker is not None and window.worker.isRunning()
+        assert not window.send_comfyui_button.isEnabled()
+        assert not window.regenerate_button.isEnabled()
         assert window.request_text.isEnabled()
         window.duration.setValue(11)
         app.processEvents()
@@ -73,6 +75,61 @@ def test_generate_button_flow_uses_mock_without_model(tmp_path):
         assert window.output_text.toPlainText().startswith("A 10-second")
         assert "「またね」" in window.output_text.toPlainText()
         assert "<think>" not in window.output_text.toPlainText()
+        assert window.send_comfyui_button.isEnabled()
+        assert window.regenerate_button.isEnabled()
+
+        window.regenerate_button.click()
+        assert window.worker is not None and window.worker.isRunning()
+        assert not window.send_comfyui_button.isEnabled()
+        deadline = time.monotonic() + 5
+        while window.worker is not None and window.worker.isRunning() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        app.processEvents()
+        assert window.worker is not None and not window.worker.isRunning()
+        assert window.send_comfyui_button.isEnabled()
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_cancel_generation_remains_available_with_send_ui(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    mock, url = start_mock_server(delay=0.2)
+    warnings = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=ConfigManager(tmp_path),
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        window.request_text.setPlainText("短いキャンセルテスト")
+        window.generate()
+        worker = window.worker
+        assert worker is not None and worker.isRunning()
+        assert window.cancel_button.isEnabled()
+
+        window.cancel_generation()
+        assert worker.isInterruptionRequested()
+        deadline = time.monotonic() + 5
+        while worker.isRunning() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        app.processEvents()
+
+        assert not worker.isRunning()
+        assert window.output_text.toPlainText() == ""
+        assert window.generate_button.isEnabled()
+        assert not window.cancel_button.isEnabled()
+        assert not window.send_comfyui_button.isEnabled()
         window.close()
         app.processEvents()
     finally:

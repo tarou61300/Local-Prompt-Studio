@@ -2,8 +2,18 @@ from __future__ import annotations
 
 from collections import deque
 
-from app.workers import ComfyUIPairThread, ComfyUITestThread, GenerationThread
-from core.comfyui_bridge import ComfyUIBridgeService, JsonResponse
+from app.workers import (
+    ComfyUIPairThread,
+    ComfyUISendThread,
+    ComfyUITestThread,
+    GenerationThread,
+)
+from core.comfyui_bridge import (
+    ComfyUIBridgeError,
+    ComfyUIBridgeService,
+    JsonResponse,
+    SendResult,
+)
 from core.config_manager import AppConfig
 from core.inference_backends import BACKEND_VULKAN, GPU_LAYERS_AUTO
 from core.prompt_engine import PromptSettings
@@ -118,6 +128,52 @@ def test_comfyui_test_worker_returns_only_stable_error_code():
     worker.error_occurred.connect(errors.append)
     worker.run()
     assert errors == ["bridge_unavailable"]
+
+
+def test_comfyui_send_worker_sends_one_immutable_snapshot_with_safe_signal():
+    class RecordingService:
+        def __init__(self):
+            self.calls = []
+
+        def send(self, text):
+            self.calls.append(text)
+            return SendResult(status="success", request_id="synthetic-request-id")
+
+    service = RecordingService()
+    snapshot = "synthetic edited output"
+    worker = ComfyUISendThread(service, snapshot)
+    successes = []
+    errors = []
+    worker.send_succeeded.connect(lambda: successes.append(True))
+    worker.error_occurred.connect(errors.append)
+    worker.run()
+    assert service.calls == [snapshot]
+    assert successes == [True]
+    assert errors == []
+    assert snapshot not in repr(worker)
+
+
+def test_comfyui_send_worker_emits_only_stable_error_code_without_retry():
+    class FailingService:
+        def __init__(self):
+            self.calls = 0
+
+        def send(self, text):
+            self.calls += 1
+            raise ComfyUIBridgeError("timeout", "private remote response")
+
+    service = FailingService()
+    worker = ComfyUISendThread(service, "synthetic private output")
+    errors = []
+    successes = []
+    worker.error_occurred.connect(errors.append)
+    worker.send_succeeded.connect(lambda: successes.append(True))
+    worker.run()
+    assert service.calls == 1
+    assert errors == ["timeout"]
+    assert successes == []
+    assert "private remote response" not in repr(worker)
+    assert "synthetic private output" not in repr(worker)
 
 
 def test_real_generation_resubmits_backend_signature_when_server_already_exists(tmp_path):

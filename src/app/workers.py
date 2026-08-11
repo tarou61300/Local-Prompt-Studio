@@ -75,6 +75,38 @@ class ComfyUIPairThread(QThread):
             self.pairing_succeeded.emit()
 
 
+class ComfyUISendThread(QThread):
+    """Send one immutable output snapshot without exposing its contents in signals."""
+
+    send_succeeded = Signal()
+    error_occurred = Signal(str)
+
+    def __init__(
+        self,
+        service: ComfyUIBridgeService,
+        text: str,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.service = service
+        self._text = text
+
+    def run(self) -> None:
+        if self.isInterruptionRequested():
+            return
+        try:
+            self.service.send(self._text)
+        except ComfyUIBridgeError as exc:
+            if not self.isInterruptionRequested():
+                self.error_occurred.emit(exc.code)
+        except Exception:
+            if not self.isInterruptionRequested():
+                self.error_occurred.emit("bridge_unavailable")
+        else:
+            if not self.isInterruptionRequested():
+                self.send_succeeded.emit()
+
+
 class GenerationThread(QThread):
     status_changed = Signal(str)
     result_ready = Signal(str)

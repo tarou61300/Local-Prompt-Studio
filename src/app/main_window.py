@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import sqlite3
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -28,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.comfyui_bridge import ComfyUIBridgeError, ComfyUIBridgeService
 from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
 from core.history_manager import HistoryManager
 from core.inference_backends import BACKEND_VULKAN, backend_spec
@@ -46,12 +49,74 @@ from core.system_memory import (
 from core.version import APP_DISPLAY_VERSION, APP_RELEASE_DATE, PRODUCT_NAME
 
 from .settings_dialog import SettingsDialog
-from .workers import GenerationThread
+from .workers import ComfyUISendThread, GenerationThread
 
 
 CAMERAS = ("Free", "Static camera", "Slow push-in", "Slow pull-out", "Pan", "Tilt", "Tracking", "Handheld")
 SHOTS = ("Single continuous shot", "Allow cuts")
 MOTIONS = ("Low", "Natural", "Medium", "High")
+
+
+COMFYUI_SEND_ERROR_MESSAGES = {
+    "credential_unavailable": (
+        "ComfyUI is not paired. Open Settings and pair with ComfyUI first."
+    ),
+    "credential_url_mismatch": (
+        "ComfyUI is not paired. Open Settings and pair with ComfyUI first."
+    ),
+    "unauthorized_client": (
+        "ComfyUI pairing is no longer valid. Open Settings and pair again."
+    ),
+    "no_target": (
+        "No MMH3 target is selected in ComfyUI. Right-click a text prompt node and "
+        "choose MMH3 Prompt Bridge -> Set as MMH3 Target."
+    ),
+    "target_not_found": (
+        "No MMH3 target is selected in ComfyUI. Right-click a text prompt node and "
+        "choose MMH3 Prompt Bridge -> Set as MMH3 Target."
+    ),
+    "stale_target": (
+        "The selected ComfyUI target is no longer active. Select the target again in ComfyUI."
+    ),
+    "stale_session": (
+        "The selected ComfyUI target is no longer active. Select the target again in ComfyUI."
+    ),
+    "widget_not_found": (
+        "The selected ComfyUI text field is no longer available. Select a target again."
+    ),
+    "invalid_widget": (
+        "The selected ComfyUI text field is no longer available. Select a target again."
+    ),
+    "bridge_busy": "ComfyUI Bridge is busy. Please try again in a moment.",
+    "ack_timeout": (
+        "ComfyUI did not confirm the update. The text may already have been applied. "
+        "Check ComfyUI before sending again."
+    ),
+    "timeout": (
+        "Sending timed out. The text may already have been applied. "
+        "Check ComfyUI before sending again."
+    ),
+    "bridge_unavailable": (
+        "Could not confirm delivery to ComfyUI. The text may already have been applied. "
+        "Check ComfyUI before sending again."
+    ),
+    "unsupported_bridge_version": (
+        "The installed MMH3 Prompt Bridge version is not compatible with this app."
+    ),
+    "malformed_response": "ComfyUI Bridge returned an invalid response.",
+    "text_too_large": "The current text is too large to send to ComfyUI.",
+    "rate_limited": "ComfyUI Bridge is rate-limiting requests. Please try again later.",
+    "compatibility_unavailable": (
+        "The selected ComfyUI session cannot receive text with this Bridge version."
+    ),
+}
+
+
+def comfyui_send_error_message(code: str) -> str:
+    return COMFYUI_SEND_ERROR_MESSAGES.get(
+        code,
+        "The text could not be sent to ComfyUI.",
+    )
 
 
 class MainWindow(QMainWindow):
@@ -62,6 +127,7 @@ class MainWindow(QMainWindow):
         config_manager: ConfigManager,
         server_url: str | None = None,
         dev_skill_path: Path | None = None,
+        bridge_service_factory: Callable[[str], ComfyUIBridgeService] | None = None,
     ) -> None:
         super().__init__()
         self.project_root = project_root
@@ -83,6 +149,22 @@ class MainWindow(QMainWindow):
         self.mock_mode = server_url is not None
         self.history = HistoryManager(config_manager.data_dir / "history.sqlite3")
         self.worker: GenerationThread | None = None
+        self._generation_active = False
+        self._bridge_service_factory = bridge_service_factory or (
+            lambda base_url: ComfyUIBridgeService(
+                base_url,
+                data_dir=self.config_manager.data_dir,
+            )
+        )
+        self._send_worker: ComfyUISendThread | None = None
+        self._send_succeeded = False
+        self._send_error_code: str | None = None
+        self._send_close_requested = False
+        self._send_close_scheduled = False
+        self._application_quit_pending = False
+        self._application = QApplication.instance()
+        if self._application is not None:
+            self._application.installEventFilter(self)
         self._last_memory_info: MemoryInfo | None = None
         self._vulkan_devices = []
 
@@ -100,9 +182,9 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         toolbar = QToolBar("Main")
         toolbar.setMovable(False)
-        settings_action = QAction("設定", self)
-        settings_action.triggered.connect(self._open_settings)
-        toolbar.addAction(settings_action)
+        self.settings_action = QAction("設定", self)
+        self.settings_action.triggered.connect(self._open_settings)
+        toolbar.addAction(self.settings_action)
         about_action = QAction("このアプリについて", self)
         about_action.triggered.connect(self._show_about)
         toolbar.addAction(about_action)
@@ -214,16 +296,32 @@ class MainWindow(QMainWindow):
         copy_button.clicked.connect(lambda: self.output_text.selectAll() or self.output_text.copy())
         save_button = QPushButton("Save as TXT")
         save_button.clicked.connect(self._save_output)
-        regenerate = QPushButton("Regenerate")
-        regenerate.clicked.connect(self.generate)
+        self.send_comfyui_button = QPushButton("Send to ComfyUI")
+        self.send_comfyui_button.setToolTip(
+            "Send the current edited output to the selected ComfyUI text field."
+        )
+        self.send_comfyui_button.clicked.connect(self._send_to_comfyui)
+        self.regenerate_button = QPushButton("Regenerate")
+        self.regenerate_button.clicked.connect(self.generate)
         clear = QPushButton("Clear")
         clear.clicked.connect(self._clear_text)
-        for button in (self.generate_button, self.cancel_button, copy_button, save_button, regenerate, clear):
+        for button in (
+            self.generate_button,
+            self.cancel_button,
+            copy_button,
+            save_button,
+            self.send_comfyui_button,
+            self.regenerate_button,
+            clear,
+        ):
             buttons.addWidget(button)
         root.addLayout(buttons)
         self.status_label = QLabel("準備完了")
+        self.status_label.setWordWrap(True)
         root.addWidget(self.status_label)
         self.setCentralWidget(central)
+        self.output_text.textChanged.connect(self._update_send_button_state)
+        self._update_send_button_state()
         self._update_mode_fields(self.mode.currentText())
 
     @staticmethod
@@ -291,7 +389,92 @@ class MainWindow(QMainWindow):
             references=refs,
         )
 
+    def _update_send_button_state(self) -> None:
+        self.send_comfyui_button.setEnabled(
+            bool(self.output_text.toPlainText())
+            and self._send_worker is None
+            and not self._generation_active
+            and not self._send_close_requested
+        )
+
+    def _set_send_conflicting_actions_enabled(self, enabled: bool) -> None:
+        self.generate_button.setEnabled(enabled)
+        self.regenerate_button.setEnabled(enabled)
+        self.settings_action.setEnabled(enabled)
+
+    def _send_to_comfyui(self) -> None:
+        if self._send_worker is not None or self._generation_active:
+            return
+        text = self.output_text.toPlainText()
+        if not text:
+            self._update_send_button_state()
+            return
+        config = self.config_manager.load()
+        try:
+            service = self._bridge_service_factory(config.comfyui_url)
+        except ComfyUIBridgeError as exc:
+            self.status_label.setText(comfyui_send_error_message(exc.code))
+            return
+        except Exception:
+            self.status_label.setText(
+                comfyui_send_error_message("bridge_unavailable")
+            )
+            return
+        self._send_succeeded = False
+        self._send_error_code = None
+        worker = ComfyUISendThread(service, text, parent=self)
+        self._send_worker = worker
+        worker.send_succeeded.connect(self._comfyui_send_succeeded)
+        worker.error_occurred.connect(self._comfyui_send_failed)
+        worker.finished.connect(self._comfyui_send_finished)
+        worker.finished.connect(worker.deleteLater)
+        self.status_label.setText("Sending to ComfyUI...")
+        self._set_send_conflicting_actions_enabled(False)
+        self._update_send_button_state()
+        worker.start()
+
+    def _comfyui_send_succeeded(self) -> None:
+        self._send_succeeded = True
+
+    def _comfyui_send_failed(self, code: str) -> None:
+        self._send_error_code = code
+
+    def _comfyui_send_finished(self) -> None:
+        self._send_worker = None
+        if self._send_close_requested:
+            self._resume_close_after_send()
+            return
+        self._set_send_conflicting_actions_enabled(True)
+        self._update_send_button_state()
+        if self._send_succeeded:
+            self.status_label.setText("Sent to ComfyUI.")
+        elif self._send_error_code is not None:
+            self.status_label.setText(
+                comfyui_send_error_message(self._send_error_code)
+            )
+
+    def _request_close_after_send(self) -> None:
+        if self._send_close_requested:
+            return
+        self._send_close_requested = True
+        self._set_send_conflicting_actions_enabled(False)
+        self._update_send_button_state()
+        if self._send_worker is not None:
+            self._send_worker.requestInterruption()
+
+    def _resume_close_after_send(self) -> None:
+        if not self._send_close_scheduled:
+            self._send_close_scheduled = True
+            QTimer.singleShot(0, self.close)
+        if self._application_quit_pending:
+            self._application_quit_pending = False
+            application = self._application
+            if application is not None:
+                QTimer.singleShot(0, application.quit)
+
     def generate(self) -> None:
+        if self._send_worker is not None:
+            return
         if self.worker is not None and self.worker.isRunning():
             return
         # Always sample on the button press. The timer value is informational only.
@@ -359,8 +542,11 @@ class MainWindow(QMainWindow):
         self.worker.result_ready.connect(self._generation_complete)
         self.worker.error_occurred.connect(self._generation_error)
         self.worker.finished.connect(self._generation_finished)
+        self._generation_active = True
         self.generate_button.setEnabled(False)
+        self.regenerate_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
+        self._update_send_button_state()
         self.worker.start()
 
     def cancel_generation(self) -> None:
@@ -392,8 +578,11 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "生成できませんでした", message)
 
     def _generation_finished(self) -> None:
+        self._generation_active = False
         self.generate_button.setEnabled(True)
+        self.regenerate_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
+        self._update_send_button_state()
         self._refresh_memory_display()
 
     def _refresh_readiness(self) -> None:
@@ -540,8 +729,23 @@ class MainWindow(QMainWindow):
             "設定・ログ・履歴・取得Skillはdataフォルダへ保存します。",
         )
 
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            watched is self._application
+            and event.type() == QEvent.Quit
+            and self._send_worker is not None
+        ):
+            self._application_quit_pending = True
+            self._request_close_after_send()
+            return True
+        return super().eventFilter(watched, event)
+
     def closeEvent(self, event: QCloseEvent) -> None:
         self.memory_timer.stop()
+        if self._send_worker is not None:
+            self._request_close_after_send()
+            event.ignore()
+            return
         if self.worker is not None and self.worker.isRunning():
             self.worker.requestInterruption()
             self.server.cancel()
