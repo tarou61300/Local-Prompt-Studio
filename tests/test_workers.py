@@ -1,9 +1,123 @@
 from __future__ import annotations
 
-from app.workers import GenerationThread
+from collections import deque
+
+from app.workers import ComfyUIPairThread, ComfyUITestThread, GenerationThread
+from core.comfyui_bridge import ComfyUIBridgeService, JsonResponse
 from core.config_manager import AppConfig
 from core.inference_backends import BACKEND_VULKAN, GPU_LAYERS_AUTO
 from core.prompt_engine import PromptSettings
+
+
+BASE_URL = "http://127.0.0.1:8188"
+
+
+class FakeTransport:
+    def __init__(self, *responses):
+        self.responses = deque(responses)
+        self.calls = []
+
+    def request_json(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        response = self.responses.popleft()
+        if callable(response):
+            return response()
+        return response
+
+
+class RecordingCredentialStore:
+    exists = False
+
+    def __init__(self):
+        self.saved = []
+
+    def save(self, base_url, client_id, client_credential):
+        self.saved.append((base_url, client_id, client_credential))
+
+
+def status_payload():
+    return {
+        "ok": True,
+        "status": "ready",
+        "name": "MMH3 Prompt Bridge",
+        "version": "1.2",
+        "security": {},
+        "deployment_modes": ["local", "remote_https"],
+        "limits": {
+            "max_request_bytes": 1_048_576,
+            "max_text_bytes": 262_144,
+            "ack_timeout_seconds": 3.0,
+            "pairing_expires_seconds": 60,
+        },
+        "exact_socket_delivery_available": True,
+        "persistence_available": True,
+        "target_registered": False,
+        "target_session_connected": False,
+    }
+
+
+def test_comfyui_pair_worker_cancel_during_paired_response_never_saves():
+    store = RecordingCredentialStore()
+    worker_reference = {}
+
+    def paired_after_cancel():
+        worker_reference["worker"].cancel()
+        return JsonResponse(
+            200,
+            {
+                "ok": True,
+                "status": "paired",
+                "pair_id": "synthetic-pair-id",
+                "client_id": "synthetic-client-id",
+                "client_credential": "synthetic-client-credential",
+            },
+        )
+
+    transport = FakeTransport(
+        JsonResponse(200, status_payload()),
+        JsonResponse(
+            201,
+            {
+                "ok": True,
+                "status": "pending",
+                "pair_id": "synthetic-pair-id",
+                "verification_code": "577559",
+                "expires_in": 60,
+            },
+        ),
+        paired_after_cancel,
+    )
+    service = ComfyUIBridgeService(
+        BASE_URL,
+        credential_store=store,
+        transport=transport,
+    )
+    worker = ComfyUIPairThread(service)
+    worker_reference["worker"] = worker
+    codes = []
+    errors = []
+    successes = []
+    worker.verification_code_ready.connect(codes.append)
+    worker.error_occurred.connect(errors.append)
+    worker.pairing_succeeded.connect(lambda: successes.append(True))
+    worker.run()
+    assert codes == ["577559"]
+    assert errors == ["pairing_cancelled"]
+    assert successes == []
+    assert store.saved == []
+    assert len(transport.calls) == 3
+
+
+def test_comfyui_test_worker_returns_only_stable_error_code():
+    class FailingService:
+        def test_connection(self):
+            raise RuntimeError("private remote response")
+
+    errors = []
+    worker = ComfyUITestThread(FailingService())
+    worker.error_occurred.connect(errors.append)
+    worker.run()
+    assert errors == ["bridge_unavailable"]
 
 
 def test_real_generation_resubmits_backend_signature_when_server_already_exists(tmp_path):

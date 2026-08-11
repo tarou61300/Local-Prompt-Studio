@@ -185,6 +185,17 @@ class ComfyUICredentialStore:
     def exists(self) -> bool:
         return self.path.is_file()
 
+    def has_valid_credential(self, normalized_base_url: str) -> bool:
+        """Return local usability for one URL without exposing decrypted fields."""
+        try:
+            credential = self.load(normalized_base_url)
+        except CredentialStoreError:
+            return False
+        credential.base_url = ""
+        credential.client_id = ""
+        credential.client_credential = ""
+        return True
+
     def _data_protector(self) -> DataProtector:
         if self._protector is None:
             self._protector = WindowsDpapiProtector()

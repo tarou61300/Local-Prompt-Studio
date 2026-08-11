@@ -45,6 +45,20 @@ class FailingProtector:
         raise RuntimeError("decryption failed")
 
 
+class ScopedProtector:
+    def __init__(self, scope: bytes) -> None:
+        self.scope = scope
+
+    def protect(self, data: bytes) -> bytes:
+        return self.scope + b"\0" + data[::-1]
+
+    def unprotect(self, data: bytes) -> bytes:
+        prefix = self.scope + b"\0"
+        if not data.startswith(prefix):
+            raise RuntimeError("different user scope")
+        return data.removeprefix(prefix)[::-1]
+
+
 def test_store_construction_has_no_protection_or_file_side_effect(tmp_path):
     protector = FakeProtector()
     store = ComfyUICredentialStore(tmp_path, protector=protector)
@@ -134,6 +148,60 @@ def test_decryption_and_protection_fail_closed_without_plaintext_fallback(tmp_pa
         store.load(BASE_URL)
     assert load_error.value.code == "credential_unavailable"
     assert CLIENT_CREDENTIAL not in str(load_error.value)
+
+
+def test_local_validity_helper_accepts_only_current_url_usable_credential(tmp_path):
+    store = ComfyUICredentialStore(tmp_path, protector=FakeProtector())
+    assert store.has_valid_credential(BASE_URL) is False
+
+    store.save(BASE_URL, CLIENT_ID, CLIENT_CREDENTIAL)
+    assert store.has_valid_credential(BASE_URL) is True
+    assert store.has_valid_credential("https://remote.example.com") is False
+
+    store.path.write_bytes(b"truncated-protected-value")
+    assert store.has_valid_credential(BASE_URL) is False
+
+    invalid_schema = json.dumps(
+        {
+            "schema_version": 999,
+            "base_url": BASE_URL,
+            "client_id": CLIENT_ID,
+            "client_credential": CLIENT_CREDENTIAL,
+        }
+    ).encode("utf-8")
+    store.path.write_bytes(store._data_protector().protect(invalid_schema))
+    assert store.has_valid_credential(BASE_URL) is False
+
+
+def test_local_validity_helper_fails_closed_for_decrypt_failure(tmp_path):
+    writer = ComfyUICredentialStore(tmp_path, protector=FakeProtector())
+    writer.save(BASE_URL, CLIENT_ID, CLIENT_CREDENTIAL)
+    reader = ComfyUICredentialStore(tmp_path, protector=FailingProtector())
+    assert reader.has_valid_credential(BASE_URL) is False
+
+
+def test_local_validity_helper_rejects_another_user_scope(tmp_path):
+    writer = ComfyUICredentialStore(
+        tmp_path,
+        protector=ScopedProtector(b"user-a"),
+    )
+    writer.save(BASE_URL, CLIENT_ID, CLIENT_CREDENTIAL)
+    reader = ComfyUICredentialStore(
+        tmp_path,
+        protector=ScopedProtector(b"user-b"),
+    )
+    assert reader.has_valid_credential(BASE_URL) is False
+
+
+def test_local_validity_helper_clears_loaded_secret_object(monkeypatch, tmp_path):
+    store = ComfyUICredentialStore(tmp_path, protector=FakeProtector())
+    store.save(BASE_URL, CLIENT_ID, CLIENT_CREDENTIAL)
+    loaded = store.load(BASE_URL)
+    monkeypatch.setattr(store, "load", lambda normalized_url: loaded)
+    assert store.has_valid_credential(BASE_URL) is True
+    assert loaded.base_url == ""
+    assert loaded.client_id == ""
+    assert loaded.client_credential == ""
 
 
 def test_delete_is_idempotent(tmp_path):

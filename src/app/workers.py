@@ -1,13 +1,78 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 
 from PySide6.QtCore import QThread, Signal
 
+from core.comfyui_bridge import (
+    BridgeStatus,
+    ComfyUIBridgeError,
+    ComfyUIBridgeService,
+)
 from core.config_manager import AppConfig
 from core.llama_manager import DEFAULT_GENERATION_TIMEOUT_SECONDS, LlamaServerManager
 from core.model_manager import validate_model
 from core.prompt_engine import PromptEngine, PromptSettings
+
+
+class ComfyUITestThread(QThread):
+    """Run one explicit Bridge status request without blocking the GUI thread."""
+
+    result_ready = Signal(object)
+    error_occurred = Signal(str)
+
+    def __init__(self, service: ComfyUIBridgeService, parent=None) -> None:
+        super().__init__(parent)
+        self.service = service
+
+    def run(self) -> None:
+        if self.isInterruptionRequested():
+            return
+        try:
+            status: BridgeStatus = self.service.test_connection()
+        except ComfyUIBridgeError as exc:
+            if not self.isInterruptionRequested():
+                self.error_occurred.emit(exc.code)
+        except Exception:
+            if not self.isInterruptionRequested():
+                self.error_occurred.emit("bridge_unavailable")
+        else:
+            if not self.isInterruptionRequested():
+                self.result_ready.emit(status)
+
+
+class ComfyUIPairThread(QThread):
+    """Run one verifier/challenge pairing flow and persist only through the service."""
+
+    verification_code_ready = Signal(str)
+    pairing_succeeded = Signal()
+    error_occurred = Signal(str)
+
+    def __init__(self, service: ComfyUIBridgeService, parent=None) -> None:
+        super().__init__(parent)
+        self.service = service
+        self.cancel_event = threading.Event()
+
+    def cancel(self) -> None:
+        self.cancel_event.set()
+        self.requestInterruption()
+
+    def run(self) -> None:
+        try:
+            session = self.service.start_pairing(cancel_event=self.cancel_event)
+            if self.cancel_event.is_set() or self.isInterruptionRequested():
+                raise ComfyUIBridgeError("pairing_cancelled")
+            self.verification_code_ready.emit(session.verification_code)
+            self.service.wait_for_pairing(session, self.cancel_event)
+            if self.cancel_event.is_set() or self.isInterruptionRequested():
+                raise ComfyUIBridgeError("pairing_cancelled")
+        except ComfyUIBridgeError as exc:
+            self.error_occurred.emit(exc.code)
+        except Exception:
+            self.error_occurred.emit("bridge_unavailable")
+        else:
+            self.pairing_succeeded.emit()
 
 
 class GenerationThread(QThread):

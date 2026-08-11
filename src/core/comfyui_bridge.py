@@ -636,12 +636,27 @@ class ComfyUIBridgeService:
     def has_credential_file(self) -> bool:
         return not self._credential_invalid and self.credential_store.exists
 
+    def has_valid_credential(self) -> bool:
+        return (
+            not self._credential_invalid
+            and self.credential_store.has_valid_credential(self.base_url)
+        )
+
     def test_connection(self) -> BridgeStatus:
         return self.client.status()
 
-    def start_pairing(self, *, client_name: str = DEFAULT_CLIENT_NAME) -> PairingSession:
+    def start_pairing(
+        self,
+        *,
+        client_name: str = DEFAULT_CLIENT_NAME,
+        cancel_event: threading.Event | None = None,
+    ) -> PairingSession:
         try:
+            if cancel_event is not None and cancel_event.is_set():
+                raise _bridge_error("pairing_cancelled")
             self.client.status()
+            if cancel_event is not None and cancel_event.is_set():
+                raise _bridge_error("pairing_cancelled")
             session = self.client.start_pairing(client_name=client_name)
             LOGGER.info("ComfyUI pair started")
             return session

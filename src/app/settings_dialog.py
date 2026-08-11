@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QEvent, QTimer, Qt, QUrl, Signal
+from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -20,6 +23,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from app.workers import ComfyUIPairThread, ComfyUITestThread
+from core.comfyui_bridge import (
+    BridgeStatus,
+    ComfyUIBridgeError,
+    ComfyUIBridgeService,
+    normalize_comfyui_base_url,
+)
 from core.config_manager import AppConfig, ConfigManager, CONTEXT_PRESETS, PORTABLE_WRITE_ERROR
 from core.inference_backends import (
     BACKEND_CPU,
@@ -38,12 +48,92 @@ from core.system_memory import (
 )
 
 
+BRIDGE_ERROR_MESSAGES = {
+    "bridge_unavailable": "MMH3 Prompt Bridge could not be reached.",
+    "unsupported_bridge_version": "This MMH3 Prompt Bridge version is not supported.",
+    "remote_http_not_allowed": "Enter a valid local HTTP or remote HTTPS ComfyUI URL.",
+    "no_browser_session": "Open or reload ComfyUI in your browser and try again.",
+    "pairing_rejected": "Pairing was rejected in ComfyUI.",
+    "pairing_expired": "Pairing timed out. Please try again.",
+    "pairing_cancelled": "Pairing was cancelled.",
+    "pairing_capacity_reached": "ComfyUI Bridge has too many pending pairings. Try again later.",
+    "credential_persistence_failed": "The pairing could not be saved securely.",
+    "credential_unavailable": "The local pairing information could not be updated safely.",
+    "timeout": "The ComfyUI Bridge request timed out.",
+    "malformed_response": "ComfyUI Bridge returned an invalid response.",
+}
+
+
+def bridge_error_message(code: str) -> str:
+    return BRIDGE_ERROR_MESSAGES.get(code, "The ComfyUI Bridge operation failed.")
+
+
+class PairingVerificationDialog(QDialog):
+    cancel_requested = Signal()
+
+    def __init__(self, verification_code: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Pairing with ComfyUI")
+        self.setWindowModality(Qt.WindowModal)
+        self.setMinimumWidth(430)
+        self._allow_close = False
+        self._cancel_pending = False
+
+        layout = QVBoxLayout(self)
+        title = QLabel("Pairing with ComfyUI")
+        layout.addWidget(title)
+        instruction = QLabel("Verify that this code is also shown in ComfyUI:")
+        instruction.setWordWrap(True)
+        layout.addWidget(instruction)
+        rendered_code = (
+            f"{verification_code[:3]} {verification_code[3:]}"
+            if len(verification_code) == 6 and verification_code.isdigit()
+            else verification_code
+        )
+        self.code_label = QLabel(rendered_code)
+        self.code_label.setAlignment(Qt.AlignCenter)
+        self.code_label.setStyleSheet("font-size: 26px; font-weight: bold;")
+        layout.addWidget(self.code_label)
+        self.waiting_label = QLabel("Waiting for approval...")
+        self.waiting_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.waiting_label)
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self._request_cancel)
+        layout.addWidget(self.cancel_button)
+
+    def _request_cancel(self) -> None:
+        if self._cancel_pending:
+            return
+        self._cancel_pending = True
+        self.cancel_button.setEnabled(False)
+        self.waiting_label.setText("Cancelling...")
+        self.cancel_requested.emit()
+
+    def finish(self) -> None:
+        self._allow_close = True
+        self.close()
+
+    def reject(self) -> None:
+        if self._allow_close:
+            super().reject()
+        else:
+            self._request_cancel()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._allow_close:
+            event.accept()
+            return
+        self._request_cancel()
+        event.ignore()
+
+
 class SettingsDialog(QDialog):
     def __init__(
         self,
         config_manager: ConfigManager,
         project_root: Path,
         parent=None,
+        bridge_service_factory: Callable[[str], ComfyUIBridgeService] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("設定")
@@ -51,6 +141,35 @@ class SettingsDialog(QDialog):
         self.config_manager = config_manager
         self.project_root = project_root
         self.config = config_manager.load()
+        self._bridge_service_factory = bridge_service_factory or (
+            lambda base_url: ComfyUIBridgeService(
+                base_url,
+                data_dir=self.config_manager.data_dir,
+            )
+        )
+        self._test_worker: ComfyUITestThread | None = None
+        self._pair_worker: ComfyUIPairThread | None = None
+        self._pairing_dialog: PairingVerificationDialog | None = None
+        self._test_result: BridgeStatus | None = None
+        self._test_error_code: str | None = None
+        self._pair_succeeded = False
+        self._pair_error_code: str | None = None
+        self._close_requested = False
+        self._close_completed = False
+        self._application_quit_pending = False
+        self._application = QApplication.instance()
+        if self._application is not None:
+            self._application.installEventFilter(self)
+        try:
+            self._saved_comfyui_url = normalize_comfyui_base_url(self.config.comfyui_url)
+        except ComfyUIBridgeError:
+            self._saved_comfyui_url = normalize_comfyui_base_url(AppConfig().comfyui_url)
+        initial_bridge_service = self._bridge_service_factory(self._saved_comfyui_url)
+        self._paired_url = (
+            self._saved_comfyui_url
+            if initial_bridge_service.has_valid_credential()
+            else None
+        )
         self.runtime_manager = LlamaServerManager(project_root / "runtime")
         self.vulkan_devices = self.runtime_manager.detect_vulkan_devices()
 
@@ -157,6 +276,26 @@ class SettingsDialog(QDialog):
         self.theme.setCurrentText(self.config.theme)
         form.addRow("Theme", self.theme)
 
+        comfyui_group = QGroupBox("ComfyUI Integration")
+        comfyui_form = QFormLayout(comfyui_group)
+        self.comfyui_url = QLineEdit(self._saved_comfyui_url)
+        self.comfyui_url.textChanged.connect(self._update_comfyui_paired_state)
+        comfyui_form.addRow("ComfyUI URL", self.comfyui_url)
+
+        self.comfyui_test_button = QPushButton("Test Connection")
+        self.comfyui_test_button.clicked.connect(self._test_comfyui_connection)
+        comfyui_form.addRow("", self.comfyui_test_button)
+
+        self.comfyui_pairing_status = QLabel()
+        comfyui_form.addRow("Pairing status:", self.comfyui_pairing_status)
+        self.comfyui_pair_button = QPushButton()
+        self.comfyui_pair_button.clicked.connect(self._pair_with_comfyui)
+        comfyui_form.addRow("", self.comfyui_pair_button)
+        self.comfyui_feedback = QLabel()
+        self.comfyui_feedback.setWordWrap(True)
+        comfyui_form.addRow("", self.comfyui_feedback)
+        layout.addWidget(comfyui_group)
+
         reset_button = QPushButton("設定を初期値へ戻す")
         reset_button.clicked.connect(self._reset_fields)
         layout.addWidget(reset_button)
@@ -167,8 +306,216 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        self.buttons = buttons
+        self._update_comfyui_paired_state()
         self._update_backend_controls()
         self._update_model_info()
+
+    def _normalized_entered_comfyui_url(self) -> str:
+        return normalize_comfyui_base_url(self.comfyui_url.text())
+
+    def _current_url_is_paired(self) -> bool:
+        try:
+            return self._normalized_entered_comfyui_url() == self._paired_url
+        except ComfyUIBridgeError:
+            return False
+
+    def _update_comfyui_paired_state(self) -> None:
+        paired = self._current_url_is_paired()
+        self.comfyui_pairing_status.setText("Paired" if paired else "Not paired")
+        self.comfyui_pair_button.setText("Pair Again" if paired else "Pair with ComfyUI")
+
+    def _set_comfyui_controls_enabled(self, enabled: bool) -> None:
+        self.comfyui_url.setEnabled(enabled)
+        self.comfyui_test_button.setEnabled(enabled)
+        self.comfyui_pair_button.setEnabled(enabled)
+        self.buttons.button(QDialogButtonBox.Save).setEnabled(enabled)
+
+    def _show_bridge_error(self, title: str, code: str) -> None:
+        QMessageBox.warning(self, title, bridge_error_message(code))
+
+    def _test_comfyui_connection(self) -> None:
+        if self._test_worker is not None or self._pair_worker is not None:
+            return
+        try:
+            service = self._bridge_service_factory(self._normalized_entered_comfyui_url())
+        except ComfyUIBridgeError as exc:
+            self._show_bridge_error("ComfyUI Connection", exc.code)
+            return
+        self._test_result = None
+        self._test_error_code = None
+        self.comfyui_feedback.setText("Testing connection...")
+        worker = ComfyUITestThread(service, parent=self)
+        self._test_worker = worker
+        worker.result_ready.connect(self._test_connection_succeeded)
+        worker.error_occurred.connect(self._test_connection_failed)
+        worker.finished.connect(self._test_connection_finished)
+        worker.finished.connect(worker.deleteLater)
+        self._set_comfyui_controls_enabled(False)
+        worker.start()
+
+    def _test_connection_succeeded(self, status: BridgeStatus) -> None:
+        self._test_result = status
+
+    def _test_connection_failed(self, code: str) -> None:
+        self._test_error_code = code
+
+    def _test_connection_finished(self) -> None:
+        self._test_worker = None
+        if self._close_requested:
+            self._finish_requested_close_if_idle()
+            return
+        self._set_comfyui_controls_enabled(True)
+        if self._test_result is not None:
+            self.comfyui_feedback.setText(
+                f"MMH3 Prompt Bridge v{self._test_result.version} detected."
+            )
+        elif self._test_error_code is not None:
+            self.comfyui_feedback.setText("Connection test failed.")
+            self._show_bridge_error("ComfyUI Connection", self._test_error_code)
+        else:
+            self.comfyui_feedback.clear()
+
+    def _save_pairing_url_if_changed(self, pairing_url: str) -> bool:
+        if pairing_url == self._saved_comfyui_url:
+            return True
+        try:
+            self._bridge_service_factory(
+                self._saved_comfyui_url
+            ).invalidate_credentials()
+        except ComfyUIBridgeError as exc:
+            self._paired_url = None
+            self._update_comfyui_paired_state()
+            self._show_bridge_error("ComfyUI Pairing", exc.code)
+            return False
+        self._paired_url = None
+        config = self.config_manager.load()
+        config.comfyui_url = pairing_url
+        try:
+            self.config_manager.save(config)
+        except OSError:
+            QMessageBox.warning(
+                self,
+                "ComfyUI Pairing",
+                PORTABLE_WRITE_ERROR,
+            )
+            self._update_comfyui_paired_state()
+            return False
+        self._saved_comfyui_url = pairing_url
+        self.comfyui_url.setText(pairing_url)
+        self._update_comfyui_paired_state()
+        return True
+
+    def _pair_with_comfyui(self) -> None:
+        if self._test_worker is not None or self._pair_worker is not None:
+            return
+        try:
+            pairing_url = self._normalized_entered_comfyui_url()
+        except ComfyUIBridgeError as exc:
+            self._show_bridge_error("ComfyUI Pairing", exc.code)
+            return
+        if not self._save_pairing_url_if_changed(pairing_url):
+            return
+        service = self._bridge_service_factory(pairing_url)
+        self._pairing_url = pairing_url
+        self._pair_succeeded = False
+        self._pair_error_code = None
+        self.comfyui_feedback.setText("Starting pairing...")
+        worker = ComfyUIPairThread(service, parent=self)
+        self._pair_worker = worker
+        worker.verification_code_ready.connect(self._show_pairing_code)
+        worker.pairing_succeeded.connect(self._pairing_succeeded)
+        worker.error_occurred.connect(self._pairing_failed)
+        worker.finished.connect(self._pairing_finished)
+        worker.finished.connect(worker.deleteLater)
+        self._set_comfyui_controls_enabled(False)
+        worker.start()
+
+    def _show_pairing_code(self, verification_code: str) -> None:
+        if self._close_requested or self._pair_worker is None:
+            return
+        dialog = PairingVerificationDialog(verification_code, self)
+        dialog.cancel_requested.connect(self._cancel_pairing)
+        self._pairing_dialog = dialog
+        self.comfyui_feedback.setText("Waiting for approval in ComfyUI...")
+        dialog.show()
+
+    def _cancel_pairing(self) -> None:
+        if self._pair_worker is not None:
+            self._pair_worker.cancel()
+            self.comfyui_feedback.setText("Cancelling pairing...")
+
+    def _pairing_succeeded(self) -> None:
+        self._pair_succeeded = True
+
+    def _pairing_failed(self, code: str) -> None:
+        self._pair_error_code = code
+
+    def _pairing_finished(self) -> None:
+        self._pair_worker = None
+        if self._pairing_dialog is not None:
+            dialog = self._pairing_dialog
+            self._pairing_dialog = None
+            dialog.finish()
+            dialog.deleteLater()
+        if self._pair_succeeded:
+            self._paired_url = self._pairing_url
+        self._update_comfyui_paired_state()
+        if self._close_requested:
+            self._finish_requested_close_if_idle()
+            return
+        self._set_comfyui_controls_enabled(True)
+        if self._pair_succeeded:
+            self.comfyui_feedback.setText("Pairing completed.")
+        elif self._pair_error_code == "pairing_cancelled":
+            self.comfyui_feedback.setText(bridge_error_message("pairing_cancelled"))
+        elif self._pair_error_code is not None:
+            self.comfyui_feedback.setText("Pairing failed.")
+            self._show_bridge_error("ComfyUI Pairing", self._pair_error_code)
+        else:
+            self.comfyui_feedback.clear()
+
+    def _request_close_after_workers(self) -> None:
+        if self._close_requested:
+            return
+        self._close_requested = True
+        self._set_comfyui_controls_enabled(False)
+        if self._test_worker is not None:
+            self._test_worker.requestInterruption()
+        if self._pair_worker is not None:
+            self._pair_worker.cancel()
+        if self._pairing_dialog is not None:
+            self._pairing_dialog.cancel_button.setEnabled(False)
+            self._pairing_dialog.waiting_label.setText("Cancelling...")
+        self._finish_requested_close_if_idle()
+
+    def _finish_requested_close_if_idle(self) -> None:
+        if self._test_worker is not None or self._pair_worker is not None:
+            return
+        if self._pairing_dialog is not None:
+            dialog = self._pairing_dialog
+            self._pairing_dialog = None
+            dialog.finish()
+            dialog.deleteLater()
+        if not self._close_completed:
+            self._close_completed = True
+            super().reject()
+        if self._application_quit_pending:
+            self._application_quit_pending = False
+            application = self._application
+            if application is not None:
+                QTimer.singleShot(0, application.quit)
+
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            watched is self._application
+            and event.type() == QEvent.Quit
+            and (self._test_worker is not None or self._pair_worker is not None)
+        ):
+            self._application_quit_pending = True
+            self._request_close_after_workers()
+            return True
+        return super().eventFilter(watched, event)
 
     def _choose_model(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "GGUFモデルを選択", "", "GGUF Model (*.gguf)")
@@ -302,9 +649,31 @@ class SettingsDialog(QDialog):
         )
         self.history_enabled.setChecked(default.history_enabled)
         self.theme.setCurrentText(default.theme)
+        self.comfyui_url.setText(default.comfyui_url)
+        self._update_comfyui_paired_state()
 
     def accept(self) -> None:
+        if self._test_worker is not None or self._pair_worker is not None:
+            return
+        try:
+            normalized_comfyui_url = self._normalized_entered_comfyui_url()
+        except ComfyUIBridgeError as exc:
+            self._show_bridge_error("ComfyUI URL", exc.code)
+            return
         config = self.config_manager.load()
+        try:
+            saved_comfyui_url = normalize_comfyui_base_url(config.comfyui_url)
+        except ComfyUIBridgeError:
+            saved_comfyui_url = self._saved_comfyui_url
+        if normalized_comfyui_url != saved_comfyui_url:
+            try:
+                self._bridge_service_factory(saved_comfyui_url).invalidate_credentials()
+            except ComfyUIBridgeError as exc:
+                self._paired_url = None
+                self._update_comfyui_paired_state()
+                self._show_bridge_error("ComfyUI Pairing", exc.code)
+                return
+            self._paired_url = None
         config.model_path = self.model_path.text().strip()
         config.inference_backend = str(self.backend.currentData())
         config.backend_device = (
@@ -318,9 +687,24 @@ class SettingsDialog(QDialog):
         config.skill_location = self.skill_location.text().strip()
         config.history_enabled = self.history_enabled.isChecked()
         config.theme = self.theme.currentText()
+        config.comfyui_url = normalized_comfyui_url
         try:
             self.config_manager.save(config)
         except OSError:
             QMessageBox.warning(self, "設定を保存できませんでした", PORTABLE_WRITE_ERROR)
             return
+        self._saved_comfyui_url = normalized_comfyui_url
         super().accept()
+
+    def reject(self) -> None:
+        if self._test_worker is not None or self._pair_worker is not None:
+            self._request_close_after_workers()
+            return
+        super().reject()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._test_worker is not None or self._pair_worker is not None:
+            self._request_close_after_workers()
+            event.ignore()
+            return
+        event.accept()

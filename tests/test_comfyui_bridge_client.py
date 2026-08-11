@@ -413,6 +413,26 @@ def test_pair_start_uses_exact_verifier_challenge_encoding(monkeypatch):
     assert "123456" not in repr(session)
 
 
+def test_service_pair_start_cancellation_after_status_skips_pair_start_request():
+    cancel_event = threading.Event()
+
+    def status_then_cancel(_call):
+        cancel_event.set()
+        return JsonResponse(200, status_payload())
+
+    transport = FakeTransport(status_then_cancel)
+    service = ComfyUIBridgeService(
+        BASE_URL,
+        credential_store=FakeCredentialStore(credential=None),
+        transport=transport,
+    )
+    with pytest.raises(ComfyUIBridgeError) as caught:
+        service.start_pairing(cancel_event=cancel_event)
+    assert caught.value.code == "pairing_cancelled"
+    assert len(transport.calls) == 1
+    assert transport.calls[0]["url"].endswith("/mmh3-bridge/v1/status")
+
+
 def pairing_session(*, deadline=None):
     return PairingSession(
         base_url=BASE_URL,
