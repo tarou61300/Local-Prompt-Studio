@@ -2,7 +2,17 @@ MMH3 Prompt Builder Release Manifest
 
 MMH3 Prompt Builder version: {{APP_VERSION}}
 Release date: {{RELEASE_DATE}}
+Release kind: {{RELEASE_KIND}}
 Build type: Windows x64 portable / PyInstaller onedir
+Supported architecture: Windows x64
+Source commit: {{SOURCE_COMMIT}}
+Source branch: {{SOURCE_BRANCH}}
+Python version: {{PYTHON_VERSION}}
+PyInstaller version: {{PYINSTALLER_VERSION}}
+
+ComfyUI Prompt Bridge version: {{BRIDGE_VERSION}}
+Automated test summary: {{TEST_SUMMARY}}
+Distribution contents: {{DISTRIBUTION_CONTENTS}}
 
 llama.cpp version: {{LLAMA_CPP_VERSION}}
 llama.cpp commit: {{LLAMA_CPP_COMMIT}}

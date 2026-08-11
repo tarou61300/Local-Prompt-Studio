@@ -1,4 +1,4 @@
-# MMH3 Prompt Bridge - Phase 1A.2
+# MMH3 Prompt Bridge v1.2
 
 MMH3 Prompt Bridge delivers text from a paired MMH3 client to one explicitly
 selected ordinary STRING or multiline STRING widget in a live ComfyUI
@@ -232,7 +232,7 @@ for each hosted environment.
 Bearer credentials are replayable if stolen. HTTPS and protected proxy logs
 are required for remote use.
 
-## Phase 1A.2 compatibility notes
+## v1.2 compatibility notes
 
 Exact-socket security depends on the current internal ComfyUI
 PromptServer.instance.sockets map and aiohttp WebSocket send_json behavior.

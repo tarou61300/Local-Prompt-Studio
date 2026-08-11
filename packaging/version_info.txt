@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 0, 0),
-    prodvers=(1, 0, 0, 0),
+    filevers=(1, 1, 0, 0),
+    prodvers=(1, 1, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,12 +16,12 @@ VSVersionInfo(
         [
           StringStruct(u'CompanyName', u'MMH3 Prompt Builder Community'),
           StringStruct(u'FileDescription', u'MMH3 Prompt Builder'),
-          StringStruct(u'FileVersion', u'1.0.0.0'),
+          StringStruct(u'FileVersion', u'1.1.0.0'),
           StringStruct(u'InternalName', u'MMH3PromptBuilder'),
           StringStruct(u'LegalCopyright', u'Copyright (c) 2026 MMH3 Prompt Builder contributors'),
           StringStruct(u'OriginalFilename', u'MMH3PromptBuilder.exe'),
           StringStruct(u'ProductName', u'MMH3 Prompt Builder'),
-          StringStruct(u'ProductVersion', u'1.0.0')
+          StringStruct(u'ProductVersion', u'1.1.0-beta.1')
         ]
       )
     ]),

@@ -1,4 +1,6 @@
-param()
+param(
+    [Parameter(Mandatory = $true)][string]$TestSummary
+)
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
@@ -20,9 +22,10 @@ if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
     throw "The development environment is missing. Run scripts\setup_dev.ps1 first."
 }
 $Version = (Get-Content -LiteralPath (Join-Path $ProjectRoot "VERSION") -Raw).Trim()
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "VERSION must contain a semantic version such as 1.0.0."
+if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$') {
+    throw "VERSION must contain a semantic version such as 1.0.0 or 1.1.0-beta.1."
 }
+$IsPrerelease = $Version.Contains("-")
 $VersionValues = @(
     & $Python -c `
         "import sys; sys.path.insert(0, sys.argv[1]); from core.version import APP_VERSION, APP_RELEASE_DATE; print(APP_VERSION); print(APP_RELEASE_DATE)" `
@@ -35,6 +38,42 @@ if ($VersionValues[0].Trim() -ne $Version) {
     throw "VERSION and src\core\version.py are inconsistent."
 }
 $ReleaseDate = $VersionValues[1].Trim()
+$VersionCore = ($Version -split '-', 2)[0].Split('.')
+$ExpectedNumericVersion = "$($VersionCore[0]).$($VersionCore[1]).$($VersionCore[2]).0"
+$ExpectedVersionTuple = "($($VersionCore[0]), $($VersionCore[1]), $($VersionCore[2]), 0)"
+$ReadmeText = Get-Content -LiteralPath (Join-Path $ProjectRoot "README.md") -Raw
+$ChangelogText = Get-Content -LiteralPath (Join-Path $ProjectRoot "CHANGELOG.md") -Raw
+$WindowsVersionText = Get-Content -LiteralPath (Join-Path $ProjectRoot "packaging\version_info.txt") -Raw
+if (-not $ReadmeText.StartsWith("# MMH3 Prompt Builder v$Version")) {
+    throw "README version is inconsistent with VERSION."
+}
+if (-not $ChangelogText.Contains("## $Version") -or -not $ChangelogText.Contains($ReleaseDate)) {
+    throw "CHANGELOG version or release date is inconsistent."
+}
+if (
+    -not $WindowsVersionText.Contains("filevers=$ExpectedVersionTuple") -or
+    -not $WindowsVersionText.Contains("prodvers=$ExpectedVersionTuple") -or
+    -not $WindowsVersionText.Contains("StringStruct(u'FileVersion', u'$ExpectedNumericVersion')") -or
+    -not $WindowsVersionText.Contains("StringStruct(u'ProductVersion', u'$Version')")
+) {
+    throw "Windows version metadata is inconsistent."
+}
+$SourceCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim()
+$SourceBranch = (& git -C $ProjectRoot branch --show-current).Trim()
+if (-not $SourceCommit -or -not $SourceBranch) {
+    throw "Git source metadata could not be read."
+}
+$PythonVersion = (& $Python -c "import platform; print(platform.python_version())").Trim()
+$PyInstallerVersion = (& $Python -m PyInstaller --version).Trim()
+$BridgeSource = Get-Content -LiteralPath (
+    Join-Path $ProjectRoot "comfyui_extension\MMH3PromptBridge\__init__.py"
+) -Raw
+$BridgeVersionMatch = [regex]::Match($BridgeSource, '(?m)^API_VERSION\s*=\s*"([^"]+)"')
+if (-not $BridgeVersionMatch.Success) {
+    throw "ComfyUI Prompt Bridge version could not be read."
+}
+$BridgeVersion = $BridgeVersionMatch.Groups[1].Value
+$ReleaseKind = if ($IsPrerelease) { "Community test / GitHub pre-release" } else { "Stable release" }
 foreach ($Variant in @("cpu", "vulkan")) {
     $Server = Resolve-WorkspaceChild (Join-Path $ProjectRoot "runtime\$Variant\llama-server.exe")
     if (-not (Test-Path -LiteralPath $Server -PathType Leaf)) {
@@ -46,7 +85,13 @@ $DistRoot = Resolve-WorkspaceChild (Join-Path $ProjectRoot "dist")
 $PyInstallerOutput = Resolve-WorkspaceChild (Join-Path $DistRoot "MMH3PromptBuilder")
 $PortableName = "MMH3-Prompt-Builder-v$Version-win-x64-portable"
 $ReleaseRoot = Resolve-WorkspaceChild (Join-Path $ProjectRoot "release")
-$PortableRoot = Resolve-WorkspaceChild (Join-Path $ReleaseRoot $PortableName)
+$DistributionRoot = Resolve-WorkspaceChild (Join-Path $ReleaseRoot $PortableName)
+$ApplicationRoot = if ($IsPrerelease) {
+    Resolve-WorkspaceChild (Join-Path $DistributionRoot "MMH3PromptBuilder")
+}
+else {
+    $DistributionRoot
+}
 $ZipPath = Resolve-WorkspaceChild (Join-Path $ReleaseRoot "$PortableName.zip")
 $ChecksumsPath = Resolve-WorkspaceChild (Join-Path $ReleaseRoot "SHA256SUMS.txt")
 $ManifestPath = Resolve-WorkspaceChild (Join-Path $ReleaseRoot "RELEASE_MANIFEST.txt")
@@ -81,16 +126,45 @@ if (-not (Test-Path -LiteralPath $PyInstallerOutput -PathType Container)) {
     throw "PyInstaller onedir output was not created."
 }
 New-Item -ItemType Directory -Path $ReleaseRoot -Force | Out-Null
-if (Test-Path -LiteralPath $PortableRoot) {
-    Remove-Item -LiteralPath $PortableRoot -Recurse -Force
+if (Test-Path -LiteralPath $DistributionRoot) {
+    Remove-Item -LiteralPath $DistributionRoot -Recurse -Force
 }
-Move-Item -LiteralPath $PyInstallerOutput -Destination $PortableRoot
+if ($IsPrerelease) {
+    New-Item -ItemType Directory -Path $DistributionRoot -Force | Out-Null
+}
+Move-Item -LiteralPath $PyInstallerOutput -Destination $ApplicationRoot
 
-foreach ($Name in @("README.md", "LICENSE", "THIRD_PARTY_LICENSES.md", "CHANGELOG.md", "VERSION")) {
-    Copy-Item -LiteralPath (Join-Path $ProjectRoot $Name) -Destination $PortableRoot -Force
+$DocumentationFiles = @(
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES.md",
+    "CHANGELOG.md",
+    "COMMUNITY_TEST_CHECKLIST.md",
+    "VERSION"
+)
+foreach ($Name in $DocumentationFiles) {
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot $Name) -Destination $ApplicationRoot -Force
 }
-$DataRoot = Resolve-WorkspaceChild (Join-Path $PortableRoot "data")
-$LicenseRoot = Resolve-WorkspaceChild (Join-Path $PortableRoot "licenses")
+if ($IsPrerelease) {
+    foreach ($Name in $DocumentationFiles) {
+        Copy-Item -LiteralPath (Join-Path $ProjectRoot $Name) -Destination $DistributionRoot -Force
+    }
+    $BridgeSourceRoot = Resolve-WorkspaceChild (
+        Join-Path $ProjectRoot "comfyui_extension\MMH3PromptBridge"
+    )
+    $BridgeRoot = Resolve-WorkspaceChild (
+        Join-Path $DistributionRoot "ComfyUI-Bridge\MMH3PromptBridge"
+    )
+    $BridgeJsRoot = Resolve-WorkspaceChild (Join-Path $BridgeRoot "js")
+    New-Item -ItemType Directory -Path $BridgeJsRoot -Force | Out-Null
+    foreach ($Name in @("__init__.py", "README.md", "LICENSE")) {
+        Copy-Item -LiteralPath (Join-Path $BridgeSourceRoot $Name) -Destination $BridgeRoot -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $BridgeSourceRoot "js\mmh3_bridge.js") `
+        -Destination $BridgeJsRoot -Force
+}
+$DataRoot = Resolve-WorkspaceChild (Join-Path $ApplicationRoot "data")
+$LicenseRoot = Resolve-WorkspaceChild (Join-Path $ApplicationRoot "licenses")
 New-Item -ItemType Directory -Path $DataRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $LicenseRoot -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "packaging\PORTABLE_DATA_README.txt") `
@@ -115,11 +189,11 @@ if (-not (Test-Path -LiteralPath $PyInstallerLicense -PathType Leaf)) {
 Copy-Item -LiteralPath $PyInstallerLicense `
     -Destination (Join-Path $LicenseRoot "PyInstaller-COPYING.txt") -Force
 
-Get-ChildItem -LiteralPath $PortableRoot -Recurse -Force -File |
+Get-ChildItem -LiteralPath $DistributionRoot -Recurse -Force -File |
     Where-Object { $_.Name -eq ".gitkeep" } |
     Remove-Item -Force
 
-& $Python (Join-Path $ProjectRoot "scripts\audit_release.py") $PortableRoot
+& $Python (Join-Path $ProjectRoot "scripts\audit_release.py") $DistributionRoot
 if ($LASTEXITCODE -ne 0) {
     throw "Release content audit failed."
 }
@@ -127,20 +201,21 @@ if ($LASTEXITCODE -ne 0) {
 if (Test-Path -LiteralPath $ZipPath) {
     Remove-Item -LiteralPath $ZipPath -Force
 }
-Compress-Archive -LiteralPath $PortableRoot -DestinationPath $ZipPath -CompressionLevel Optimal
+Compress-Archive -LiteralPath $DistributionRoot -DestinationPath $ZipPath -CompressionLevel Optimal
 
-$MainExe = Join-Path $PortableRoot "MMH3PromptBuilder.exe"
-$CpuServer = Join-Path $PortableRoot "_internal\runtime\cpu\llama-server.exe"
-$VulkanServer = Join-Path $PortableRoot "_internal\runtime\vulkan\llama-server.exe"
+$MainExe = Join-Path $ApplicationRoot "MMH3PromptBuilder.exe"
+$CpuServer = Join-Path $ApplicationRoot "_internal\runtime\cpu\llama-server.exe"
+$VulkanServer = Join-Path $ApplicationRoot "_internal\runtime\vulkan\llama-server.exe"
 $ZipHash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $ExeHash = (Get-FileHash -LiteralPath $MainExe -Algorithm SHA256).Hash.ToLowerInvariant()
 $CpuServerHash = (Get-FileHash -LiteralPath $CpuServer -Algorithm SHA256).Hash.ToLowerInvariant()
 $VulkanServerHash = (Get-FileHash -LiteralPath $VulkanServer -Algorithm SHA256).Hash.ToLowerInvariant()
+$ApplicationRelative = if ($IsPrerelease) { "$PortableName/MMH3PromptBuilder" } else { $PortableName }
 $ChecksumLines = @(
     "{0}  {1}" -f $ZipHash, (Split-Path $ZipPath -Leaf)
-    "{0}  {1}" -f $ExeHash, "$PortableName/MMH3PromptBuilder.exe"
-    "{0}  {1}" -f $CpuServerHash, "$PortableName/_internal/runtime/cpu/llama-server.exe"
-    "{0}  {1}" -f $VulkanServerHash, "$PortableName/_internal/runtime/vulkan/llama-server.exe"
+    "{0}  {1}" -f $ExeHash, "$ApplicationRelative/MMH3PromptBuilder.exe"
+    "{0}  {1}" -f $CpuServerHash, "$ApplicationRelative/_internal/runtime/cpu/llama-server.exe"
+    "{0}  {1}" -f $VulkanServerHash, "$ApplicationRelative/_internal/runtime/vulkan/llama-server.exe"
 )
 Set-Content -LiteralPath $ChecksumsPath -Value $ChecksumLines -Encoding UTF8
 
@@ -152,9 +227,23 @@ $CpuSourceUrl = (Get-Content -LiteralPath (Join-Path $ProjectRoot "runtime\cpu\L
 $VulkanSourceUrl = (Get-Content -LiteralPath (Join-Path $ProjectRoot "runtime\vulkan\LLAMA_CPP_SOURCE_URL.txt") -Raw).Trim()
 $CpuAssetName = [System.IO.Path]::GetFileName($CpuSourceUrl)
 $VulkanAssetName = [System.IO.Path]::GetFileName($VulkanSourceUrl)
+$DistributionContents = if ($IsPrerelease) {
+    "Portable application, ComfyUI Prompt Bridge v$BridgeVersion source, user documentation, community test checklist, and required licenses"
+}
+else {
+    "Portable application, user documentation, and required licenses"
+}
 $Manifest = Get-Content -LiteralPath $ManifestTemplatePath -Raw
 $Manifest = $Manifest.Replace("{{APP_VERSION}}", $Version)
 $Manifest = $Manifest.Replace("{{RELEASE_DATE}}", $ReleaseDate)
+$Manifest = $Manifest.Replace("{{RELEASE_KIND}}", $ReleaseKind)
+$Manifest = $Manifest.Replace("{{SOURCE_COMMIT}}", $SourceCommit)
+$Manifest = $Manifest.Replace("{{SOURCE_BRANCH}}", $SourceBranch)
+$Manifest = $Manifest.Replace("{{PYTHON_VERSION}}", $PythonVersion)
+$Manifest = $Manifest.Replace("{{PYINSTALLER_VERSION}}", $PyInstallerVersion)
+$Manifest = $Manifest.Replace("{{BRIDGE_VERSION}}", $BridgeVersion)
+$Manifest = $Manifest.Replace("{{TEST_SUMMARY}}", $TestSummary)
+$Manifest = $Manifest.Replace("{{DISTRIBUTION_CONTENTS}}", $DistributionContents)
 $Manifest = $Manifest.Replace("{{LLAMA_CPP_VERSION}}", $LlamaVersion)
 $Manifest = $Manifest.Replace("{{LLAMA_CPP_COMMIT}}", $LlamaCommit)
 $Manifest = $Manifest.Replace("{{CPU_ASSET_NAME}}", $CpuAssetName)
@@ -165,7 +254,8 @@ $Manifest = $Manifest.Replace("{{EXE_SHA256}}", $ExeHash)
 $Manifest = $Manifest.Replace("{{ZIP_SHA256}}", $ZipHash)
 Set-Content -LiteralPath $ManifestPath -Value $Manifest -Encoding UTF8
 
-Write-Host "Portable onedir: $PortableRoot"
+Write-Host "Distribution folder: $DistributionRoot"
+Write-Host "Portable onedir: $ApplicationRoot"
 Write-Host "Release ZIP: $ZipPath"
 Write-Host "Checksums: $ChecksumsPath"
 Write-Host "Manifest: $ManifestPath"

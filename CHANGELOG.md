@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.1.0-beta.1 — 2026-08-11
+
+Community test pre-release. This is not the final v1.1.0 release.
+
+### Added
+
+- Added optional ComfyUI integration while keeping MMH3 fully usable without ComfyUI.
+- Added local-first configuration with `http://127.0.0.1:8188` as the default URL and HTTPS support for remote ComfyUI servers.
+- Added Test Connection and secure Pair with ComfyUI using a six-digit visual verification code.
+- Added Windows DPAPI CurrentUser protection for the paired-client credential and a Pair Again flow.
+- Added ComfyUI Prompt Bridge v1.2 with explicit ordinary STRING/multiline STRING target selection from the node right-click menu.
+- Added Send to ComfyUI using the current edited MMH3 output, not a cached generation result.
+
+### Security and behavior
+
+- Plaintext paired-client credentials are not stored in `config.json` and are never displayed for manual copying.
+- The DPAPI-protected MMH3 credential is stored only in the portable app-owned `data` directory.
+- Loopback HTTP is allowed only for local ComfyUI; remote ComfyUI connections require HTTPS.
+- Sending never calls `/prompt`, never queues a workflow, never starts ComfyUI generation, and never retries automatically.
+- No persistent ComfyUI background worker, polling loop, heartbeat, or startup connection was added.
+- Merely starting MMH3 creates zero ComfyUI network traffic.
+- Bundled llama.cpp child processes use a Windows short-path alias when needed so redirected runtime output remains usable from Japanese or other non-ASCII extraction paths.
+
+### Testing
+
+- Automated suite: 265 passed, 1 skipped in the release-build environment. The skipped test is the real Windows DPAPI round-trip because DPAPI was unavailable in that isolated test context; fake-protector and credential behavior tests passed.
+- Real end-to-end validation completed from Windows MMH3 Prompt Builder to GPUhub ComfyUI with Bridge v1.2, including pairing, target selection, edited-output delivery, restart persistence, and confirmation that no workflow was queued.
+- Local Windows ComfyUI has not been validated on the developer PC. Community testing across portable, desktop, and manual local ComfyUI installations is explicitly requested before final v1.1.0.
+
 ## 1.0.0 — 2026-08-10
 
 - Feature Freeze: CPU and Vulkan GPU inference only for v1.0.0.

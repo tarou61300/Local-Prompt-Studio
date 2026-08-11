@@ -6,6 +6,7 @@ import math
 import re
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -39,6 +40,30 @@ GENERATION_TIMEOUT_MESSAGE = (
 )
 # Kept as an import alias for existing integrations; the text is backend-neutral.
 CPU_TIMEOUT_MESSAGE = GENERATION_TIMEOUT_MESSAGE
+
+
+def _windows_safe_subprocess_path(path: Path) -> str:
+    """Use an ASCII 8.3 alias when Windows child I/O fails from a Unicode path."""
+    value = str(path)
+    if sys.platform != "win32" or value.isascii():
+        return value
+    try:
+        import ctypes
+
+        get_short_path = ctypes.WinDLL("kernel32", use_last_error=True).GetShortPathNameW
+        get_short_path.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+        get_short_path.restype = ctypes.c_uint
+        required = get_short_path(value, None, 0)
+        if required <= 0:
+            return value
+        buffer = ctypes.create_unicode_buffer(required)
+        written = get_short_path(value, buffer, len(buffer))
+        short_path = buffer.value
+        if written <= 0 or written >= len(buffer) or not short_path.isascii():
+            return value
+        return short_path
+    except (AttributeError, OSError, ValueError):
+        return value
 
 
 class LlamaError(RuntimeError):
@@ -257,10 +282,12 @@ class LlamaServerManager:
         if not executable.is_file():
             return []
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        launch_executable = _windows_safe_subprocess_path(executable)
+        launch_directory = _windows_safe_subprocess_path(executable.parent)
         try:
             completed = subprocess.run(
-                [str(executable), "--list-devices"],
-                cwd=executable.parent,
+                [launch_executable, "--list-devices"],
+                cwd=launch_directory,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -384,6 +411,8 @@ class LlamaServerManager:
             gpu_layers=gpu_layers,
             port=port,
         )
+        command[0] = _windows_safe_subprocess_path(executable)
+        launch_directory = _windows_safe_subprocess_path(runtime_dir)
         creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         stdout_target: Any = subprocess.DEVNULL
         stderr_target: Any = subprocess.DEVNULL
@@ -396,7 +425,7 @@ class LlamaServerManager:
         try:
             self.process = subprocess.Popen(
                 command,
-                cwd=runtime_dir,
+                cwd=launch_directory,
                 stdout=stdout_target,
                 stderr=stderr_target,
                 creationflags=creation_flags,

@@ -38,7 +38,7 @@ def test_main_window_constructs_without_model(tmp_path):
             server_url=url,
             dev_skill_path=FIXTURE,
         )
-        assert window.windowTitle() == "MMH3 Prompt Builder v1.0.0"
+        assert window.windowTitle() == "MMH3 Prompt Builder v1.1.0-beta.1"
         assert "未設定" in window.readiness.text()
         window.close()
         app.processEvents()

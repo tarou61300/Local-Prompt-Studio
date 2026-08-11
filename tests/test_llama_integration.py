@@ -4,6 +4,7 @@ import io
 import gc
 import json
 from pathlib import Path
+import sys
 import tracemalloc
 from types import SimpleNamespace
 import urllib.error
@@ -19,6 +20,7 @@ from core.llama_manager import (
     LlamaServerManager,
     LlamaTimeoutError,
     LocalLlamaClient,
+    _windows_safe_subprocess_path,
 )
 from core.inference_backends import (
     BACKEND_CPU,
@@ -205,13 +207,20 @@ def test_server_start_uses_8192_context_and_loopback(monkeypatch, tmp_path):
 
     def popen(command, **kwargs):
         captured["command"] = command
+        captured["cwd"] = kwargs["cwd"]
         return FakeProcess()
 
+    monkeypatch.setattr(
+        "core.llama_manager._windows_safe_subprocess_path",
+        lambda path: "SAFE-EXE" if Path(path).name == "llama-server.exe" else "SAFE-DIR",
+    )
     monkeypatch.setattr("subprocess.Popen", popen)
     monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: HealthyResponse())
     manager = LlamaServerManager(tmp_path / "runtime")
     manager.start(tmp_path / "model.gguf")
     command = captured["command"]
+    assert command[0] == "SAFE-EXE"
+    assert captured["cwd"] == "SAFE-DIR"
     assert command[command.index("--ctx-size") + 1] == "8192"
     assert command[command.index("--host") + 1] == "127.0.0.1"
     assert "--offline" in command
@@ -249,6 +258,40 @@ def test_vulkan_device_detection_no_device_falls_back_cleanly(monkeypatch, tmp_p
     assert manager.detect_vulkan_devices() == []
     with pytest.raises(LlamaError, match="CPUバックエンド"):
         manager.start(tmp_path / "model.gguf", backend=BACKEND_VULKAN)
+
+
+def test_vulkan_detection_uses_windows_safe_child_paths(monkeypatch, tmp_path):
+    executable = tmp_path / "runtime" / "vulkan" / "llama-server.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"placeholder")
+    captured = {}
+
+    def safe_path(path):
+        return "SAFE-EXE" if Path(path).name == "llama-server.exe" else "SAFE-DIR"
+
+    def run(command, **kwargs):
+        captured["command"] = command
+        captured["cwd"] = kwargs["cwd"]
+        return SimpleNamespace(stdout="Available devices:\n", stderr="", returncode=0)
+
+    monkeypatch.setattr("core.llama_manager._windows_safe_subprocess_path", safe_path)
+    monkeypatch.setattr("subprocess.run", run)
+
+    assert LlamaServerManager(tmp_path / "runtime").detect_vulkan_devices() == []
+    assert captured == {"command": ["SAFE-EXE", "--list-devices"], "cwd": "SAFE-DIR"}
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows short-path test")
+def test_windows_safe_subprocess_path_resolves_unicode_existing_file(tmp_path):
+    executable = tmp_path / "日本語 パス" / "llama-server.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"placeholder")
+
+    safe_path = _windows_safe_subprocess_path(executable)
+    if safe_path == str(executable):
+        pytest.skip("8.3 short paths are unavailable on this volume")
+    assert safe_path.isascii()
+    assert Path(safe_path).samefile(executable)
 
 
 def test_backend_command_construction_auto_explicit_and_selected_device(tmp_path):

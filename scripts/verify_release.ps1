@@ -26,8 +26,24 @@ $ZipPath = Resolve-WorkspaceChild $ZipPath
 if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf)) {
     throw "Release ZIP was not found: $ZipPath"
 }
+$JapanesePathSegment = -join @(
+    [char]0x65E5,
+    [char]0x672C,
+    [char]0x8A9E,
+    " ",
+    [char]0x30D1,
+    [char]0x30B9
+)
+$VerificationId = [guid]::NewGuid().ToString("N").Substring(0, 8)
 $VerificationRoot = Resolve-WorkspaceChild (
-    (Join-Path $ProjectRoot ".tmp\release-verification\日本語 パス $([guid]::NewGuid().ToString('N'))")
+    Join-Path $ProjectRoot (
+        ".tmp\v\$JapanesePathSegment $VerificationId"
+    )
+)
+$ExternalSentinelRoot = Resolve-WorkspaceChild (
+    Join-Path $ProjectRoot (
+        ".tmp\x\$VerificationId"
+    )
 )
 $BaselineServerIds = @(
     Get-Process -Name "llama-server" -ErrorAction SilentlyContinue |
@@ -36,16 +52,23 @@ $BaselineServerIds = @(
 New-Item -ItemType Directory -Path $VerificationRoot -Force | Out-Null
 try {
     Expand-Archive -LiteralPath $ZipPath -DestinationPath $VerificationRoot
-    $PortableRoot = Resolve-WorkspaceChild (Join-Path $VerificationRoot $PortableName)
+    $DistributionRoot = Resolve-WorkspaceChild (Join-Path $VerificationRoot $PortableName)
+    $NestedApplicationRoot = Join-Path $DistributionRoot "MMH3PromptBuilder"
+    $PortableRoot = if (Test-Path -LiteralPath $NestedApplicationRoot -PathType Container) {
+        Resolve-WorkspaceChild $NestedApplicationRoot
+    }
+    else {
+        $DistributionRoot
+    }
     $Python = Resolve-WorkspaceChild (Join-Path $ProjectRoot ".venv\Scripts\python.exe")
-    & $Python (Join-Path $ProjectRoot "scripts\audit_release.py") $PortableRoot
+    & $Python (Join-Path $ProjectRoot "scripts\audit_release.py") $DistributionRoot
     if ($LASTEXITCODE -ne 0) {
         throw "Expanded release audit failed."
     }
 
-    $LocalAppDataSentinel = Resolve-WorkspaceChild (Join-Path $VerificationRoot "localappdata-sentinel")
-    $AppDataSentinel = Resolve-WorkspaceChild (Join-Path $VerificationRoot "appdata-sentinel")
-    $ProgramDataSentinel = Resolve-WorkspaceChild (Join-Path $VerificationRoot "programdata-sentinel")
+    $LocalAppDataSentinel = Resolve-WorkspaceChild (Join-Path $ExternalSentinelRoot "localappdata-sentinel")
+    $AppDataSentinel = Resolve-WorkspaceChild (Join-Path $ExternalSentinelRoot "appdata-sentinel")
+    $ProgramDataSentinel = Resolve-WorkspaceChild (Join-Path $ExternalSentinelRoot "programdata-sentinel")
     New-Item -ItemType Directory -Path $LocalAppDataSentinel -Force | Out-Null
     New-Item -ItemType Directory -Path $AppDataSentinel -Force | Out-Null
     New-Item -ItemType Directory -Path $ProgramDataSentinel -Force | Out-Null
@@ -57,14 +80,171 @@ try {
     $env:PROGRAMDATA = $ProgramDataSentinel
     try {
         $Application = Join-Path $PortableRoot "MMH3PromptBuilder.exe"
+        $VersionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Application)
+        if ($VersionInfo.ProductVersion -ne $Version) {
+            throw "Packaged ProductVersion is '$($VersionInfo.ProductVersion)', expected '$Version'."
+        }
+        $NumericVersion = (($Version -split '-', 2)[0] -split '\.') + @("0")
+        $ExpectedFileVersion = ($NumericVersion[0..3] -join '.')
+        if ($VersionInfo.FileVersion -ne $ExpectedFileVersion) {
+            throw "Packaged FileVersion is '$($VersionInfo.FileVersion)', expected '$ExpectedFileVersion'."
+        }
         $Process = Start-Process -FilePath $Application `
-            -ArgumentList @("--skip-setup", "--smoke-test") `
+            -ArgumentList "--skip-setup" `
             -WorkingDirectory $PortableRoot `
-            -WindowStyle Hidden `
-            -PassThru `
-            -Wait
-        if ($Process.ExitCode -ne 0) {
-            throw "Portable application smoke test failed with exit code $($Process.ExitCode)."
+            -PassThru
+        $SettingsInvoker = $null
+        try {
+            $WindowDeadline = (Get-Date).AddSeconds(15)
+            do {
+                Start-Sleep -Milliseconds 200
+                $Process.Refresh()
+            }
+            while (
+                -not $Process.HasExited -and
+                [string]::IsNullOrEmpty($Process.MainWindowTitle) -and
+                (Get-Date) -lt $WindowDeadline
+            )
+            if ($Process.HasExited) {
+                throw "Portable application exited before showing its MainWindow."
+            }
+            if ($Process.MainWindowTitle -ne "MMH3 Prompt Builder v$Version") {
+                throw "Packaged MainWindow title is '$($Process.MainWindowTitle)'."
+            }
+
+            $AutomationHelper = Resolve-WorkspaceChild (
+                Join-Path $VerificationRoot "invoke-settings.ps1"
+            )
+            $AutomationScript = @'
+param([int]$TargetProcessId)
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+$settingsName = -join ([char]0x8A2D, [char]0x5B9A)
+$targetProcess = Get-Process -Id $TargetProcessId
+$targetProcess.Refresh()
+$mainWindow = [System.Windows.Automation.AutomationElement]::FromHandle(
+    $targetProcess.MainWindowHandle
+)
+$nameCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::NameProperty,
+    $settingsName
+)
+$button = $mainWindow.FindFirst(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    $nameCondition
+)
+if ($null -eq $button) {
+    throw "Settings button was not found."
+}
+$invoke = $button.GetCurrentPattern(
+    [System.Windows.Automation.InvokePattern]::Pattern
+)
+$invoke.Invoke()
+'@
+            Set-Content -LiteralPath $AutomationHelper -Value $AutomationScript -Encoding ASCII
+            $QuotedAutomationHelper = '"' + $AutomationHelper + '"'
+            $SettingsInvoker = Start-Process -FilePath "powershell.exe" `
+                -ArgumentList @(
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    $QuotedAutomationHelper,
+                    $Process.Id
+                ) `
+                -WindowStyle Hidden `
+                -PassThru
+
+            Add-Type -AssemblyName UIAutomationClient
+            Add-Type -AssemblyName UIAutomationTypes
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class ReleaseWindowSearch
+{
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+
+    public static IntPtr FindByProcessAndTitle(int processId, string title)
+    {
+        IntPtr result = IntPtr.Zero;
+        EnumWindows(delegate (IntPtr handle, IntPtr state)
+        {
+            uint ownerProcessId;
+            GetWindowThreadProcessId(handle, out ownerProcessId);
+            if (ownerProcessId != (uint)processId)
+            {
+                return true;
+            }
+            StringBuilder text = new StringBuilder(512);
+            GetWindowText(handle, text, text.Capacity);
+            if (String.Equals(text.ToString(), title, StringComparison.Ordinal))
+            {
+                result = handle;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return result;
+    }
+}
+'@
+            $SettingsName = -join ([char]0x8A2D, [char]0x5B9A)
+            $SettingsHandle = [IntPtr]::Zero
+            $SettingsDeadline = (Get-Date).AddSeconds(20)
+            do {
+                Start-Sleep -Milliseconds 250
+                $Process.Refresh()
+                $SettingsHandle = [ReleaseWindowSearch]::FindByProcessAndTitle(
+                    $Process.Id,
+                    $SettingsName
+                )
+            }
+            while (
+                $SettingsHandle -eq [IntPtr]::Zero -and
+                -not $Process.HasExited -and
+                (Get-Date) -lt $SettingsDeadline
+            )
+            if ($Process.HasExited -or $SettingsHandle -eq [IntPtr]::Zero) {
+                throw "Packaged Settings dialog did not open."
+            }
+            $SettingsWindow = [System.Windows.Automation.AutomationElement]::FromHandle(
+                $SettingsHandle
+            )
+            if ($null -eq $SettingsWindow) {
+                throw "Packaged Settings UI Automation element was not found."
+            }
+            $SettingsWindow.GetCurrentPattern(
+                [System.Windows.Automation.WindowPattern]::Pattern
+            ).Close()
+            if (-not $SettingsInvoker.WaitForExit(10000) -or $SettingsInvoker.ExitCode -ne 0) {
+                throw "Settings UI Automation helper did not finish cleanly."
+            }
+            if (-not $Process.CloseMainWindow() -or -not $Process.WaitForExit(5000)) {
+                throw "Packaged MainWindow did not close cleanly."
+            }
+            if ($Process.ExitCode -ne 0) {
+                throw "Portable application smoke test failed with exit code $($Process.ExitCode)."
+            }
+        }
+        finally {
+            if ($null -ne $SettingsInvoker -and -not $SettingsInvoker.HasExited) {
+                Stop-Process -Id $SettingsInvoker.Id -Force -ErrorAction SilentlyContinue
+            }
+            if (-not $Process.HasExited) {
+                Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+            }
         }
         $RedirectSentinel = Resolve-WorkspaceChild (Join-Path $VerificationRoot "forbidden external data")
         $QuotedRedirectSentinel = '"' + $RedirectSentinel + '"'
@@ -89,7 +269,12 @@ try {
         if ($FirstRunProcess.ExitCode -ne 0) {
             throw "Portable first-run smoke test failed with exit code $($FirstRunProcess.ExitCode)."
         }
-        foreach ($Relative in @("config.json", "history.sqlite3", "skills")) {
+        foreach ($Relative in @(
+            "config.json",
+            "history.sqlite3",
+            "comfyui_credentials.dat",
+            "skills"
+        )) {
             if (Test-Path -LiteralPath (Join-Path $PortableRoot "data\$Relative")) {
                 throw "First-run smoke test unexpectedly created data\$Relative."
             }
@@ -145,10 +330,14 @@ try {
     if ($NewServerProcesses.Count -gt 0) {
         throw "A release-owned llama-server process remained after verification."
     }
-    Write-Host "Expanded portable smoke test passed: $PortableRoot"
+    Write-Host "Expanded distribution smoke test passed: $DistributionRoot"
+    Write-Host "Packaged application verified: $PortableRoot"
 }
 finally {
     if (Test-Path -LiteralPath $VerificationRoot) {
         Remove-Item -LiteralPath $VerificationRoot -Recurse -Force
+    }
+    if (Test-Path -LiteralPath $ExternalSentinelRoot) {
+        Remove-Item -LiteralPath $ExternalSentinelRoot -Recurse -Force
     }
 }

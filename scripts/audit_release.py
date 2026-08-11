@@ -9,12 +9,13 @@ import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 VERSION = (PROJECT_ROOT / "VERSION").read_text(encoding="utf-8-sig").strip()
-REQUIRED_FILES = (
+APPLICATION_REQUIRED_FILES = (
     "MMH3PromptBuilder.exe",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_LICENSES.md",
     "CHANGELOG.md",
+    "COMMUNITY_TEST_CHECKLIST.md",
     "VERSION",
     "data/README.txt",
     "licenses/llama.cpp-LICENSE.txt",
@@ -25,6 +26,24 @@ REQUIRED_FILES = (
     "_internal/runtime/cpu/llama-server.exe",
     "_internal/runtime/vulkan/llama-server.exe",
 )
+COMBINED_REQUIRED_FILES = (
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES.md",
+    "CHANGELOG.md",
+    "COMMUNITY_TEST_CHECKLIST.md",
+    "VERSION",
+    "ComfyUI-Bridge/MMH3PromptBridge/__init__.py",
+    "ComfyUI-Bridge/MMH3PromptBridge/js/mmh3_bridge.js",
+    "ComfyUI-Bridge/MMH3PromptBridge/README.md",
+    "ComfyUI-Bridge/MMH3PromptBridge/LICENSE",
+)
+ALLOWED_BRIDGE_FILES = {
+    "ComfyUI-Bridge/MMH3PromptBridge/__init__.py",
+    "ComfyUI-Bridge/MMH3PromptBridge/js/mmh3_bridge.js",
+    "ComfyUI-Bridge/MMH3PromptBridge/README.md",
+    "ComfyUI-Bridge/MMH3PromptBridge/LICENSE",
+}
 REQUIRED_RUNTIME_DLLS = (
     "msvcp140.dll",
     "vcruntime140.dll",
@@ -41,8 +60,14 @@ BANNED_PARTS = {
     "scripts",
     "packaging",
 }
-BANNED_SUFFIXES = {".gguf", ".log", ".py"}
-BANNED_FILENAMES = {"config.json", "history.sqlite3", ".gitkeep"}
+BANNED_SUFFIXES = {".gguf", ".log"}
+BANNED_FILENAMES = {
+    "config.json",
+    "history.sqlite3",
+    "comfyui_credentials.dat",
+    "bridge.json",
+    ".gitkeep",
+}
 
 
 def _development_path_markers() -> tuple[str, ...]:
@@ -69,21 +94,39 @@ TEXT_SUFFIXES = {".txt", ".md", ".json", ".ini", ".xml", ".url"}
 def audit_release(root: Path) -> dict[str, int | str]:
     root = root.resolve()
     errors: list[str] = []
-    for relative in REQUIRED_FILES:
+    combined_distribution = (root / "MMH3PromptBuilder" / "MMH3PromptBuilder.exe").is_file()
+    application_root = root / "MMH3PromptBuilder" if combined_distribution else root
+    if combined_distribution:
+        required_files = [
+            *(f"MMH3PromptBuilder/{relative}" for relative in APPLICATION_REQUIRED_FILES),
+            *COMBINED_REQUIRED_FILES,
+        ]
+    else:
+        required_files = list(APPLICATION_REQUIRED_FILES)
+    for relative in required_files:
         if not (root / relative).is_file():
             errors.append(f"required file missing: {relative}")
-    version_file = root / "VERSION"
-    if version_file.is_file() and version_file.read_text(encoding="utf-8-sig").strip() != VERSION:
-        errors.append(f"VERSION is not {VERSION}")
+    version_files = [root / "VERSION"]
+    if combined_distribution:
+        version_files.append(application_root / "VERSION")
+    for version_file in version_files:
+        if (
+            version_file.is_file()
+            and version_file.read_text(encoding="utf-8-sig").strip() != VERSION
+        ):
+            errors.append(f"VERSION is not {VERSION}: {version_file.relative_to(root)}")
 
     files = [path for path in root.rglob("*") if path.is_file()]
     for path in files:
         relative = path.relative_to(root)
+        relative_posix = relative.as_posix()
         lowered_parts = {part.lower() for part in relative.parts}
         if lowered_parts & BANNED_PARTS:
             errors.append(f"development path included: {relative}")
         if path.suffix.lower() in BANNED_SUFFIXES:
             errors.append(f"banned file type included: {relative}")
+        if path.suffix.lower() == ".py" and relative_posix not in ALLOWED_BRIDGE_FILES:
+            errors.append(f"unexpected Python source included: {relative}")
         if path.name.lower() in BANNED_FILENAMES:
             errors.append(f"user/development file included: {relative}")
         if path.suffix.lower() in TEXT_SUFFIXES and path.stat().st_size <= 5_000_000:
@@ -104,8 +147,24 @@ def audit_release(root: Path) -> dict[str, int | str]:
                     break
                 overlap = searchable[-longest_marker:]
 
+    if combined_distribution:
+        bridge_root = root / "ComfyUI-Bridge" / "MMH3PromptBridge"
+        bridge_files = {
+            path.relative_to(root).as_posix()
+            for path in bridge_root.rglob("*")
+            if path.is_file()
+        }
+        unexpected_bridge_files = bridge_files - ALLOWED_BRIDGE_FILES
+        if unexpected_bridge_files:
+            errors.extend(
+                f"unexpected Bridge file included: {relative}"
+                for relative in sorted(unexpected_bridge_files)
+            )
+        if (bridge_root / "data").exists():
+            errors.append("Bridge runtime data directory is included")
+
     for variant in ("cpu", "vulkan"):
-        runtime = root / "_internal" / "runtime" / variant
+        runtime = application_root / "_internal" / "runtime" / variant
         for dll_name in REQUIRED_RUNTIME_DLLS:
             if not (runtime / dll_name).is_file():
                 errors.append(f"{variant} dependency missing: {dll_name}")
@@ -117,6 +176,8 @@ def audit_release(root: Path) -> dict[str, int | str]:
         raise RuntimeError("Release audit failed:\n- " + "\n- ".join(errors))
     return {
         "root": str(root),
+        "application_root": str(application_root),
+        "distribution_type": "combined-community-test" if combined_distribution else "portable-app",
         "file_count": len(files),
         "total_bytes": sum(path.stat().st_size for path in files),
     }
@@ -126,7 +187,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("release_root", type=Path)
     args = parser.parse_args()
-    print(json.dumps(audit_release(args.release_root), ensure_ascii=False, indent=2))
+    print(json.dumps(audit_release(args.release_root), ensure_ascii=True, indent=2))
     return 0
 
 
