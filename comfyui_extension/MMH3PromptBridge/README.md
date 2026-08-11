@@ -1,221 +1,251 @@
-# MMH3 Prompt Bridge - Phase 1A.1
+# MMH3 Prompt Bridge - Phase 1A.2
 
-MMH3 Prompt Bridge sends text to one explicitly selected STRING widget in the
-workflow currently open in a ComfyUI browser tab. It never queues or executes
-the workflow.
+MMH3 Prompt Bridge delivers text from a paired MMH3 client to one explicitly
+selected ordinary STRING or multiline STRING widget in a live ComfyUI
+workflow. It does not add a graph node and never queues a workflow.
 
-The same versioned protocol supports local and remote ComfyUI deployments.
-All state owned by the bridge is kept inside the `MMH3PromptBridge` extension
-folder.
-
-## Security model
-
-The bridge generates a cryptographically secure Bearer token on first startup.
-The token contains at least 256 bits of randomness and is stored at:
-
-```text
-<ComfyUI>/custom_nodes/MMH3PromptBridge/data/bridge.json
-```
-
-The complete token is not printed in normal startup output and is never
-returned by the unauthenticated status endpoint. Prompt text and tokens are not
-logged.
-
-These endpoints require `Authorization: Bearer <bridge-token>`:
-
-- `POST /mmh3-bridge/v1/register`
-- `POST /mmh3-bridge/v1/send`
-- `POST /mmh3-bridge/v1/ack`
-
-`GET /mmh3-bridge/v1/status` is unauthenticated, but returns only protocol,
-limit, authentication, and boolean target/connection status. It does not
-return the token, prompt text, browser session ID, node ID, widget name, graph
-ID, or other target details.
-
-Wildcard CORS is not enabled. Browser extension requests remain same-origin
-with ComfyUI. The MMH3 desktop application does not need CORS.
-
-## Installation
+## Install
 
 1. Stop ComfyUI.
-2. Copy the complete `MMH3PromptBridge` folder into ComfyUI's `custom_nodes`
-   directory so the resulting layout is:
+2. Copy the complete MMH3PromptBridge directory into ComfyUI/custom_nodes.
+3. Start ComfyUI.
+4. Reload the ComfyUI browser frontend.
 
-   ```text
-   <ComfyUI>/custom_nodes/MMH3PromptBridge/__init__.py
-   <ComfyUI>/custom_nodes/MMH3PromptBridge/js/mmh3_bridge.js
-   ```
+The installed layout is:
 
-   For Windows portable ComfyUI, the usual destination is:
+    ComfyUI/custom_nodes/MMH3PromptBridge/__init__.py
+    ComfyUI/custom_nodes/MMH3PromptBridge/js/mmh3_bridge.js
 
-   ```text
-   <ComfyUI_windows_portable>/ComfyUI/custom_nodes/MMH3PromptBridge/
-   ```
+No pip package or additional service is required.
 
-3. Start ComfyUI. The startup notice confirms that Bearer authentication is
-   enabled and shows the bridge-local token file path, but not the token.
-4. Reload the ComfyUI browser page.
+## User workflow
 
-No additional pip packages are required. The bridge uses Python standard
-library modules, `aiohttp`, and frontend APIs already supplied by ComfyUI.
+1. Enter the ComfyUI URL in a compatible MMH3 client.
+2. Start pairing in MMH3.
+3. Compare the six-digit code shown by MMH3 with the approval dialog in
+   ComfyUI.
+4. Select Allow only when the codes match.
+5. In ComfyUI, right-click a node and choose:
 
-## Copying and entering the pairing token
+       MMH3 Prompt Bridge
+       -> Set as MMH3 Target
+       -> <STRING widget>
 
-There is intentionally no unauthenticated HTTP endpoint that reveals the
-token. A browser-only token retrieval endpoint cannot reliably distinguish a
-real ComfyUI user from an arbitrary remote HTTP/WebSocket client, so this
-prototype uses deliberate filesystem access instead.
+6. Send text from MMH3.
 
-On a local Windows ComfyUI host, copy the token to the clipboard without
-printing it with:
+The selected widget is updated. ComfyUI generation is not started.
 
-```powershell
-$bridgeConfig = Get-Content -LiteralPath "<ComfyUI>\custom_nodes\MMH3PromptBridge\data\bridge.json" -Raw | ConvertFrom-Json
-$bridgeConfig.token | Set-Clipboard
-```
+## Pairing protocol
 
-For a remote host, retrieve the same file through the provider's authenticated
-file manager, console, or SSH connection. Treat it as a password and transfer
-it only over a trusted encrypted channel.
+The MMH3 client creates at least 32 random bytes as a private verifier and
+sends only SHA-256(verifier) as a base64url challenge.
 
-In ComfyUI:
+The bridge creates:
 
-1. Right-click any node.
-2. Choose **MMH3 Prompt Bridge -> Set Pairing Token**.
-3. Paste the token and confirm.
+- a random pair ID;
+- a six-digit human verification code;
+- a 60-second in-memory PENDING pairing;
+- a notification for connected ComfyUI frontend sessions.
 
-The frontend keeps the token in JavaScript memory only. It is not written to
-browser local storage or ComfyUI user settings. Reloading or closing the tab
-requires pairing again.
+The code is for visual comparison only and is not an authentication secret.
+The first valid Allow or Reject decision wins.
 
-## Selecting a target
+After approval, the MMH3 client submits the pair ID and verifier. The bridge
+checks the challenge, atomically saves only the hash of a new client
+credential, marks the pairing CONSUMED, and returns the plaintext credential
+exactly once. The browser never receives that credential.
 
-1. Pair the browser tab as described above.
-2. Open a workflow in ComfyUI.
-3. Right-click a node with an editable STRING input widget.
-4. Choose **MMH3 Prompt Bridge -> Set as MMH3 Target -> `<widget name>`**.
+Pairing states are:
 
-The selected widget label is marked with `MMH3` where practical. Target
-selection never changes its current text.
+    PENDING -> APPROVED -> CONSUMED
+    PENDING -> REJECTED
+    PENDING -> EXPIRED
 
-Only one target is active per ComfyUI server. The last browser tab that
-explicitly selects a target replaces the previous target. Selection records
-the browser session ID, node ID, widget name, node type, graph ID, and
-registration time in server memory only. It is not persisted to disk and
-disappears when ComfyUI restarts.
+Pair requests, verification codes, verifiers and decisions are not persisted.
 
-Numeric, boolean, combo, image, and converted-to-input widgets are not offered.
+## Browser-session capability
 
-## Deployment modes
+The frontend automatically calls:
 
-### Local
+    POST /mmh3-bridge/v1/browser/hello
 
-Example base URL:
+It uses ComfyUI's current api.clientId only to locate the existing WebSocket.
+The client ID is not authentication.
 
-```text
-http://127.0.0.1:8188
-```
+The bridge sends a random browser capability only through that exact
+WebSocket. The capability:
 
-HTTP is acceptable for a loopback-only ComfyUI. Bearer authentication remains
-required. Do not bind ComfyUI to an untrusted network merely to use the bridge.
+- contains at least 256 bits of randomness;
+- is held only in JavaScript memory;
+- is never displayed;
+- is not saved to localStorage, sessionStorage, window.name, ComfyUI settings
+  or workflow JSON;
+- authorizes pair decisions, target registration and ACK;
+- becomes unusable when the exact WebSocket is disconnected or replaced.
 
-### Remote / cloud
+A repeat hello on the same WebSocket resends the existing capability with the
+new hello nonce. A new WebSocket receives a new capability.
 
-Example base URL:
+The extension does not alter ComfyUI's own api.clientId, window.name or
+sessionStorage reconnect behavior.
 
-```text
-https://remote-comfy.example.com
-```
+## Paired-client credential storage
 
-Remote mode should use HTTPS by default. MMH3 Prompt Bridge does not implement
-TLS itself. TLS may be terminated by the cloud provider or a reverse proxy.
+Persistent state is stored only at:
 
-The proxy must:
+    ComfyUI/custom_nodes/MMH3PromptBridge/data/bridge.json
 
-- preserve the `Authorization` header;
-- forward ComfyUI WebSocket upgrades and keep sessions stable;
-- route `/mmh3-bridge/v1/*` for desktop clients;
-- route `/api/mmh3-bridge/v1/*` for the ComfyUI frontend;
-- avoid wildcard CORS and unauthenticated public bypass routes;
-- apply request body and timeout limits compatible with the bridge.
+Schema version 2 stores only:
 
-The implementation does not assume a hostname, port, GPU provider, or TLS
-termination product.
+- client ID;
+- plain-text display name;
+- SHA-256 credential hash;
+- creation time.
 
-## Status check
+Plaintext paired credentials are never stored by the bridge. The file and its
+directory use restrictive permissions where supported by the operating
+system.
 
-Local example:
+When a Phase 1A.1 schema containing a shared plaintext token is detected, the
+bridge atomically replaces it with an empty schema-v2 client list. The old
+shared token is not accepted or migrated. Clients must pair again.
 
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8188/mmh3-bridge/v1/status"
-```
+Deleting the MMH3PromptBridge custom-node directory removes all
+bridge-owned persistent state.
 
-Remote example:
+## API
 
-```powershell
-Invoke-RestMethod -Uri "https://remote-comfy.example.com/mmh3-bridge/v1/status"
-```
+Base prefix:
 
-## Manual authenticated send test
+    /mmh3-bridge/v1
 
-After pairing the tab and selecting a target:
+Endpoints:
 
-```powershell
-$comfyBaseUrl = "http://127.0.0.1:8188"
-$bridgeConfig = Get-Content -LiteralPath "<ComfyUI>\custom_nodes\MMH3PromptBridge\data\bridge.json" -Raw | ConvertFrom-Json
-$headers = @{ Authorization = "Bearer $($bridgeConfig.token)" }
-$body = @{
-    text = "MMH3 Bridge Test"
-    request_id = [guid]::NewGuid().ToString()
-} | ConvertTo-Json -Compress
+- GET /status
+- POST /browser/hello
+- POST /pair/start
+- POST /pair/decision
+- POST /pair/complete
+- POST /register
+- POST /send
+- POST /ack
 
-Invoke-RestMethod `
-    -Uri "$comfyBaseUrl/mmh3-bridge/v1/send" `
-    -Method Post `
-    -Headers $headers `
-    -ContentType "application/json" `
-    -Body ([Text.Encoding]::UTF8.GetBytes($body))
-```
+There is intentionally no revoke-all endpoint in Phase 1A.2.
 
-For a remote test, change only `$comfyBaseUrl` to the HTTPS URL. A successful
-response has `ok: true` and `status: success`, returned only after the selected
-browser tab confirms that it updated the widget.
+Browser-authorized endpoints:
 
-## API and request safety
+- /pair/decision
+- /register
+- /ack
 
-- Namespace: `/mmh3-bridge/v1/`
+Client-authorized endpoint:
+
+- /send
+
+Authorization is sent as a Bearer value in the Authorization header. The
+endpoint determines whether the value must be a temporary browser capability
+or a persistent paired-client credential.
+
+The unauthenticated status response does not reveal credentials, pairing
+challenges, browser capabilities, prompt text, session IDs or target details.
+
+## Exact-socket prompt delivery
+
+Targets are bound to the exact WebSocket object that selected the widget, not
+only to a session ID. Before sending prompt text, the bridge proves that the
+same object is still the current open ComfyUI socket.
+
+Prompt text is sent directly to that captured socket with the standard
+ComfyUI JSON envelope:
+
+    {"type": "mmh3.bridge.set_text", "data": {...}}
+
+If the socket map, exact socket or send_json behavior is unavailable, the
+bridge fails closed. It does not fall back to send_sync, broadcast delivery or
+another browser session.
+
+The target contains node ID, widget name, node type and an ephemeral graph ID.
+It is never written into workflow JSON, ComfyUI settings or bridge.json.
+Reloading the frontend or restarting ComfyUI requires target selection again.
+
+## Limits and resource use
+
 - JSON request limit: 256 KiB
 - UTF-8 text limit: 128 KiB
 - ACK timeout: 3 seconds
-- Recent duplicate `request_id` rejection: 60 seconds, bounded to 1024 IDs
-- Basic protected-request rate limit: 120 requests per 10 seconds per direct
-  peer, bounded to 512 peers
-- JSON-only POST requests
-- Targeted browser-session WebSocket delivery; no broadcast
-- No `/prompt` calls and no automatic queue execution
+- Pairing lifetime: 60 seconds
+- Recent request ID rejection: 60 seconds, bounded to 1024 entries
+- Browser, pairing and rate-limit maps have fixed maximum sizes
+- JSON-only POST bodies
 
-Behind a reverse proxy, multiple clients may share the proxy's direct-peer
-rate-limit bucket. Do not trust or inject arbitrary forwarded client IP headers
-without a separately reviewed proxy policy.
+The frontend uses only short-lived one-shot timers: approximately five seconds
+while waiting for browser hello and up to approximately 60 seconds while a
+pairing dialog is open. There is no repeating idle timer, heartbeat, idle
+polling, cleanup thread, background worker or process. Expired state is cleaned
+lazily when bridge requests occur. The bridge adds no database or additional
+WebSocket server.
 
-## Uninstalling
+## Local and remote deployment
 
-1. Stop ComfyUI.
-2. Delete `<ComfyUI>/custom_nodes/MMH3PromptBridge/`.
-3. Start ComfyUI again and reload the browser page.
+Local examples:
 
-Deleting this folder removes the bridge token and all bridge-owned persistent
-data. Deleting the MMH3 Prompt Builder application folder does not remove this
-separately installed ComfyUI extension.
+    http://127.0.0.1:8188
+    http://localhost:8188
 
-## Phase 1A.1 limitations
+Remote production use should use HTTPS:
 
-- A recent frontend with `getNodeMenuItems` and
-  `app.extensionManager.dialog.prompt` is required.
-- The token-entry dialog behavior must be verified against the exact frontend
-  version in use.
-- Reverse-proxy header and WebSocket behavior requires deployment-specific
-  testing.
-- No target persistence across ComfyUI restarts.
-- Custom text widgets must declare a ComfyUI `STRING` input or expose a
-  recognized text-widget type and string value.
+    https://remote-comfy.example.com
+
+The bridge does not terminate TLS. A reverse proxy must:
+
+- preserve Authorization headers without logging them;
+- forward ComfyUI WebSocket upgrades;
+- keep HTTP and WebSocket authentication consistent;
+- route both /mmh3-bridge/v1 and /api/mmh3-bridge/v1;
+- avoid wildcard CORS and unauthenticated bypasses;
+- enforce suitable public rate limits.
+
+The automatic protocol proves control of a live ComfyUI WebSocket. Existing
+ComfyUI APIs cannot prove that a connection belongs to a human-operated
+official frontend rather than a headless WebSocket client. A remotely exposed
+ComfyUI UI and WebSocket must therefore have an independent access-control
+boundary. An unauthenticated public ComfyUI WebSocket is not a supported
+secure deployment.
+
+Provider authentication can also prevent an external desktop client from
+reaching the bridge endpoints. Such proxy/provider behavior must be tested
+for each hosted environment.
+
+## Security notes
+
+- Prompt text, verifiers, capabilities and credentials are not logged.
+- Pair IDs and all credentials use cryptographic randomness.
+- Pair verifier, browser capability and credential hash comparisons use
+  constant-time comparison where applicable.
+- Pair decisions and completions are protected by per-pair asyncio locks.
+- Credential-file writes are serialized and atomic.
+- Duplicate completion cannot issue a second credential.
+- Prompt events are never broadcast.
+- No /prompt API or automatic queue operation is used.
+- No graph receiver node is created.
+
+Bearer credentials are replayable if stolen. HTTPS and protected proxy logs
+are required for remote use.
+
+## Phase 1A.2 compatibility notes
+
+Exact-socket security depends on the current internal ComfyUI
+PromptServer.instance.sockets map and aiohttp WebSocket send_json behavior.
+The dependency is isolated in small Python helpers and fails closed when the
+required behavior is unavailable.
+
+The frontend requires:
+
+- api.clientId;
+- custom WebSocket event listeners;
+- getNodeMenuItems;
+- HTML dialog support;
+- secure browser crypto APIs.
+
+Real ComfyUI browser tests are required for each supported frontend/server
+combination and for each remote reverse-proxy environment.
