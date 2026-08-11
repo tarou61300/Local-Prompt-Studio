@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +14,9 @@ PORTABLE_WRITE_ERROR = (
     "この場所には設定を書き込めません。Downloads、Documents、Desktop等の"
     "書き込み可能なフォルダへ解凍してください。"
 )
-CONFIG_VERSION = 3
+CONFIG_VERSION = 4
 DEFAULT_CONTEXT_SIZE = 8192
+DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
 CONTEXT_PRESETS = (
     (4096, "Low Memory"),
     (8192, "Recommended"),
@@ -42,6 +43,7 @@ class AppConfig:
     history_enabled: bool = False
     theme: str = "System"
     setup_completed: bool = False
+    comfyui_url: str = field(default=DEFAULT_COMFYUI_URL, repr=False)
 
     def normalized(self) -> "AppConfig":
         self.inference_backend = normalize_backend_id(self.inference_backend)
@@ -52,6 +54,10 @@ class AppConfig:
         self.gpu_layers = max(GPU_LAYERS_AUTO, int(self.gpu_layers))
         self.context_size = max(2048, int(self.context_size))
         self.theme = self.theme if self.theme in {"System", "Light", "Dark"} else "System"
+        if not isinstance(self.comfyui_url, str) or not self.comfyui_url.strip():
+            self.comfyui_url = DEFAULT_COMFYUI_URL
+        else:
+            self.comfyui_url = self.comfyui_url.strip()
         return self
 
 
@@ -81,6 +87,8 @@ class ConfigManager:
                 raw.setdefault("backend_device", "")
                 if int(raw.get("gpu_layers", 0)) == 0:
                     raw["gpu_layers"] = GPU_LAYERS_AUTO
+            if stored_version < 4:
+                raw.setdefault("comfyui_url", DEFAULT_COMFYUI_URL)
             raw["config_version"] = CONFIG_VERSION
             allowed = {item.name for item in fields(AppConfig)}
             values = {key: value for key, value in raw.items() if key in allowed}
