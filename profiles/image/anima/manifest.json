@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "id": "anima",
+  "name": "Anima",
+  "profile_version": "1.0.0",
+  "category": "image",
+  "renderer": "danbooru_tags",
+  "output_language": "en",
+  "default_variant": "turbo_v1_0",
+  "supported_tasks": [
+    "T2I"
+  ],
+  "capabilities": {
+    "processing_modes": [
+      "Faithful",
+      "Balanced",
+      "Creative"
+    ],
+    "literal_content": true,
+    "protected_terms": true,
+    "separate_negative_prompt": true,
+    "visible_text": true,
+    "visible_text_reliability": "limited",
+    "source_image_inspection": false,
+    "legacy_h3_controls": false,
+    "speech": false,
+    "tag_prompting": true
+  },
+  "description_key": "profile.anima.description",
+  "instructions_file": "instructions.md",
+  "external_dependencies": [],
+  "sources": [
+    {
+      "type": "official_model_card",
+      "url": "https://huggingface.co/circlestone-labs/Anima",
+      "verified_at": "2026-08-12"
+    }
+  ]
+}

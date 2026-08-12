@@ -1,0 +1,48 @@
+{
+  "id": "base_v1_0",
+  "name": "Base v1.0",
+  "target_model_version": "Anima-Base v1.0",
+  "required_prompt": {},
+  "recommended_prompt": {
+    "positive_prefix": [
+      "masterpiece",
+      "best quality",
+      "score_7",
+      "safe"
+    ],
+    "negative_prefix": [
+      "worst quality",
+      "low quality",
+      "score_1",
+      "score_2",
+      "score_3",
+      "artist name",
+      "blurry",
+      "jpeg artifacts",
+      "chromatic aberration"
+    ]
+  },
+  "optional_prompt": {},
+  "length_guidance": {},
+  "inference_recommendations": {
+    "checkpoint": "anima-base-v1.0.safetensors",
+    "recommended_use": "maximum_flexibility_diversity_style_adherence_and_lora_training",
+    "steps_min": 30,
+    "steps_max": 50,
+    "cfg_min": 4.0,
+    "cfg_max": 5.0,
+    "resolution_note": "Official model card states generation works from 512^2 through 1536^2 pixels."
+  },
+  "sources": [
+    {
+      "type": "official_model_card",
+      "url": "https://huggingface.co/circlestone-labs/Anima",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_documentation",
+      "url": "https://huggingface.co/circlestone-labs/Anima/tree/main/split_files/diffusion_models",
+      "verified_at": "2026-08-12"
+    }
+  ]
+}

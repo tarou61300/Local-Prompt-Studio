@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import time
@@ -88,6 +89,8 @@ def test_model_switch_repopulates_variants_tasks_controls_and_persists(tmp_path)
         ]
         assert window.legacy_video_settings_group.isHidden() is True
         assert window.mode_group.isHidden() is True
+        assert window.negative_output_group.isHidden() is True
+        assert window.copy_negative_button.isHidden() is True
         assert "H3 Skill" not in window.readiness.text()
         assert manager.load().selected_profile == "wan_2_2"
         assert manager.load().selected_variant == "a14b"
@@ -136,6 +139,12 @@ def test_image_category_selects_krea_2_and_repopulates_variants_and_task(tmp_pat
         app.processEvents()
 
         assert window.profile_category.currentData() == "image"
+        assert [
+            window.profile_model.itemData(index)
+            for index in range(window.profile_model.count())
+        ] == ["anima", "krea_2"]
+        window.profile_model.setCurrentIndex(window.profile_model.findData("krea_2"))
+        app.processEvents()
         assert window.profile_model.currentData() == "krea_2"
         assert window.profile.manifest.id == "krea_2"
         assert [
@@ -163,6 +172,74 @@ def test_image_category_selects_krea_2_and_repopulates_variants_and_task(tmp_pat
         assert window.worker.isRunning() is False
         assert "月夜珈琲" in window.output_text.toPlainText()
 
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_image_category_selects_anima_and_shows_separate_negative_output(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    manager = ConfigManager(tmp_path)
+    response = json.dumps(
+        {
+            "subject_count": ["1girl"],
+            "general": ["silver_hair", "blue_eyes", "月夜珈琲"],
+            "negative": ["bad_hands"],
+        },
+        ensure_ascii=False,
+    )
+    mock, url = start_mock_server(response_text=response)
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+
+        image_index = window.profile_category.findData("image")
+        assert image_index >= 0
+        window.profile_category.setCurrentIndex(image_index)
+        app.processEvents()
+
+        anima_index = window.profile_model.findData("anima")
+        assert anima_index >= 0
+        window.profile_model.setCurrentIndex(anima_index)
+        app.processEvents()
+
+        assert window.profile.manifest.id == "anima"
+        assert [
+            window.profile_variant.itemData(index)
+            for index in range(window.profile_variant.count())
+        ] == ["aesthetic_v1_1", "base_v1_0", "turbo_v1_0"]
+        assert window.profile_variant.currentData() == "turbo_v1_0"
+        assert [window.mode.itemData(index) for index in range(window.mode.count())] == [
+            "T2I",
+        ]
+        assert window.legacy_video_settings_group.isHidden() is True
+        assert window.mode_group.isHidden() is True
+        assert window.negative_output_group.isHidden() is False
+        assert window.copy_negative_button.isHidden() is False
+        assert "Positive" in window.output_group.title() or "ポジティブ" in window.output_group.title()
+        assert "H3 Skill" not in window.readiness.text()
+
+        window.request_text.setPlainText("[text:ja] 月夜珈琲")
+        window.generate()
+        assert window.worker is not None
+        deadline = time.monotonic() + 5
+        while window.worker.isRunning() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        app.processEvents()
+
+        assert window.worker.isRunning() is False
+        assert "masterpiece, best quality, score_7" in window.output_text.toPlainText()
+        assert "月夜珈琲" in window.output_text.toPlainText()
+        assert "worst quality" in window.negative_output_text.toPlainText()
+        assert "bad hands" in window.negative_output_text.toPlainText()
+        assert "Positive Prompt only" in window.send_comfyui_button.toolTip() or "ポジティブPromptのみ" in window.send_comfyui_button.toolTip()
         window.close()
         app.processEvents()
     finally:

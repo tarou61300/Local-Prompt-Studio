@@ -259,7 +259,15 @@ def test_generation_length_warning_is_emitted_after_rendered_result():
     worker.status_changed.connect(lambda status: events.append(("status", status)))
     worker.run()
 
+    from core.renderers import RenderResult
+
     assert events[-2:] == [
-        ("result", "generated"),
+        (
+            "result",
+            RenderResult(
+                "generated",
+                warnings=("PROMPT_LONGER_THAN_RECOMMENDED",),
+            ),
+        ),
         ("status", "PROMPT_LONGER_THAN_RECOMMENDED"),
     ]

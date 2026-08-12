@@ -54,7 +54,7 @@
   "settings.history_enabled": "Save local history (default: off)",
   "setup.h3_skill_optional": "Optional: MiniMax H3 requires this Skill, while other profiles do not. Files are downloaded from the official MiniMax GitHub only when you press the button.",
   "about.title": "About Local Prompt Studio",
-  "about.body": "{product} {version}\nRelease date: {date}\n\nLocal prompt transformation with MiniMax H3, Wan 2.2, LTX-2.3, and Krea 2 profiles.\nWindows x64 portable / CPU + Vulkan GPU\nllama.cpp b9637\n\nThe MMH3 Prompt Bridge integration remains optional and backward compatible.",
+  "about.body": "{product} {version}\nRelease date: {date}\n\nLocal prompt transformation with MiniMax H3, Wan 2.2, LTX-2.3, Krea 2, and Anima profiles.\nWindows x64 portable / CPU + Vulkan GPU\nllama.cpp b9637\n\nThe MMH3 Prompt Bridge integration remains optional and backward compatible.",
   "error.profile_invalid": "The selected profile could not be loaded.",
   "error.h3_skill_required": "MiniMax H3 requires its Prompt Skill. Install it from first-run setup or Settings before generating.",
   "error.literal_not_preserved": "Literal Content was not preserved exactly. The output was rejected.",
@@ -71,5 +71,16 @@
   "mode.start_note": "Start image note (optional)",
   "mode.end_note": "End image note (optional)",
   "reference.add": "Add Reference",
-  "reference.remove": "Remove Selected Rows"
+  "reference.remove": "Remove Selected Rows",
+  "profile.anima.description": "Danbooru/Gelbooru-style tag prompt shaping for Anima Base, Aesthetic, and Turbo.",
+  "output.positive": "Positive Prompt (editable)",
+  "output.negative": "Negative Prompt (editable)",
+  "common.copy_negative": "Copy Negative",
+  "error.danbooru_output_invalid": "The tag formatter returned an invalid structured result. Regenerate the prompt.",
+  "error.generation_title": "Prompt generation failed",
+  "save.no_prompt": "There is no prompt to save.",
+  "save.saved": "Saved: {path}",
+  "save.failed": "Could not save the prompt",
+  "comfyui.send_current": "Send the current edited output to the selected ComfyUI text field.",
+  "comfyui.send_positive_only": "This profile has a separate Negative Prompt. Send to ComfyUI sends the current edited Positive Prompt only."
 }

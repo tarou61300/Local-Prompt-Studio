@@ -13,8 +13,11 @@
 - Made the MiniMax H3 Skill optional during first-run setup and required only when the selected profile declares that dependency.
 - Added Krea 2 Raw/Turbo as the first image profile, using a new `natural_language` renderer and catalog-driven Image category selection.
 - Kept Krea 2 length/detail guidance advisory: no generic quality tags, negative prompt, truncation, or forced token target is added.
+- Added Anima Base v1.0, Aesthetic v1.1, and Turbo v1.0 with a new `danbooru_tags` renderer and structured tag-category LLM contract.
+- Added deterministic Anima positive/negative component assembly, variant-aware score-tag handling, tag normalization/order, and exact Literal/Protected preservation.
+- Added separate Positive/Negative output UI for profiles that declare `separate_negative_prompt`; existing ComfyUI Send continues to send only the current Positive Prompt.
 
-This is a development foundation, not a release. Phase 2A-2 supports MiniMax H3, Wan 2.2, LTX-2.3, and Krea 2.
+This is a development foundation, not a release. Phase 2A-3 supports MiniMax H3, Wan 2.2, LTX-2.3, Krea 2, and Anima.
 
 ## 1.1.0-beta.1 — 2026-08-11
 

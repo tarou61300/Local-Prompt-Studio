@@ -109,7 +109,7 @@ class ComfyUISendThread(QThread):
 
 class GenerationThread(QThread):
     status_changed = Signal(str)
-    result_ready = Signal(str)
+    result_ready = Signal(object)
     error_occurred = Signal(str)
 
     def __init__(
@@ -160,7 +160,7 @@ class GenerationThread(QThread):
                     self.settings,
                     output,
                 )
-                self.result_ready.emit(rendered.positive)
+                self.result_ready.emit(rendered)
                 if rendered.warnings:
                     self.status_changed.emit(rendered.warnings[0])
         except Exception as exc:  # GUI boundary: never show a Python traceback to the user.

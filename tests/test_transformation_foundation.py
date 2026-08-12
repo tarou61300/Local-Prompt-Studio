@@ -11,8 +11,10 @@ from core.profile_models import PromptComponents
 from core.prompt_engine import H3Reference, PromptEngine, PromptSettings
 from core.protected_terms import normalize_protected_terms
 from core.renderers import (
+    DANBOORU_OUTPUT_INVALID,
     LITERAL_CONTENT_NOT_PRESERVED,
     PROTECTED_TERM_NOT_PRESERVED,
+    DanbooruTagsRenderer,
     NaturalLanguageRenderer,
     TransformationError,
     VideoNarrativeRenderer,
@@ -256,6 +258,108 @@ def test_natural_language_renderer_preserves_fixed_component_contract():
         "required-start recommended-start generated recommended-end required-end"
     )
     assert result.negative is None
+
+
+def test_anima_renderer_assembles_order_normalization_and_negative_deterministically():
+    variant = _named_profile("anima").variant("turbo_v1_0")
+    generated = """{
+      "quality_meta_year_safety": ["YEAR_2025", "explicit"],
+      "subject_count": ["1GIRL"],
+      "character": ["Fern_(Sousou_no_Frieren)"],
+      "series": ["Sousou_no_Frieren"],
+      "artist": ["Some_Artist"],
+      "general": ["SILVER_HAIR", "blue_eyes", "score_7", "(CHIBI:2)"],
+      "negative": ["bad_hands", "blurry"]
+    }"""
+    result = DanbooruTagsRenderer().render(generated, variant, (), ())
+
+    assert result.positive == (
+        "masterpiece, best quality, score_7, year 2025, explicit, 1girl, "
+        "fern (sousou no frieren), sousou no frieren, @some artist, "
+        "silver hair, blue eyes, (chibi:2)"
+    )
+    assert result.negative == (
+        "worst quality, low quality, score_1, score_2, score_3, artist name, "
+        "blurry, jpeg artifacts, chromatic aberration, bad hands"
+    )
+    assert result.warnings == ()
+
+
+def test_anima_renderer_preserves_literal_and_protected_terms_without_normalizing():
+    request = "[text:ja] 月夜珈琲"
+    literals = parse_literal_content(request)
+    protected = normalize_protected_terms(["My_Custom_LoRA"])
+    variant = _named_profile("anima").variant("base_v1_0")
+    generated = """{
+      "general": ["月夜珈琲", "My_Custom_LoRA", "SILVER_HAIR"],
+      "negative": []
+    }"""
+
+    result = DanbooruTagsRenderer().render(
+        generated,
+        variant,
+        literals,
+        protected,
+    )
+
+    assert "月夜珈琲" in result.positive
+    assert "My_Custom_LoRA" in result.positive
+    assert "silver hair" in result.positive
+
+
+def test_anima_renderer_rejects_invalid_structured_output():
+    variant = _named_profile("anima").variant("turbo_v1_0")
+
+    with pytest.raises(TransformationError) as exc:
+        DanbooruTagsRenderer().render("1girl, silver hair", variant, (), ())
+
+    assert exc.value.code == DANBOORU_OUTPUT_INVALID
+
+
+def test_anima_prompt_engine_requests_renderer_specific_json_contract():
+    engine = PromptEngine(None, _named_profile("anima"), "turbo_v1_0")
+    payload = engine.request_payload(
+        "銀髪の女性。青い目。",
+        PromptSettings(mode="T2I", processing="Faithful"),
+    )
+    system = payload["messages"][0]["content"]
+
+    assert "SELECTED PROFILE (anima v1.0.0)" in system
+    assert '"quality_meta_year_safety"' in system
+    assert '"subject_count"' in system
+    assert '"negative"' in system
+    assert "valid JSON object" in system
+    assert "EXTERNAL PROMPT SKILL" not in system
+
+
+def test_anima_aesthetic_omits_score_tags_from_fixed_recommendations():
+    profile = _named_profile("anima")
+    variant = profile.variant("aesthetic_v1_1")
+    generated = """{
+      "subject_count": ["1girl"],
+      "general": ["solo"],
+      "negative": []
+    }"""
+    result = DanbooruTagsRenderer().render(generated, variant, (), ())
+
+    assert result.positive == "masterpiece, best quality, safe, 1girl, solo"
+    assert "score_" not in result.positive
+    assert "score_" not in (result.negative or "")
+
+
+def test_anima_explicit_safety_tag_replaces_conflicting_default_safe():
+    variant = _named_profile("anima").variant("turbo_v1_0")
+    generated = """{
+      "quality_meta_year_safety": ["explicit"],
+      "subject_count": ["1girl"],
+      "general": ["solo"],
+      "negative": []
+    }"""
+
+    result = DanbooruTagsRenderer().render(generated, variant, (), ())
+
+    assert "explicit" in result.positive
+    assert ", safe," not in f", {result.positive},"
 
 
 def test_protected_term_normalization_never_splits_or_translates():

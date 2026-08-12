@@ -121,7 +121,7 @@ def test_send_button_starts_blank_and_startup_creates_no_comfyui_work(
         app.processEvents()
         assert window.send_comfyui_button.text() == "Send to ComfyUI"
         assert window.send_comfyui_button.isVisible() is True
-        assert "current edited output" in window.send_comfyui_button.toolTip()
+        assert window.send_comfyui_button.toolTip() == window.tr("comfyui.send_current")
         assert window.send_comfyui_button.isEnabled() is False
         assert window._send_worker is None
         assert factory.calls == []

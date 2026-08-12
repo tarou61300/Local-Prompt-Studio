@@ -115,9 +115,10 @@ class PromptEngine:
                 *external_materials,
                 ui_block,
                 (
-                    "OUTPUT FORMAT: Return only the complete prompt required by the selected "
-                    f"profile, using its declared output language ({self.profile.manifest.output_language}). "
-                    "Do not add analysis, a preface such as 'Here is your prompt', or Markdown fences."
+                    "OUTPUT FORMAT: "
+                    + self.renderer_registry.get(
+                        self.profile.manifest.renderer
+                    ).llm_output_instruction(self.profile.manifest.output_language)
                 ),
                 self._preservation_block(request, settings),
             )

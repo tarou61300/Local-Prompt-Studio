@@ -40,7 +40,12 @@ from core.model_manager import inspect_model
 from core.profile_loader import ProfileLoader
 from core.profile_models import LoadedProfile
 from core.prompt_engine import H3Reference, PromptEngine, PromptSettings, REFERENCE_LIMITS
-from core.renderers import LITERAL_CONTENT_NOT_PRESERVED, PROTECTED_TERM_NOT_PRESERVED
+from core.renderers import (
+    DANBOORU_OUTPUT_INVALID,
+    LITERAL_CONTENT_NOT_PRESERVED,
+    PROTECTED_TERM_NOT_PRESERVED,
+    RenderResult,
+)
 from core.skill_manager import SkillManager
 from core.system_memory import (
     MemoryAssessment,
@@ -316,12 +321,20 @@ class MainWindow(QMainWindow):
         request_layout.addWidget(self.request_text)
         splitter.addWidget(request_group)
 
-        output_group = QGroupBox(self.tr("output.prompt"))
-        output_layout = QVBoxLayout(output_group)
+        self.output_group = QGroupBox(self.tr("output.prompt"))
+        output_layout = QVBoxLayout(self.output_group)
         self.output_text = QPlainTextEdit()
         output_layout.addWidget(self.output_text)
-        splitter.addWidget(output_group)
-        splitter.setSizes([250, 250])
+        splitter.addWidget(self.output_group)
+
+        self.negative_output_group = QGroupBox(self.tr("output.negative"))
+        negative_output_layout = QVBoxLayout(self.negative_output_group)
+        self.negative_output_text = QPlainTextEdit()
+        self.negative_output_text.setObjectName("negative_output_text")
+        negative_output_layout.addWidget(self.negative_output_text)
+        splitter.addWidget(self.negative_output_group)
+
+        splitter.setSizes([250, 250, 160])
         root.addWidget(splitter, 1)
 
         buttons = QHBoxLayout()
@@ -332,9 +345,17 @@ class MainWindow(QMainWindow):
         self.cancel_button.setObjectName("cancel_button")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancel_generation)
-        copy_button = QPushButton(self.tr("common.copy"))
-        copy_button.setObjectName("copy_button")
-        copy_button.clicked.connect(lambda: self.output_text.selectAll() or self.output_text.copy())
+        self.copy_button = QPushButton(self.tr("common.copy"))
+        self.copy_button.setObjectName("copy_button")
+        self.copy_button.clicked.connect(
+            lambda: self.output_text.selectAll() or self.output_text.copy()
+        )
+        self.copy_negative_button = QPushButton(self.tr("common.copy_negative"))
+        self.copy_negative_button.setObjectName("copy_negative_button")
+        self.copy_negative_button.clicked.connect(
+            lambda: self.negative_output_text.selectAll()
+            or self.negative_output_text.copy()
+        )
         save_button = QPushButton(self.tr("common.save"))
         save_button.setObjectName("save_button")
         save_button.clicked.connect(self._save_output)
@@ -350,7 +371,8 @@ class MainWindow(QMainWindow):
         for button in (
             self.generate_button,
             self.cancel_button,
-            copy_button,
+            self.copy_button,
+            self.copy_negative_button,
             save_button,
             self.send_comfyui_button,
             self.regenerate_button,
@@ -436,10 +458,35 @@ class MainWindow(QMainWindow):
         self._populate_variants()
         self._populate_tasks()
         self._update_mode_fields(self.mode.currentText())
+        self._update_output_fields()
         if persist:
             self._persist_profile_selection()
         if hasattr(self, "readiness"):
             self._refresh_readiness()
+
+    def _update_output_fields(self) -> None:
+        separate_negative = bool(
+            self.profile
+            and self.profile.manifest.capabilities.get(
+                "separate_negative_prompt", False
+            )
+        )
+        self.output_group.setTitle(
+            self.tr("output.positive")
+            if separate_negative
+            else self.tr("output.prompt")
+        )
+        self.negative_output_group.setVisible(separate_negative)
+        self.copy_negative_button.setVisible(separate_negative)
+        if separate_negative:
+            self.send_comfyui_button.setToolTip(
+                self.tr("comfyui.send_positive_only")
+            )
+        else:
+            self.negative_output_text.clear()
+            self.send_comfyui_button.setToolTip(
+                self.tr("comfyui.send_current")
+            )
 
     def _populate_variants(self) -> None:
         self.profile_variant.blockSignals(True)
@@ -752,15 +799,17 @@ class MainWindow(QMainWindow):
             self.status_label.setText("キャンセルしています…")
             self._refresh_memory_display()
 
-    def _generation_complete(self, output: str) -> None:
-        self.output_text.setPlainText(output)
+    def _generation_complete(self, result: RenderResult) -> None:
+        self.output_text.setPlainText(result.positive)
+        self.negative_output_text.setPlainText(result.negative or "")
         self.status_label.setText(self.tr("status.complete"))
+        history_output = self._combined_output_text(result.positive, result.negative)
         try:
             self.history.add(
                 enabled=self.config.history_enabled,
                 mode=self.mode.currentText(),
                 request=self.request_text.toPlainText(),
-                output=output,
+                output=history_output,
                 profile_id=self.profile.manifest.id if self.profile else "minimax_h3",
                 profile_version=self.profile.manifest.profile_version if self.profile else "1.0.0",
                 variant_id=str(self.profile_variant.currentData() or "base"),
@@ -781,7 +830,9 @@ class MainWindow(QMainWindow):
             message = self.tr("error.literal_not_preserved")
         elif message == PROTECTED_TERM_NOT_PRESERVED:
             message = self.tr("error.protected_not_preserved")
-        QMessageBox.warning(self, "生成できませんでした", message)
+        elif message == DANBOORU_OUTPUT_INVALID:
+            message = self.tr("error.danbooru_output_invalid")
+        QMessageBox.warning(self, self.tr("error.generation_title"), message)
 
     def _set_generation_status(self, status: str) -> None:
         key = {
@@ -934,21 +985,42 @@ class MainWindow(QMainWindow):
             self._refresh_readiness()
             self._refresh_memory_display()
 
+    @staticmethod
+    def _combined_output_text(positive: str, negative: str | None) -> str:
+        if not negative:
+            return positive
+        return f"[Positive]\n{positive}\n\n[Negative]\n{negative}"
+
     def _save_output(self) -> None:
-        if not self.output_text.toPlainText():
-            QMessageBox.information(self, "Save as TXT", "保存するH3 Promptがありません。")
+        positive = self.output_text.toPlainText()
+        negative = self.negative_output_text.toPlainText() or None
+        if not positive:
+            QMessageBox.information(
+                self,
+                self.tr("common.save"),
+                self.tr("save.no_prompt"),
+            )
             return
-        path, _ = QFileDialog.getSaveFileName(self, "H3 Promptを保存", "h3-prompt.txt", "Text File (*.txt)")
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            self.tr("common.save"),
+            "prompt.txt",
+            "Text File (*.txt)",
+        )
         if path:
             try:
-                Path(path).write_text(self.output_text.toPlainText(), encoding="utf-8")
-                self.status_label.setText(f"保存しました: {path}")
+                Path(path).write_text(
+                    self._combined_output_text(positive, negative),
+                    encoding="utf-8",
+                )
+                self.status_label.setText(self.tr("save.saved", path=path))
             except OSError as exc:
-                QMessageBox.warning(self, "保存できませんでした", str(exc))
+                QMessageBox.warning(self, self.tr("save.failed"), str(exc))
 
     def _clear_text(self) -> None:
         self.request_text.clear()
         self.output_text.clear()
+        self.negative_output_text.clear()
         self.status_label.setText(self.tr("common.ready"))
 
     def _show_about(self) -> None:

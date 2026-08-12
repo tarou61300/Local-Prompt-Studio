@@ -1,0 +1,45 @@
+{
+  "id": "aesthetic_v1_1",
+  "name": "Aesthetic v1.1",
+  "target_model_version": "Anima-Aesthetic v1.1",
+  "required_prompt": {},
+  "recommended_prompt": {
+    "positive_prefix": [
+      "masterpiece",
+      "best quality",
+      "safe"
+    ],
+    "negative_prefix": [
+      "worst quality",
+      "low quality",
+      "artist name",
+      "blurry",
+      "jpeg artifacts",
+      "chromatic aberration"
+    ]
+  },
+  "optional_prompt": {},
+  "length_guidance": {},
+  "inference_recommendations": {
+    "checkpoint": "anima-aesthetic-v1.1.safetensors",
+    "recommended_use": "higher_consistency_and_higher_quality_default_art_style",
+    "steps_min": 30,
+    "steps_max": 50,
+    "cfg_min": 4.0,
+    "cfg_max": 5.0,
+    "quality_tag_note": "Official card advises against score_* tags for Aesthetic; masterpiece/best quality are safe to leave in.",
+    "resolution_note": "Official model card states generation works from 512^2 through 1536^2 pixels."
+  },
+  "sources": [
+    {
+      "type": "official_model_card",
+      "url": "https://huggingface.co/circlestone-labs/Anima",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_documentation",
+      "url": "https://huggingface.co/circlestone-labs/Anima/tree/main/split_files/diffusion_models",
+      "verified_at": "2026-08-12"
+    }
+  ]
+}

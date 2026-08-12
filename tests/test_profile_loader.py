@@ -64,7 +64,7 @@ def _write_profile(root: Path, profile_id: str, **manifest_changes) -> Path:
 
 def test_builtin_h3_profile_discovery_and_manifest():
     catalog = ProfileLoader(BUILTIN_ROOT, PROJECT_ROOT / ".tmp-unused").discover()
-    assert set(catalog.profiles) == {"minimax_h3", "wan_2_2", "ltx_2_3", "krea_2"}
+    assert set(catalog.profiles) == {"minimax_h3", "wan_2_2", "ltx_2_3", "krea_2", "anima"}
     assert catalog.errors == []
     profile = catalog.profiles["minimax_h3"]
     assert profile.manifest.schema_version == 1
@@ -125,6 +125,45 @@ def test_krea_2_profile_metadata_and_variant_contract():
     assert profile.variants["turbo"].inference_recommendations["mu"] == 1.15
 
 
+def test_anima_profile_metadata_and_variant_contract():
+    profile = ProfileLoader(BUILTIN_ROOT, PROJECT_ROOT / ".tmp-unused").discover().profiles[
+        "anima"
+    ]
+
+    assert profile.manifest.category == "image"
+    assert profile.manifest.renderer == "danbooru_tags"
+    assert profile.manifest.default_variant == "turbo_v1_0"
+    assert profile.manifest.supported_tasks == ("T2I",)
+    assert profile.requires_dependency("prompt_skill") is False
+    assert profile.manifest.capabilities["separate_negative_prompt"] is True
+    assert set(profile.variants) == {
+        "base_v1_0",
+        "aesthetic_v1_1",
+        "turbo_v1_0",
+    }
+
+    base = profile.variants["base_v1_0"]
+    aesthetic = profile.variants["aesthetic_v1_1"]
+    turbo = profile.variants["turbo_v1_0"]
+    assert base.recommended_prompt.positive_prefix == (
+        "masterpiece",
+        "best quality",
+        "score_7",
+        "safe",
+    )
+    assert base.optional_prompt.positive_prefix == ()
+    assert "score_1" not in aesthetic.recommended_prompt.negative_prefix
+    assert aesthetic.recommended_prompt.positive_prefix == (
+        "masterpiece",
+        "best quality",
+        "safe",
+    )
+    assert turbo.inference_recommendations["steps_min"] == 8
+    assert turbo.inference_recommendations["steps_max"] == 12
+    assert turbo.inference_recommendations["cfg"] == 1.0
+    assert turbo.inference_recommendations["distilled"] is True
+
+
 def test_official_update_takes_precedence_over_builtin(tmp_path):
     builtin = tmp_path / "builtin"
     shutil.copytree(BUILTIN_ROOT, builtin)
@@ -157,7 +196,7 @@ def test_broken_custom_profile_isolated(tmp_path):
 
 def test_unknown_renderer_schema_and_unsafe_path_rejected(tmp_path):
     custom = tmp_path / "data" / "profiles" / "custom"
-    _write_profile(custom, "unknown_renderer", renderer="danbooru_tags")
+    _write_profile(custom, "unknown_renderer", renderer="not_a_renderer")
     _write_profile(custom, "wrong_schema", schema_version=2)
     _write_profile(custom, "unsafe_path", instructions_file="../outside.md")
     catalog = ProfileLoader(BUILTIN_ROOT, tmp_path / "data").discover()

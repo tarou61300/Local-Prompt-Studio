@@ -1,0 +1,173 @@
+LOCAL PROMPT STUDIO — PHASE 2A-3 ANIMA MINIMAL INTEGRATION
+
+Goal:
+Validate the provided Phase 2A-3 Anima overlay against the current
+feature/local-prompt-studio-v2 branch. The overlay is already designed and
+implemented. Do not spend usage on Web research or redesign.
+
+IMPORTANT SCOPE
+- Do NOT research Anima on the Web.
+- Do NOT redesign the supplied Anima profile unless a concrete validation/test
+  failure proves a correction is necessary.
+- Do NOT add other image models.
+- Do NOT change the product version; keep 2.0.0-alpha.1.
+- Do NOT rename/change MMH3 Prompt Bridge, its protocol, pairing, DPAPI, or
+  credential behavior.
+- Do NOT commit, push, tag, build a public release, or publish.
+- Make only the minimum correction required for a failing test or real
+  integration defect.
+
+PROVIDED IMPLEMENTATION
+- profiles/image/anima/
+  - Base v1.0
+  - Aesthetic v1.1
+  - Turbo v1.0 (default)
+- new `danbooru_tags` renderer
+- renderer-specific LLM output contract through the renderer registry
+- deterministic Anima tag normalization/order
+- variant-specific fixed positive/negative components
+- explicit safety-tag conflict handling
+- separate Positive/Negative result transport and UI
+- Krea/H3/Wan/LTX existing output behavior preserved
+- Anima source/provenance notes
+- regression tests
+
+EXPECTED BEHAVIOR
+
+1. Profile catalog
+- Discover exactly these builtin profile IDs:
+  anima, krea_2, ltx_2_3, minimax_h3, wan_2_2
+- No profile validation errors.
+- Image category lists Anima and Krea 2 through catalog discovery; no
+  `if model == "anima"` or `if model == "krea_2"` branch in MainWindow or
+  PromptEngine.
+
+2. Anima variants
+- default: turbo_v1_0
+- available: aesthetic_v1_1, base_v1_0, turbo_v1_0
+- T2I only
+- no H3 Skill dependency
+- H3 legacy controls hidden
+- separate Negative Prompt visible
+
+3. Anima renderer contract
+The LLM must return only one JSON object with arrays under these allowed keys:
+- quality_meta_year_safety
+- subject_count
+- character
+- series
+- artist
+- general
+- negative
+
+The renderer must:
+- reject invalid structured output with DANBOORU_OUTPUT_INVALID;
+- use fixed Profile components outside the LLM;
+- order positive sections deterministically;
+- lowercase ordinary tags;
+- convert normal underscores to spaces;
+- preserve score_N underscores;
+- ensure artist tags use @;
+- deduplicate fixed/generated duplicates;
+- preserve Literal Content and Protected Terms exactly;
+- return a separate negative string.
+
+4. Variant fixed components
+Base/Turbo:
+Positive normally begins:
+masterpiece, best quality, score_7, safe
+
+Negative fixed list:
+worst quality, low quality, score_1, score_2, score_3, artist name, blurry,
+jpeg artifacts, chromatic aberration
+
+Aesthetic:
+- no fixed score_* in positive or negative
+- masterpiece, best quality, safe may remain
+
+If structured user content explicitly includes sensitive/nsfw/explicit, the
+renderer must suppress conflicting default `safe` rather than contradict the
+user.
+
+5. Length behavior
+Do not invent a numeric tag target.
+Do not truncate, pad, compress, or run a retry solely for length.
+
+6. UI/output
+- Existing single-output profiles still show the existing editable Prompt box.
+- Anima shows editable Positive Prompt and Negative Prompt boxes.
+- Copy Negative appears only for separate-negative profiles.
+- TXT Save contains both outputs when a negative exists.
+- History stores both outputs in one backward-compatible text value when a
+  negative exists.
+- Clear clears both.
+- Send to ComfyUI sends Positive Prompt only. Do not change Bridge API/protocol.
+
+7. Regression
+- MiniMax H3 Skill requirement unchanged for H3 only.
+- Wan/LTX remain Skill-free.
+- Krea remains natural_language, T2I, single positive, Raw/Turbo.
+- startup makes no new network request.
+- no prompt/literal/protected text added to logs.
+
+VALIDATION
+
+First record:
+- branch
+- HEAD
+- git status --short
+- VERSION
+
+Then run at minimum:
+- focused tests:
+  tests/test_profile_loader.py
+  tests/test_transformation_foundation.py
+  tests/test_localization.py
+  tests/test_workers.py
+  tests/test_gui_smoke.py
+- full pytest
+- existing ComfyUI regression tests
+- Python AST/syntax checks
+- UTF-8 JSON validation for all locale/profile JSON
+- git diff --check
+- scan for secrets/developer absolute paths
+- scan for Anima/Krea model-name conditionals in Python core/UI
+
+Manual/dev smoke if practical:
+- start app with Mock server
+- choose Image -> Anima -> Turbo v1.0 -> T2I
+- verify H3 controls hidden
+- verify Positive/Negative boxes visible
+- generate from a deterministic mock JSON result
+- verify fixed quality/negative components
+- verify `[text:ja] 月夜珈琲` survives exactly
+- switch to Aesthetic and verify score_* fixed tags are absent
+- switch back to Krea and verify Negative box hides and Krea still generates
+- verify Send tooltip clearly says Anima sends Positive only
+
+If a test fails because the provided test itself has a deterministic fixture
+problem, correct only that fixture and explain it. Do not change production code
+to satisfy an incorrect test.
+
+FINAL REPORT
+Report in Japanese:
+- starting branch/HEAD
+- exact production files changed beyond supplied overlay, if any
+- Anima catalog/variant result
+- renderer result
+- Positive/Negative UI result
+- literal/protected preservation
+- safety conflict result
+- Krea/H3/Wan/LTX regression
+- focused/full pytest counts
+- ComfyUI regression
+- static checks
+- exact git status --short
+- known limitations
+
+Stop without commit/push/tag/release.
+
+Verdict exactly one:
+A. PHASE 2A-3 ANIMA INTEGRATION READY FOR REVIEW
+B. SMALL ANIMA FIXES REQUIRED
+C. ANIMA INTEGRATION BLOCKED

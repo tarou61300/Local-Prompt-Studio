@@ -1,6 +1,6 @@
 # Local Prompt Studio Profile Schema v1
 
-Phase 2A-2 supports the MiniMax H3, Wan 2.2, and LTX-2.3 video profiles plus the Krea 2 image profile.
+Phase 2A-3 supports the MiniMax H3, Wan 2.2, and LTX-2.3 video profiles plus the Krea 2 and Anima image profiles.
 Profiles are UTF-8 data, never executable plugins. A profile may contain JSON,
 Markdown, and text files. Python,
 JavaScript, PowerShell, batch files, executables, DLLs, absolute references,
@@ -45,10 +45,10 @@ components are stored separately and remain disabled unless a later UI explicitl
 enables them. Quantization is not a variant unless its prompt rules differ.
 
 The renderer assembles fixed profile components deterministically around model
-output. Phase 2A-2 registers `video_narrative` and `natural_language`. Unknown
+output. Phase 2A-3 registers `video_narrative`, `natural_language`, and `danbooru_tags`. Unknown
 renderer IDs fail closed. Separate positive/negative output is supported by the
 data model. Krea 2 uses a single natural-language positive prompt and does not
-invent a negative prompt.
+invent a negative prompt. Anima uses a structured JSON LLM contract so the `danbooru_tags` renderer can deterministically order and normalize tag sections, add variant-specific recommended components, and return separate positive/negative outputs.
 
 ## Core Transformation Policy
 

@@ -23,6 +23,14 @@ def test_english_and_japanese_locales_load():
     assert "画像生成" in Localization(root, "ja-JP").tr(
         "profile.krea_2.description"
     )
+    assert "Anima" in Localization(root, "en-US").tr(
+        "profile.anima.description"
+    )
+    assert "Danbooru" in Localization(root, "ja-JP").tr(
+        "profile.anima.description"
+    )
+    assert Localization(root, "en-US").tr("output.negative") == "Negative Prompt (editable)"
+    assert "ネガティブ" in Localization(root, "ja-JP").tr("output.negative")
 
 
 def test_missing_japanese_key_falls_back_to_english(tmp_path):

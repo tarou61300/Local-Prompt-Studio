@@ -54,7 +54,7 @@
   "settings.history_enabled": "ローカル履歴を保存する（デフォルトOFF）",
   "setup.h3_skill_optional": "任意項目です。MiniMax H3にはこのSkillが必要ですが、ほかのプロファイルには不要です。ボタンを押した場合だけMiniMax公式GitHubから取得します。",
   "about.title": "Local Prompt Studioについて",
-  "about.body": "{product} {version}\nRelease date: {date}\n\nMiniMax H3、Wan 2.2、LTX-2.3、Krea 2プロファイル対応のローカルPrompt変換スタジオです。\nWindows x64 Portable / CPU + Vulkan GPU\nllama.cpp b9637\n\nMMH3 Prompt Bridge連携は任意で、後方互換性を維持しています。",
+  "about.body": "{product} {version}\nRelease date: {date}\n\nMiniMax H3、Wan 2.2、LTX-2.3、Krea 2、Animaプロファイル対応のローカルPrompt変換スタジオです。\nWindows x64 Portable / CPU + Vulkan GPU\nllama.cpp b9637\n\nMMH3 Prompt Bridge連携は任意で、後方互換性を維持しています。",
   "error.profile_invalid": "選択したプロファイルを読み込めませんでした。",
   "error.h3_skill_required": "MiniMax H3にはPrompt Skillが必要です。生成前に初回セットアップまたは設定から導入してください。",
   "error.literal_not_preserved": "Literal Contentが正確に保持されなかったため、出力を受理しませんでした。",
@@ -71,5 +71,16 @@
   "mode.start_note": "開始画像についての補足（任意）",
   "mode.end_note": "終了画像についての補足（任意）",
   "reference.add": "Referenceを追加",
-  "reference.remove": "選択行を削除"
+  "reference.remove": "選択行を削除",
+  "profile.anima.description": "Anima Base / Aesthetic / Turbo向けに、Danbooru/Gelbooru系タグ形式の画像生成Promptへ整形します。",
+  "output.positive": "ポジティブPrompt（編集可能）",
+  "output.negative": "ネガティブPrompt（編集可能）",
+  "common.copy_negative": "ネガティブをコピー",
+  "error.danbooru_output_invalid": "タグ整形用の構造化出力が不正でした。Promptを再生成してください。",
+  "error.generation_title": "Promptを生成できませんでした",
+  "save.no_prompt": "保存するPromptがありません。",
+  "save.saved": "保存しました: {path}",
+  "save.failed": "Promptを保存できませんでした",
+  "comfyui.send_current": "現在編集されている出力を、選択したComfyUIのテキスト欄へ送信します。",
+  "comfyui.send_positive_only": "このプロファイルには別のネガティブPromptがあります。ComfyUIへ送信するのは現在編集されているポジティブPromptのみです。"
 }
