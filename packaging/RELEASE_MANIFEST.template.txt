@@ -1,8 +1,14 @@
 Local Prompt Studio Release Manifest
 
-Local Prompt Studio version: {{APP_VERSION}}
+Product: Local Prompt Studio
+Version: {{APP_VERSION}}
 Release date: {{RELEASE_DATE}}
 Release kind: {{RELEASE_KIND}}
+Platform: Windows
+Architecture: x64
+Package type: Portable / PyInstaller onedir
+EXE name: LocalPromptStudio.exe
+ZIP filename: {{ZIP_FILENAME}}
 Build type: Windows x64 portable / PyInstaller onedir
 Supported architecture: Windows x64
 Source commit: {{SOURCE_COMMIT}}

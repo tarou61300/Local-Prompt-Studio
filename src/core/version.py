@@ -1,5 +1,5 @@
-APP_VERSION = "2.0.0-alpha.1"
-APP_DISPLAY_VERSION = "v2.0.0-alpha.1"
-APP_RELEASE_DATE = "2026-08-12"
+APP_VERSION = "2.0.0-beta.1"
+APP_DISPLAY_VERSION = "v2.0.0-beta.1"
+APP_RELEASE_DATE = "2026-08-13"
 PRODUCT_NAME = "Local Prompt Studio"
 INTERNAL_APPLICATION_ID = "local_prompt_studio"

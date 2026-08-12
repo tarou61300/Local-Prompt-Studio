@@ -200,7 +200,11 @@ if ($LASTEXITCODE -ne 0) {
 if (Test-Path -LiteralPath $ZipPath) {
     Remove-Item -LiteralPath $ZipPath -Force
 }
-Compress-Archive -LiteralPath $DistributionRoot -DestinationPath $ZipPath -CompressionLevel Optimal
+& $Python (Join-Path $ProjectRoot "scripts\create_release_zip.py") `
+    $DistributionRoot $ZipPath
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $ZipPath -PathType Leaf)) {
+    throw "Release ZIP creation failed."
+}
 
 $MainExe = Join-Path $ApplicationRoot "LocalPromptStudio.exe"
 $CpuServer = Join-Path $ApplicationRoot "_internal\runtime\cpu\llama-server.exe"
@@ -234,6 +238,7 @@ else {
 }
 $Manifest = Get-Content -LiteralPath $ManifestTemplatePath -Raw
 $Manifest = $Manifest.Replace("{{APP_VERSION}}", $Version)
+$Manifest = $Manifest.Replace("{{ZIP_FILENAME}}", (Split-Path $ZipPath -Leaf))
 $Manifest = $Manifest.Replace("{{RELEASE_DATE}}", $ReleaseDate)
 $Manifest = $Manifest.Replace("{{RELEASE_KIND}}", $ReleaseKind)
 $Manifest = $Manifest.Replace("{{SOURCE_COMMIT}}", $SourceCommit)

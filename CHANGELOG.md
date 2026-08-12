@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.0-beta.1 — 2026-08-13
+
+Community test beta release candidate for Local Prompt Studio.
+
+### Added and changed
+
+- Renamed the current desktop product to Local Prompt Studio while preserving the MMH3 Prompt Bridge name, protocol, and v1.x history.
+- Added profile-based multi-model prompt transformation for the MiniMax H3, Wan 2.2, and LTX-2.3 video profiles and the Krea 2 and Anima image profiles.
+- Added Faithful, Balanced, and Creative transformation styles, exact Literal Content preservation, and Protected Terms.
+- Added separate Positive and Negative outputs for Anima profiles.
+- Added English and Japanese UI locales with English fallback.
+- Preserved local llama.cpp inference with bundled CPU and Vulkan runtimes and portable application-owned data storage.
+- Preserved optional ComfyUI integration through MMH3 Prompt Bridge without automatically editing or queuing a workflow.
+
+### Known limitations
+
+- GGUF models and the MiniMax H3 Prompt Skill are not bundled; users provide a compatible GGUF and obtain the optional H3 Skill when needed.
+- MMH3 Prompt Bridge is optional and must be installed separately on the ComfyUI side.
+- Generated media quality depends on the selected target model and workflow settings.
+- Literal Content guarantees prompt-text preservation, not successful target-model rendering or pronunciation.
+- Automatic model download, online Profile updates, cloud inference, automatic ComfyUI workflow editing, and automatic ComfyUI queueing are not included.
+
 ## 2.0.0-alpha.1 — 2026-08-12
 
 - Renamed the next-generation desktop product to Local Prompt Studio while preserving v1.x history.

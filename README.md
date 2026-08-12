@@ -1,11 +1,11 @@
-# Local Prompt Studio v2.0.0-alpha.1
+# Local Prompt Studio v2.0.0-beta.1
 
-**Phase 2A-3 development integration — not a release**
+**Windows x64 portable beta release candidate**
 
-Development date: 2026-08-12
+Release date: 2026-08-13
 
 Local Prompt Studioは、ローカルGGUFモデルを使うプロファイル駆動型Prompt変換ツールです。
-Phase 2A-3で機能する動画モデルプロファイルはMiniMax H3、Wan 2.2、LTX-2.3です。
+対応する動画モデルプロファイルはMiniMax H3、Wan 2.2、LTX-2.3です。
 画像モデルプロファイルはKrea 2 Raw/TurboとAnima Base/Aesthetic/Turboに対応します。Animaではモデル推奨の品質系Positive/NegativeをProfileから決定的に組み立て、ユーザー指定の内容はタグ形式へ整形します。
 
 UI言語はEnglishと日本語を選択でき、入力言語とは独立しています。ComfyUIをインストールして
@@ -40,9 +40,10 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-既存v1.xリリースの利用者は、そのリリースに付属するREADMEの起動手順を使用してください。
-Phase 2A-3は開発段階であり、公開配布ZIPはまだありません。将来のWindows onedirでは
-`LocalPromptStudio.exe`が実行ファイル名になります。
+1. `Local-Prompt-Studio-v2.0.0-beta.1-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+2. 展開したフォルダ内の`LocalPromptStudio/LocalPromptStudio.exe`を起動します。
+
+既存v1.xリリースは上書きせず、別フォルダへ展開してください。
 
 CMDまたはPowerShellを開く必要はありません。アプリとllama-serverはコンソールウィンドウを
 表示せずに動作します。
@@ -61,6 +62,13 @@ GGUFはZIPへ含まれず、自動ダウンロードもされません。元のG
 MiniMax H3 Prompt SkillもZIPには含まれません。「取得」を押した場合だけ公式MiniMax
 リポジトリへ接続し、ポータブルフォルダ内の `data/skills` へ保存します。設定で外部の
 Skillフォルダを選んだ場合は読み取りに使用できますが、アプリ自身の取得先には使用しません。
+
+## beta.1の既知の制限
+
+- GGUFモデルは同梱されません。ユーザーが互換GGUFを別途用意して選択する必要があります。
+- MMH3 Prompt BridgeによるComfyUI連携は任意機能で、ComfyUI側へBridgeを別途導入する必要があります。
+- 実際に生成される画像・動画の品質は、対象モデル、workflow、sampler等の設定に依存します。
+- Literal ContentはPrompt文字列の完全一致を検証しますが、対象モデルによる描画・発音の成功までは保証しません。
 
 ## ComfyUI連携（任意・コミュニティテスト）
 
