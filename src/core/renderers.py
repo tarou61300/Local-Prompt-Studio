@@ -46,6 +46,8 @@ class Renderer(Protocol):
 
     def llm_output_instruction(self, output_language: str) -> str: ...
 
+    def request_payload_overrides(self) -> dict[str, object]: ...
+
     def render(
         self,
         generated: str,
@@ -122,6 +124,9 @@ class VideoNarrativeRenderer:
     def llm_output_instruction(self, output_language: str) -> str:
         return _plain_output_instruction(output_language)
 
+    def request_payload_overrides(self) -> dict[str, object]:
+        return {}
+
     def render(
         self,
         generated: str,
@@ -138,6 +143,9 @@ class NaturalLanguageRenderer:
     def llm_output_instruction(self, output_language: str) -> str:
         return _plain_output_instruction(output_language)
 
+    def request_payload_overrides(self) -> dict[str, object]:
+        return {}
+
     def render(
         self,
         generated: str,
@@ -148,12 +156,31 @@ class NaturalLanguageRenderer:
         return _render_plain(generated, variant, literals, protected_terms)
 
 
-def _parse_danbooru_sections(generated: str) -> dict[str, tuple[str, ...]]:
+def _load_json_object(generated: str) -> dict[str, object]:
+    text = generated.strip()
     try:
-        raw = json.loads(generated)
-    except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        raise TransformationError(DANBOORU_OUTPUT_INVALID) from exc
-    if not isinstance(raw, dict) or not raw or set(raw) - _ANIMA_ALLOWED_SECTIONS:
+        raw = json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        decoder = json.JSONDecoder()
+        raw = None
+        for match in re.finditer(r"\{", text):
+            try:
+                candidate, _end = decoder.raw_decode(text, match.start())
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+            if isinstance(candidate, dict):
+                raw = candidate
+                break
+        if raw is None:
+            raise TransformationError(DANBOORU_OUTPUT_INVALID)
+    if not isinstance(raw, dict):
+        raise TransformationError(DANBOORU_OUTPUT_INVALID)
+    return raw
+
+
+def _parse_danbooru_sections(generated: str) -> dict[str, tuple[str, ...]]:
+    raw = _load_json_object(generated)
+    if not raw or set(raw) - _ANIMA_ALLOWED_SECTIONS:
         raise TransformationError(DANBOORU_OUTPUT_INVALID)
     sections: dict[str, tuple[str, ...]] = {}
     for name in _ANIMA_ALLOWED_SECTIONS:
@@ -235,6 +262,12 @@ class DanbooruTagsRenderer:
             'all other positive visual tags in "general", and only user-requested exclusions in "negative". '
             "Literal Content and Protected Terms must appear as exact complete string values without changes."
         )
+
+    def request_payload_overrides(self) -> dict[str, object]:
+        # llama.cpp can constrain this response to a JSON object. The renderer still
+        # performs its own strict key/type validation and does not trust the server
+        # to enforce the semantic schema.
+        return {"response_format": {"type": "json_object"}}
 
     def render(
         self,

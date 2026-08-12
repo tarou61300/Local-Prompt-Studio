@@ -8,7 +8,7 @@ import pytest
 from core.literal_content import parse_literal_content
 from core.profile_loader import ProfileLoader
 from core.profile_models import PromptComponents
-from core.prompt_engine import H3Reference, PromptEngine, PromptSettings
+from core.prompt_engine import H3Reference, PromptEngine, PromptSettings, clean_model_output
 from core.protected_terms import normalize_protected_terms
 from core.renderers import (
     DANBOORU_OUTPUT_INVALID,
@@ -329,8 +329,33 @@ def test_anima_prompt_engine_requests_renderer_specific_json_contract():
     assert '"subject_count"' in system
     assert '"negative"' in system
     assert "valid JSON object" in system
+    assert payload["response_format"] == {"type": "json_object"}
     assert "EXTERNAL PROMPT SKILL" not in system
 
+
+
+def test_anima_renderer_accepts_json_code_fence_and_harmless_wrapper_text():
+    variant = _named_profile("anima").variant("turbo_v1_0")
+    fenced = """```json
+{
+  "subject_count": ["1girl"],
+  "general": ["silver_hair", "blue_eyes"],
+  "negative": []
+}
+```"""
+    fenced_result = DanbooruTagsRenderer().render(clean_model_output(fenced), variant, (), ())
+    assert "1girl" in fenced_result.positive
+    assert "silver hair" in fenced_result.positive
+
+    wrapped = """Here is the requested JSON object:
+{
+  "subject_count": ["1girl"],
+  "general": ["long_hair", "school_uniform"],
+  "negative": []
+}"""
+    wrapped_result = DanbooruTagsRenderer().render(wrapped, variant, (), ())
+    assert "long hair" in wrapped_result.positive
+    assert "school uniform" in wrapped_result.positive
 
 def test_anima_aesthetic_omits_score_tags_from_fixed_recommendations():
     profile = _named_profile("anima")

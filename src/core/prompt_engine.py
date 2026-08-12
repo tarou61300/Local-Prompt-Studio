@@ -69,7 +69,7 @@ class PromptSettings:
 def clean_model_output(text: str) -> str:
     """Remove Qwen reasoning blocks and harmless wrappers without eating prompt text."""
     cleaned = re.sub(r"<think\b[^>]*>.*?</think\s*>", "", text, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r"^\s*```(?:text|markdown)?\s*\n?", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\s*```(?:text|markdown|json)?\s*\n?", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\n?```\s*$", "", cleaned)
     return cleaned.strip()
 
@@ -160,13 +160,16 @@ class PromptEngine:
         return "\n".join(lines)
 
     def request_payload(self, request: str, settings: PromptSettings) -> dict[str, Any]:
-        return {
+        renderer = self.renderer_registry.get(self.profile.manifest.renderer)
+        payload: dict[str, Any] = {
             "messages": self.build_messages(request, settings),
             "temperature": TEMPERATURES[settings.processing],
             "top_p": 0.9,
             "max_tokens": DEFAULT_MAX_OUTPUT_TOKENS,
             "stream": False,
         }
+        payload.update(renderer.request_payload_overrides())
+        return payload
 
     def finalize_output(
         self, request: str, settings: PromptSettings, generated: str
