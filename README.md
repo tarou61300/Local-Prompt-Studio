@@ -1,12 +1,12 @@
 # Local Prompt Studio v2.0.0-alpha.1
 
-**Phase 2A-1 development integration — not a release**
+**Phase 2A-2 development integration — not a release**
 
 Development date: 2026-08-12
 
 Local Prompt Studioは、ローカルGGUFモデルを使うプロファイル駆動型Prompt変換ツールです。
-Phase 2A-1で機能する動画モデルプロファイルはMiniMax H3、Wan 2.2、LTX-2.3です。
-Krea、Animaなどの将来プロファイルはまだ実装されていません。
+Phase 2A-2で機能する動画モデルプロファイルはMiniMax H3、Wan 2.2、LTX-2.3です。
+画像モデルプロファイルとしてKrea 2 Raw/Turboを追加しました。Animaはまだ実装されていません。
 
 UI言語はEnglishと日本語を選択でき、入力言語とは独立しています。ComfyUIをインストールして
 いない場合も、従来のローカルMiniMax H3 Prompt生成をそのまま利用できます。既存の
@@ -35,7 +35,7 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 ## 起動方法
 
 既存v1.xリリースの利用者は、そのリリースに付属するREADMEの起動手順を使用してください。
-Phase 2A-1は開発段階であり、公開配布ZIPはまだありません。将来のWindows onedirでは
+Phase 2A-2は開発段階であり、公開配布ZIPはまだありません。将来のWindows onedirでは
 `LocalPromptStudio.exe`が実行ファイル名になります。
 
 CMDまたはPowerShellを開く必要はありません。アプリとllama-serverはコンソールウィンドウを
@@ -44,7 +44,7 @@ CMDまたはPowerShellを開く必要はありません。アプリとllama-serv
 ## 初回セットアップ
 
 1. 「既存のGGUFを選択」を押し、PC上の `.gguf` ファイルを選択します。
-2. MiniMax H3を使用する場合だけ「MiniMax公式H3 Prompt Skillを取得」を押します。Wan 2.2とLTX-2.3では不要です。
+2. MiniMax H3を使用する場合だけ「MiniMax公式H3 Prompt Skillを取得」を押します。Wan 2.2とLTX-2.3では不要です。 Krea 2でも不要です。
 3. 最初は「CPU（デフォルト）」を選びます。
 4. 内容を確認し、「完了」を押します。
 

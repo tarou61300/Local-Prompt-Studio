@@ -116,6 +116,60 @@ def test_model_switch_repopulates_variants_tasks_controls_and_persists(tmp_path)
         mock.server_close()
 
 
+def test_image_category_selects_krea_2_and_repopulates_variants_and_task(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    manager = ConfigManager(tmp_path)
+    mock, url = start_mock_server(
+        response_text='A small storefront sign reading "月夜珈琲" at night.'
+    )
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+
+        image_index = window.profile_category.findData("image")
+        assert image_index >= 0
+        window.profile_category.setCurrentIndex(image_index)
+        app.processEvents()
+
+        assert window.profile_category.currentData() == "image"
+        assert window.profile_model.currentData() == "krea_2"
+        assert window.profile.manifest.id == "krea_2"
+        assert [
+            window.profile_variant.itemData(index)
+            for index in range(window.profile_variant.count())
+        ] == ["raw", "turbo"]
+        assert window.profile_variant.currentData() == "turbo"
+        assert [window.mode.itemData(index) for index in range(window.mode.count())] == [
+            "T2I",
+        ]
+        assert window.legacy_video_settings_group.isHidden() is True
+        assert window.mode_group.isHidden() is True
+        assert "H3 Skill" not in window.readiness.text()
+        assert manager.load().selected_profile == "krea_2"
+        assert manager.load().selected_variant == "turbo"
+
+        window.request_text.setPlainText("[text:ja] 月夜珈琲")
+        window.generate()
+        assert window.worker is not None
+        deadline = time.monotonic() + 5
+        while window.worker.isRunning() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        app.processEvents()
+        assert window.worker.isRunning() is False
+        assert "月夜珈琲" in window.output_text.toPlainText()
+
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
 def test_unavailable_configured_profile_falls_back_to_minimax_h3(tmp_path):
     app = QApplication.instance() or QApplication([])
     manager = ConfigManager(tmp_path)

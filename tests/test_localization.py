@@ -17,6 +17,12 @@ def test_english_and_japanese_locales_load():
         "profile.ltx_2_3.description"
     )
     assert Localization(root, "en-US").tr("profile.task") == "Task"
+    assert "Krea 2" in Localization(root, "en-US").tr(
+        "profile.krea_2.description"
+    )
+    assert "画像生成" in Localization(root, "ja-JP").tr(
+        "profile.krea_2.description"
+    )
 
 
 def test_missing_japanese_key_falls_back_to_english(tmp_path):

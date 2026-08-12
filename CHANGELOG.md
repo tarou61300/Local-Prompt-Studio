@@ -11,8 +11,10 @@
 - Added the supplied Wan 2.2 and LTX-2.3 video profiles through the existing Schema v1 and `video_narrative` renderer.
 - Made profile, variant, and task selection catalog-driven while retaining H3-only advanced controls through profile capabilities.
 - Made the MiniMax H3 Skill optional during first-run setup and required only when the selected profile declares that dependency.
+- Added Krea 2 Raw/Turbo as the first image profile, using a new `natural_language` renderer and catalog-driven Image category selection.
+- Kept Krea 2 length/detail guidance advisory: no generic quality tags, negative prompt, truncation, or forced token target is added.
 
-This is a development foundation, not a release. Phase 2A-1 supports MiniMax H3, Wan 2.2, and LTX-2.3.
+This is a development foundation, not a release. Phase 2A-2 supports MiniMax H3, Wan 2.2, LTX-2.3, and Krea 2.
 
 ## 1.1.0-beta.1 — 2026-08-11
 

@@ -95,10 +95,50 @@ class VideoNarrativeRenderer:
         )
 
 
+class NaturalLanguageRenderer:
+    renderer_id = "natural_language"
+
+    def render(
+        self,
+        generated: str,
+        variant: ProfileVariant,
+        literals: tuple[LiteralContent, ...],
+        protected_terms: tuple[ProtectedTerm, ...],
+    ) -> RenderResult:
+        positive = " ".join(
+            (
+                *variant.required_prompt.positive_prefix,
+                *variant.recommended_prompt.positive_prefix,
+                generated,
+                *variant.recommended_prompt.positive_suffix,
+                *variant.required_prompt.positive_suffix,
+            )
+        ).strip()
+        negative_parts = (
+            *variant.required_prompt.negative_prefix,
+            *variant.recommended_prompt.negative_prefix,
+            *variant.recommended_prompt.negative_suffix,
+            *variant.required_prompt.negative_suffix,
+        )
+        if missing_literal_contents(positive, literals):
+            raise TransformationError(LITERAL_CONTENT_NOT_PRESERVED)
+        if missing_protected_terms(positive, protected_terms):
+            raise TransformationError(PROTECTED_TERM_NOT_PRESERVED)
+        return RenderResult(
+            positive=positive,
+            negative=" ".join(negative_parts).strip() or None,
+            warnings=length_warnings(positive, variant.length_guidance),
+        )
+
+
 class RendererRegistry:
     def __init__(self) -> None:
-        renderer = VideoNarrativeRenderer()
-        self._renderers: dict[str, Renderer] = {renderer.renderer_id: renderer}
+        video = VideoNarrativeRenderer()
+        natural = NaturalLanguageRenderer()
+        self._renderers: dict[str, Renderer] = {
+            video.renderer_id: video,
+            natural.renderer_id: natural,
+        }
 
     @property
     def ids(self) -> frozenset[str]:

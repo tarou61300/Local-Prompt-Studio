@@ -1,0 +1,51 @@
+{
+  "id": "turbo",
+  "name": "Turbo",
+  "target_model_version": "Krea 2 Turbo v1.0",
+  "required_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "recommended_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "optional_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "length_guidance": {},
+  "inference_recommendations": {
+    "checkpoint": "Krea 2 Turbo",
+    "recommended_use": "fast_high_quality_inference",
+    "steps": 8,
+    "cfg": 0.0,
+    "mu": 1.15,
+    "resolution_note": "Official README describes Turbo inference from about 1K to 2K resolution.",
+    "text_encoder_max_length_tokens": 512,
+    "text_encoder_limit_note": "Technical encoder capacity from the official code; Local Prompt Studio does not enforce this because its generic length checker is not the Krea tokenizer."
+  },
+  "sources": [
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/krea-ai/krea-2",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_model_card",
+      "url": "https://huggingface.co/krea/Krea-2-Turbo",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/krea-ai/krea-2/blob/main/encoder.py",
+      "verified_at": "2026-08-12"
+    }
+  ]
+}

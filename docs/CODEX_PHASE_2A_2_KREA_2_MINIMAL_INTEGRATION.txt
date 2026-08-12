@@ -1,0 +1,230 @@
+LOCAL PROMPT STUDIO — PHASE 2A-2 KREA 2 MINIMAL INTEGRATION
+
+BASELINE
+- Start from commit bc3b89e on feature/local-prompt-studio-v2.
+- Working tree must be clean before applying this bundle.
+- The supplied overlay was prepared against exactly bc3b89e.
+- Do not research Krea 2 again unless a supplied fact is internally inconsistent or a test demonstrates a real blocker.
+
+PURPOSE
+Integrate Krea 2 as the first image profile with the smallest safe change.
+This bundle already contains the intended profile data, renderer implementation, locale changes, docs, and focused tests.
+
+SUPPORTED TARGET
+- Krea 2
+  - Raw
+  - Turbo
+- Task: T2I only
+- Renderer: natural_language
+
+DO NOT IMPLEMENT ANIMA YET.
+
+1. APPLY THE PROVIDED OVERLAY
+Copy the bundle's `overlay/` contents into the repository root, preserving relative paths and overwriting the matching bc3b89e files.
+
+Do not rewrite the supplied Krea profile based on fresh web research.
+Do not change its source metadata unless validation fails because of a concrete schema issue.
+
+2. PROFILE CONTRACT
+Expected Krea profile:
+- id: krea_2
+- category: image
+- renderer: natural_language
+- output_language: en
+- default variant: turbo
+- task: T2I
+- no H3 Skill dependency
+- no separate negative prompt
+- visible-text capability enabled
+- no legacy H3 controls
+
+Expected variants:
+- raw
+- turbo
+
+No generic quality prefix or negative prompt is added because the official Krea open documentation does not publish one.
+
+3. NATURAL LANGUAGE RENDERER
+The overlay adds `NaturalLanguageRenderer` and registers `natural_language`.
+
+Keep its responsibilities intentionally narrow:
+- deterministic required/recommended prefix/suffix assembly;
+- exact Literal Content validation;
+- exact Protected Terms validation;
+- advisory length warnings only;
+- positive text result plus optional negative components if a future variant supplies them.
+
+Do not add model-name checks to the renderer, PromptEngine, worker, or MainWindow.
+
+Do not refactor `VideoNarrativeRenderer` merely to reduce duplicate code in this phase unless tests reveal a real bug. Small duplication is preferable to unnecessary scope.
+
+4. IMAGE CATEGORY UI
+The existing Phase 2A-1 UI is catalog-driven and should already support `image`.
+
+Do not create a Krea-specific UI branch.
+
+Verify:
+- Category selector contains Image and Video.
+- Choosing Image selects Krea 2.
+- Krea 2 variants show Raw and Turbo.
+- default selected variant is Turbo.
+- Task shows T2I.
+- H3-only advanced video controls and mode-note controls remain hidden.
+- H3 Skill is not shown as required for Krea.
+- selected profile/variant persist through Config v5.
+
+If these behaviors work without MainWindow changes, do not modify MainWindow.
+
+5. PROMPT ENGINE
+Do not add Krea-specific branches.
+
+For Krea:
+- non-H3 generic UI block should contain Task + Prompt Processing only;
+- no Duration/Camera/Shot/Motion/Audio/reference injection;
+- no prompt_skill dependency;
+- Core Transformation Policy unchanged;
+- output language comes from the profile;
+- Literal/Protected handling unchanged.
+
+6. KREA PROMPT RULES
+The supplied instructions are already a Local Prompt Studio paraphrase of official Krea guidance.
+
+Important intended behavior:
+- one cohesive natural-language image paragraph;
+- preserve subject/action/color/spatial relationship/medium;
+- no Danbooru tag list;
+- no generic quality-tag prefix;
+- no invented negative prompt;
+- requested visible text should be quoted;
+- `[text:<lang>]` content must survive exactly;
+- detail guidance is advisory;
+- no forced target length.
+
+Do not copy Krea's upstream expansion.txt verbatim into the project.
+
+7. LENGTH
+Do NOT add a 512-token `length_guidance` hard limit.
+
+Reason:
+- Krea's official encoder uses max_length=512 internally;
+- Local Prompt Studio's current generic token counter is not the Krea tokenizer;
+- presenting that as an exact measured limit would be misleading;
+- user semantic preservation has priority.
+
+The technical encoder max is reference metadata in the variants only.
+
+No truncation, compression pass, retry, or padding.
+
+8. INFERENCE METADATA
+Reference-only metadata expected:
+
+Raw:
+- steps 52
+- cfg 3.5
+- trained up to 1K note
+
+Turbo:
+- steps 8
+- cfg 0.0
+- mu 1.15
+- roughly 1K-2K resolution note
+
+Do not apply any of these values to ComfyUI.
+
+9. LITERAL TEXT
+Verify `[text:ja] 月夜珈琲` can pass through Krea output as exact Unicode text, e.g. inside quotation marks.
+
+Exact substring preservation is required.
+Do not claim Krea itself guarantees perfect glyph rendering.
+
+10. LOCALIZATION
+Supplied locale changes add:
+- profile.krea_2.description
+- About text mentioning Krea 2
+
+English remains canonical; Japanese remains bundled.
+No Input Language selector.
+
+11. DOCS / README / CHANGELOG
+The overlay updates Phase 2A-2 wording and Schema documentation.
+Do not turn this into a release.
+Version remains 2.0.0-alpha.1.
+
+12. TESTS
+Run the supplied focused tests first:
+- tests/test_profile_loader.py
+- tests/test_transformation_foundation.py
+- tests/test_localization.py
+- tests/test_gui_smoke.py
+
+Expected new structural coverage includes:
+- four builtin profiles discovered;
+- Krea profile/variants validate;
+- natural_language registry path works;
+- no H3 Skill dependency;
+- no H3 control injection;
+- Image -> Krea 2 -> Raw/Turbo -> T2I catalog behavior;
+- Krea generated output has no automatic negative prompt;
+- Literal Japanese visible text preserved exactly.
+
+Then run full pytest.
+
+Do not add flaky tests against nondeterministic real Qwen prose.
+
+13. REGRESSION
+Verify no regression to:
+- MiniMax H3;
+- Wan 2.2;
+- LTX-2.3;
+- Qwen3/Qwen3.5 llama-server behavior;
+- CPU/Vulkan;
+- config/history;
+- ComfyUI Bridge/protocol/pairing/DPAPI/Send behavior;
+- startup network silence.
+
+No ComfyUI Bridge source changes are expected.
+
+14. STATIC CHECKS
+Run:
+- full pytest
+- git diff --check
+- Python AST/syntax
+- PowerShell AST only if a PowerShell file unexpectedly changes
+- UTF-8 JSON validation
+- no new secrets/absolute developer paths
+- no Krea-specific Python branch such as `if profile == "krea_2"`
+
+15. SCOPE
+DO NOT:
+- add Anima;
+- add danbooru_tags;
+- add I2I/edit tasks;
+- change Profile Schema version;
+- change app version;
+- change ComfyUI integration;
+- implement Profile updater;
+- perform release build/publish/tag/push;
+- perform broad refactors.
+
+16. FINAL REPORT
+Report:
+- starting HEAD/branch/clean status;
+- whether overlay applied cleanly;
+- exact changed/new files;
+- Krea profile validation;
+- renderer registry result;
+- Image UI behavior;
+- Raw/Turbo metadata;
+- focused tests;
+- full pytest;
+- ComfyUI regression;
+- static checks;
+- exact git status --short.
+
+Do NOT commit, push, tag, or publish.
+Stop for review.
+
+Return exactly one verdict:
+A. PHASE 2A-2 KREA 2 INTEGRATION READY FOR REVIEW
+B. SMALL FIXES REQUIRED
+C. BLOCKED

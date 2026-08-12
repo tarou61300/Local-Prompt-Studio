@@ -13,6 +13,7 @@ from core.protected_terms import normalize_protected_terms
 from core.renderers import (
     LITERAL_CONTENT_NOT_PRESERVED,
     PROTECTED_TERM_NOT_PRESERVED,
+    NaturalLanguageRenderer,
     TransformationError,
     VideoNarrativeRenderer,
 )
@@ -200,6 +201,61 @@ def test_ltx_200_word_guidance_warns_without_mutating_output():
 
     assert result.positive == generated
     assert result.warnings == ("PROMPT_LONGER_THAN_RECOMMENDED",)
+
+
+def test_krea_2_uses_natural_language_renderer_without_h3_skill_or_controls():
+    profile = _named_profile("krea_2")
+    engine = PromptEngine(None, profile, "turbo")
+    settings = PromptSettings(
+        mode="T2I",
+        duration=999,
+        camera="unused-camera",
+        shot="unused-shot",
+        motion="unused-motion",
+        start_frame_note="unused-start",
+        end_frame_note="unused-end",
+        references=[H3Reference("Unsupported", 99, "unused-reference")],
+    )
+
+    payload = engine.request_payload("A red fox in snow.", settings)
+    system = payload["messages"][0]["content"]
+
+    assert "SELECTED PROFILE (krea_2 v1.0.0)" in system
+    assert "Task: T2I" in system
+    assert "EXTERNAL PROMPT SKILL" not in system
+    assert "Duration:" not in system
+    assert "Camera:" not in system
+    assert "Audio:" not in system
+    assert "unused-reference" not in system
+
+    result = engine.finalize_output(
+        "[text:ja] 月夜珈琲",
+        PromptSettings(mode="T2I"),
+        'A small storefront sign reading "月夜珈琲" at night.',
+    )
+    assert result.positive == 'A small storefront sign reading "月夜珈琲" at night.'
+    assert result.negative is None
+    assert result.warnings == ()
+
+
+def test_natural_language_renderer_preserves_fixed_component_contract():
+    variant = _named_profile("krea_2").variant("turbo")
+    variant = replace(
+        variant,
+        required_prompt=PromptComponents(
+            positive_prefix=("required-start",),
+            positive_suffix=("required-end",),
+        ),
+        recommended_prompt=PromptComponents(
+            positive_prefix=("recommended-start",),
+            positive_suffix=("recommended-end",),
+        ),
+    )
+    result = NaturalLanguageRenderer().render("generated", variant, (), ())
+    assert result.positive == (
+        "required-start recommended-start generated recommended-end required-end"
+    )
+    assert result.negative is None
 
 
 def test_protected_term_normalization_never_splits_or_translates():

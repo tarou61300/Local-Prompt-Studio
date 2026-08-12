@@ -64,7 +64,7 @@ def _write_profile(root: Path, profile_id: str, **manifest_changes) -> Path:
 
 def test_builtin_h3_profile_discovery_and_manifest():
     catalog = ProfileLoader(BUILTIN_ROOT, PROJECT_ROOT / ".tmp-unused").discover()
-    assert set(catalog.profiles) == {"minimax_h3", "wan_2_2", "ltx_2_3"}
+    assert set(catalog.profiles) == {"minimax_h3", "wan_2_2", "ltx_2_3", "krea_2"}
     assert catalog.errors == []
     profile = catalog.profiles["minimax_h3"]
     assert profile.manifest.schema_version == 1
@@ -102,6 +102,27 @@ def test_supplied_ltx_profile_metadata_and_dependency_contract():
     assert profile.requires_dependency("prompt_skill") is False
     assert profile.variants["dev"].length_guidance.recommended_maximum == 200
     assert profile.variants["distilled_1_1"].length_guidance.recommended_maximum == 200
+
+
+def test_krea_2_profile_metadata_and_variant_contract():
+    profile = ProfileLoader(BUILTIN_ROOT, PROJECT_ROOT / ".tmp-unused").discover().profiles[
+        "krea_2"
+    ]
+
+    assert profile.manifest.category == "image"
+    assert profile.manifest.default_variant == "turbo"
+    assert profile.manifest.supported_tasks == ("T2I",)
+    assert set(profile.variants) == {"raw", "turbo"}
+    assert profile.variant().id == "turbo"
+    assert profile.manifest.renderer == "natural_language"
+    assert profile.requires_dependency("prompt_skill") is False
+    assert profile.manifest.capabilities["separate_negative_prompt"] is False
+    assert profile.variant().length_guidance.unit is None
+    assert profile.variants["raw"].inference_recommendations["steps"] == 52
+    assert profile.variants["raw"].inference_recommendations["cfg"] == 3.5
+    assert profile.variants["turbo"].inference_recommendations["steps"] == 8
+    assert profile.variants["turbo"].inference_recommendations["cfg"] == 0.0
+    assert profile.variants["turbo"].inference_recommendations["mu"] == 1.15
 
 
 def test_official_update_takes_precedence_over_builtin(tmp_path):

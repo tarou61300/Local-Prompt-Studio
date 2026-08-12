@@ -1,0 +1,50 @@
+{
+  "id": "raw",
+  "name": "Raw",
+  "target_model_version": "Krea 2 Raw v1.0",
+  "required_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "recommended_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "optional_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "length_guidance": {},
+  "inference_recommendations": {
+    "checkpoint": "Krea 2 Raw",
+    "recommended_use": "training_finetuning_and_full_sampler_inference",
+    "steps": 52,
+    "cfg": 3.5,
+    "trained_resolution_note": "Official README states Raw was trained to generate up to 1K resolution.",
+    "text_encoder_max_length_tokens": 512,
+    "text_encoder_limit_note": "Technical encoder capacity from the official code; Local Prompt Studio does not enforce this because its generic length checker is not the Krea tokenizer."
+  },
+  "sources": [
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/krea-ai/krea-2",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_model_card",
+      "url": "https://huggingface.co/krea/Krea-2-Raw",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/krea-ai/krea-2/blob/main/encoder.py",
+      "verified_at": "2026-08-12"
+    }
+  ]
+}

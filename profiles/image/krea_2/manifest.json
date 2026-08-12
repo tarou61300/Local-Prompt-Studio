@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "krea_2",
+  "name": "Krea 2",
+  "profile_version": "1.0.0",
+  "category": "image",
+  "renderer": "natural_language",
+  "output_language": "en",
+  "default_variant": "turbo",
+  "supported_tasks": [
+    "T2I"
+  ],
+  "capabilities": {
+    "processing_modes": [
+      "Faithful",
+      "Balanced",
+      "Creative"
+    ],
+    "literal_content": true,
+    "protected_terms": true,
+    "separate_negative_prompt": false,
+    "visible_text": true,
+    "source_image_inspection": false,
+    "legacy_h3_controls": false,
+    "speech": false
+  },
+  "description_key": "profile.krea_2.description",
+  "instructions_file": "instructions.md",
+  "external_dependencies": [],
+  "sources": [
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/krea-ai/krea-2",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/krea-ai/krea-2/blob/main/docs/prompting.md",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/krea-ai/krea-2/blob/main/docs/expansion.txt",
+      "verified_at": "2026-08-12"
+    }
+  ]
+}
