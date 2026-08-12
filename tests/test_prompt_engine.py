@@ -51,8 +51,10 @@ def test_all_system_material_is_combined_before_user_for_jinja_compatibility(eng
     messages = engine.build_messages("A cat walks.", PromptSettings())
     assert [message["role"] for message in messages] == ["system", "user"]
     system = messages[0]["content"]
-    assert system.startswith("You transform a user's request")
-    assert "OFFICIAL H3 SKILL:" in system
+    assert system.startswith("CORE TRANSFORMATION POLICY")
+    assert "SELECTED PROFILE (minimax_h3 v1.0.0)" in system
+    assert "Transform the user request" in system
+    assert "EXTERNAL PROMPT SKILL:" in system
     assert "REFERENCE GUIDE FOR T2VA:" in system
     assert "UI SETTINGS" in system
     assert "OUTPUT FORMAT:" in system

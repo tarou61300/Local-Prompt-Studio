@@ -21,6 +21,7 @@ history.sqlite3*
 *.tmp
 *.gguf
 MMH3-Prompt-Builder-*-win-x64-portable.zip
+Local-Prompt-Studio-*-win-x64-portable.zip
 .mmh3-skill.json
 
 .env

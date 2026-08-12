@@ -39,6 +39,8 @@ a = Analysis(
             (str(project_root / "runtime" / filename), "runtime")
             for filename in runtime_metadata
         ],
+        (str(project_root / "locales"), "locales"),
+        (str(project_root / "profiles"), "profiles"),
         (str(project_root / "LICENSE"), "."),
         (str(project_root / "THIRD_PARTY_LICENSES.md"), "."),
         (str(project_root / "README.md"), "."),
@@ -60,7 +62,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="MMH3PromptBuilder",
+    name="LocalPromptStudio",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -76,5 +78,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="MMH3PromptBuilder",
+    name="LocalPromptStudio",
 )

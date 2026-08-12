@@ -14,7 +14,7 @@ PORTABLE_WRITE_ERROR = (
     "この場所には設定を書き込めません。Downloads、Documents、Desktop等の"
     "書き込み可能なフォルダへ解凍してください。"
 )
-CONFIG_VERSION = 4
+CONFIG_VERSION = 5
 DEFAULT_CONTEXT_SIZE = 8192
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
 CONTEXT_PRESETS = (
@@ -44,6 +44,9 @@ class AppConfig:
     theme: str = "System"
     setup_completed: bool = False
     comfyui_url: str = field(default=DEFAULT_COMFYUI_URL, repr=False)
+    ui_locale: str = "ja-JP"
+    selected_profile: str = "minimax_h3"
+    selected_variant: str = "base"
 
     def normalized(self) -> "AppConfig":
         self.inference_backend = normalize_backend_id(self.inference_backend)
@@ -58,6 +61,11 @@ class AppConfig:
             self.comfyui_url = DEFAULT_COMFYUI_URL
         else:
             self.comfyui_url = self.comfyui_url.strip()
+        self.ui_locale = self.ui_locale if self.ui_locale in {"en-US", "ja-JP"} else "ja-JP"
+        if not isinstance(self.selected_profile, str) or not self.selected_profile.strip():
+            self.selected_profile = "minimax_h3"
+        if not isinstance(self.selected_variant, str) or not self.selected_variant.strip():
+            self.selected_variant = "base"
         return self
 
 
@@ -89,6 +97,11 @@ class ConfigManager:
                     raw["gpu_layers"] = GPU_LAYERS_AUTO
             if stored_version < 4:
                 raw.setdefault("comfyui_url", DEFAULT_COMFYUI_URL)
+            if stored_version < 5:
+                # v1 had a Japanese-first UI. Preserve that experience on upgrade.
+                raw.setdefault("ui_locale", "ja-JP")
+                raw.setdefault("selected_profile", "minimax_h3")
+                raw.setdefault("selected_variant", "base")
             raw["config_version"] = CONFIG_VERSION
             allowed = {item.name for item in fields(AppConfig)}
             values = {key: value for key, value in raw.items() if key in allowed}

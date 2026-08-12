@@ -1,0 +1,48 @@
+{
+  "id": "distilled_1_1",
+  "name": "22B Distilled 1.1",
+  "target_model_version": "LTX-2.3 22B Distilled 1.1",
+  "required_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "recommended_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "optional_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "length_guidance": {
+    "unit": "words",
+    "recommended_maximum": 200,
+    "source_level": "official",
+    "source_reference": "Lightricks/LTX-2 prompting guidance"
+  },
+  "inference_recommendations": {
+    "recommended_pipeline": "DistilledPipeline",
+    "stage_1_steps": 8,
+    "stage_2_steps": 4,
+    "guidance_required": false,
+    "note": "Official LTX-2 pipeline documentation describes the distilled pipeline as the fastest path, using 8 predefined sigmas in stage 1 and 4 refinement steps in stage 2 without guidance."
+  },
+  "sources": [
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/Lightricks/LTX-2",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_model_card",
+      "url": "https://huggingface.co/Lightricks/LTX-2.3",
+      "verified_at": "2026-08-12"
+    }
+  ]
+}

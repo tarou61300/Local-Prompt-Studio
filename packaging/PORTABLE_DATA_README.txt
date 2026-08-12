@@ -1,4 +1,4 @@
-MMH3 Prompt Builder portable data folder
+Local Prompt Studio portable data folder
 
 The application stores its settings, logs, optional history, downloaded MiniMax
 H3 Prompt Skill, and llama-server logs in this folder.
@@ -8,5 +8,5 @@ credential is protected with Windows DPAPI CurrentUser and is not stored in
 config.json. Never publish or share that file.
 
 No Windows registry settings, services, Start Menu shortcuts, or desktop
-shortcuts are created. To remove MMH3 Prompt Builder completely, close the app
+shortcuts are created. To remove Local Prompt Studio completely, close the app
 and delete the extracted portable folder.

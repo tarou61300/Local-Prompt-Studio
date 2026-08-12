@@ -38,12 +38,15 @@ def test_settings_save_and_load(tmp_path):
 
 
 def test_default_context_is_8192():
-    assert CONFIG_VERSION == 4
+    assert CONFIG_VERSION == 5
     assert AppConfig().context_size == 8192
     assert DEFAULT_CONTEXT_SIZE == 8192
     assert AppConfig().comfyui_url == DEFAULT_COMFYUI_URL
     assert AppConfig().inference_backend == BACKEND_CPU
     assert AppConfig().gpu_layers == GPU_LAYERS_AUTO
+    assert AppConfig().ui_locale == "ja-JP"
+    assert AppConfig().selected_profile == "minimax_h3"
+    assert AppConfig().selected_variant == "base"
 
 
 def test_v1_default_context_is_migrated(tmp_path):
@@ -100,7 +103,7 @@ def test_v2_nvidia_setting_migrates_to_safe_cpu_fallback(tmp_path):
     assert migrated.comfyui_url == DEFAULT_COMFYUI_URL
 
 
-def test_v3_config_migrates_to_v4_with_default_comfyui_url(tmp_path):
+def test_v3_config_migrates_to_current_with_default_comfyui_url(tmp_path):
     manager = ConfigManager(tmp_path)
     tmp_path.mkdir(exist_ok=True)
     manager.path.write_text(
@@ -108,7 +111,7 @@ def test_v3_config_migrates_to_v4_with_default_comfyui_url(tmp_path):
         encoding="utf-8",
     )
     migrated = manager.load()
-    assert migrated.config_version == 4
+    assert migrated.config_version == CONFIG_VERSION
     assert migrated.theme == "Dark"
     assert migrated.comfyui_url == DEFAULT_COMFYUI_URL
 
@@ -127,9 +130,25 @@ def test_existing_v4_comfyui_url_is_preserved_and_unknown_fields_are_filtered(tm
         encoding="utf-8",
     )
     loaded = manager.load()
-    assert loaded.config_version == 4
+    assert loaded.config_version == CONFIG_VERSION
     assert loaded.comfyui_url == "https://remote.example.com"
+    assert loaded.ui_locale == "ja-JP"
     assert not hasattr(loaded, "unknown_future_setting")
+
+
+def test_v5_locale_and_profile_ids_round_trip(tmp_path):
+    manager = ConfigManager(tmp_path)
+    manager.save(
+        AppConfig(
+            ui_locale="en-US",
+            selected_profile="minimax_h3",
+            selected_variant="base",
+        )
+    )
+    loaded = manager.load()
+    assert loaded.ui_locale == "en-US"
+    assert loaded.selected_profile == "minimax_h3"
+    assert loaded.selected_variant == "base"
 
 
 def test_vulkan_backend_device_and_explicit_layers_round_trip(tmp_path):

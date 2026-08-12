@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
 from core.inference_backends import BACKEND_CPU, BACKEND_VULKAN, GPU_LAYERS_AUTO
 from core.llama_manager import LlamaServerManager
+from core.localization import Localization
 from core.model_manager import validate_model
 from core.skill_manager import SkillError, SkillManager
 
@@ -37,15 +38,21 @@ class SetupDialog(QWizard):
         parent=None,
         *,
         enforce_portable_skill_storage: bool = False,
+        localization: Localization | None = None,
     ) -> None:
         super().__init__(parent)
         self.config_manager = config_manager
         self.project_root = project_root
         self.enforce_portable_skill_storage = enforce_portable_skill_storage
         self.config = config_manager.load()
+        self.localization = localization or Localization(
+            project_root / "locales", self.config.ui_locale
+        )
         self.runtime_manager = LlamaServerManager(project_root / "runtime")
         self.vulkan_devices = self.runtime_manager.detect_vulkan_devices()
-        self.setWindowTitle("MMH3 Prompt Builder 初回セットアップ")
+        self.setWindowTitle(
+            f"{self.localization.tr('app.title')} — {self.localization.tr('settings.title')}"
+        )
         self.setWizardStyle(QWizard.ModernStyle)
         self.setMinimumSize(680, 470)
         self.setOption(QWizard.NoBackButtonOnStartPage)
@@ -86,7 +93,7 @@ class SetupDialog(QWizard):
     def _create_skill_page(self) -> None:
         page, layout = self._new_page(
             "Step 2 — MiniMax H3 Prompt Skill",
-            "このボタンを押した場合だけ、MiniMax公式GitHubから3ファイルを取得します。",
+            self.localization.tr("setup.h3_skill_optional"),
         )
         portable_skill_path = self.config_manager.data_dir / "skills" / "h3-prompt-writing"
         self.skill_path = (
@@ -186,10 +193,6 @@ class SetupDialog(QWizard):
             validate_model(self.model_path.text())
         except ValueError as exc:
             QMessageBox.warning(self, "セットアップ未完了", str(exc))
-            return
-        status = SkillManager(self.skill_path).status()
-        if not status.valid:
-            QMessageBox.warning(self, "セットアップ未完了", "MiniMax H3 Prompt Skillを取得してください。")
             return
         self.config.model_path = self.model_path.text()
         self.config.skill_location = str(self.skill_path.resolve())

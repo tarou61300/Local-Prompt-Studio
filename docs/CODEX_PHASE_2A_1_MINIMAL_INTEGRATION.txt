@@ -1,0 +1,132 @@
+LOCAL PROMPT STUDIO — PHASE 2A-1 MINIMAL INTEGRATION
+
+Purpose: integrate the supplied Wan 2.2 and LTX-2.3 profiles with the smallest safe code change. Do not research or rewrite the supplied profile rules. They have already been researched against official upstream sources.
+
+IMPORTANT SCOPE
+- Add Wan 2.2 and LTX-2.3 only.
+- Reuse existing video_narrative renderer.
+- No Krea/Anima/image renderer yet.
+- No Profile Schema version bump unless a real blocker is found.
+- No ComfyUI Bridge/protocol/pairing changes.
+- No release/tag/push.
+- Do not refactor unrelated llama.cpp/runtime/history/ComfyUI code.
+
+1. Copy profile folders exactly
+- profiles/video/wan_2_2/
+- profiles/video/ltx_2_3/
+
+2. Mark existing H3 profile as using legacy H3 controls
+Add to profiles/video/minimax_h3/manifest.json capabilities:
+  "legacy_h3_controls": true
+Do not change its prompt rules or external Skill dependency.
+
+3. Make Category / Model / Variant truly catalog-driven
+Current MainWindow inserts only the already-selected profile into profile_model. Replace that with catalog-driven population.
+- category selector: unique categories from loaded profiles; currently Video only, but implementation must allow Image later without model-name conditionals.
+- model selector: profiles in selected category.
+- variant selector: variants from selected profile.
+- changing category/model must refresh profile + variants + supported task values.
+- persist selected_profile and selected_variant using current ConfigManager v5 fields.
+- preserve fallback to minimax_h3 if configured profile is unavailable.
+- do not add hard-coded `if model == "wan_2_2"` or `if model == "ltx_2_3"` in the generation controller.
+
+4. Make Task profile-driven
+A target profile's manifest.supported_tasks is the source of truth.
+- H3 retains: T2VA, I2VA, FL2VA, L2VA, Ref2VA.
+- Wan 2.2: T2V, I2V.
+- LTX-2.3: T2V, I2V.
+Prefer showing Task in the target/profile area so it remains visible even when H3-only advanced video controls are hidden.
+Do not invent additional tasks in this phase.
+
+5. Preserve H3 controls without forcing them on other profiles
+Current PromptSettings/_validate/_ui_block contain H3-specific fields and validation.
+Use profile capabilities, not model-name checks.
+- If profile.capabilities["legacy_h3_controls"] is true: preserve current Duration 4-15, Camera, Shot, Motion, audio checkboxes, frame notes, references, reference validation, and existing H3 UI block behavior exactly.
+- If false: do not validate H3 duration/reference constraints and do not inject unused H3 Camera/Shot/Motion/Audio/Frame/Reference values into the LLM system prompt.
+- For non-H3 profiles in this phase, the generated UI settings block only needs Task + Prompt Processing + processing rule. The user describes camera/audio/motion naturally in the request and the profile rules shape them.
+- Hide H3-only control groups for profiles where legacy_h3_controls is false.
+This is intentionally simple; do not build a generic dynamic UI-schema framework yet.
+
+6. H3 Skill must become optional at first-run setup
+The current SetupDialog blocks completion until the MiniMax H3 Skill is installed. That is incompatible with a multi-model application.
+- Keep the H3 Skill page/button, but make the Skill optional for completing the wizard.
+- The wizard must still require a valid GGUF and inference backend setup.
+- Explain in UI/localized text that MiniMax H3 requires the Skill, while other profiles do not.
+- H3 generation must keep the existing dependency check and refuse H3 generation with a clear message if the required Skill is missing.
+- Wan/LTX generation must not require or fetch the H3 Skill.
+- Settings must continue to allow H3 Skill install/update.
+- No automatic network request at startup.
+
+7. Readiness display must be profile-aware
+Do not display H3 Skill as a required readiness item when the selected profile has no required prompt_skill dependency.
+For H3, keep current Skill readiness information.
+For Wan/LTX, omit the Skill readiness segment or show it as not required.
+No network access.
+
+8. PromptEngine
+- Reuse video_narrative for all three profiles.
+- `_validate`: always validate selected task against manifest.supported_tasks and processing mode. H3-specific duration/reference checks only when legacy_h3_controls is true.
+- `_ui_block`: H3 behavior unchanged under legacy_h3_controls=true. Non-H3: emit only task + processing fields in this phase.
+- `_external_materials`: keep current profile dependency behavior; Wan/LTX have no prompt_skill dependency.
+- Do not create model-name branches.
+- Preserve Core Transformation Policy and Literal/Protected handling exactly.
+
+9. Length guidance
+- LTX-2.3 variants use advisory 200-word recommended maximum. Existing renderer warning behavior is sufficient.
+- Wan 2.2 has task-specific official guidance and therefore intentionally leaves variant-wide length_guidance empty. Do not invent a single Wan numeric limit. Its task-specific guidance is in instructions.md.
+- No truncation/compression/retry/padding.
+
+10. Localization
+Add locale keys needed by new user-visible UI, at minimum:
+- profile.wan_2_2.description
+- profile.ltx_2_3.description
+- profile.task
+- profile.category.image (future-safe if needed by generic category population)
+- setup.h3_skill_optional (or equivalent)
+Use en-US canonical and ja-JP translation.
+Do not hard-code new Japanese strings in Python.
+If existing old H3 setup strings are touched, migrate only the touched strings; do not spend scope on unrelated localization cleanup.
+
+Suggested descriptions:
+en-US:
+  Wan 2.2: "Prompt shaping for Wan 2.2 T2V/I2V with task-aware motion-focused guidance."
+  LTX-2.3: "Chronological audio-video prompt shaping for LTX-2.3 T2V/I2V."
+ja-JP:
+  Wan 2.2: "Wan 2.2のT2V/I2V向けに、タスクに応じて動きを重視したプロンプトへ整形します。"
+  LTX-2.3: "LTX-2.3のT2V/I2V向けに、映像と音声を時系列で記述するプロンプトへ整形します。"
+
+11. Do not change renderer registry in this phase
+Wan and LTX both use existing video_narrative.
+No natural_language or danbooru_tags renderer yet.
+
+12. Tests to add/update
+Focused deterministic tests only:
+- catalog discovers minimax_h3 + wan_2_2 + ltx_2_3.
+- Wan profile validates, default A14B variant, tasks T2V/I2V, no Skill dependency.
+- LTX profile validates, variants dev + distilled_1_1, default distilled_1_1, tasks T2V/I2V, no Skill dependency.
+- LTX length warning occurs >200 words and never mutates text.
+- switching model repopulates variants/tasks without model-name conditional behavior.
+- H3 controls visible for H3 and hidden for Wan/LTX.
+- H3 generation still requires Skill.
+- Wan/LTX generation works structurally with Skill absent.
+- first-run wizard can finish without H3 Skill when GGUF/backend requirements are satisfied.
+- startup still performs no profile/GitHub/ComfyUI network request.
+- existing H3 regression suite remains green.
+- ComfyUI regression suite remains green.
+
+13. Do not perform live LLM quality tuning in this phase
+Use mock/fake LLM output to verify prompt construction, renderer selection, preservation checks and UI selection. Do not burn time changing profile prose based on one nondeterministic Qwen run.
+
+14. Final checks
+- full pytest
+- git diff --check
+- Python AST
+- PowerShell AST if touched
+- product version remains 2.0.0-alpha.1
+- no commit/push/tag
+- report exact changed files and git status
+
+STOP FOR REVIEW with one verdict:
+A. PHASE 2A-1 WAN/LTX INTEGRATION READY FOR REVIEW
+B. SMALL FIXES REQUIRED
+C. BLOCKED

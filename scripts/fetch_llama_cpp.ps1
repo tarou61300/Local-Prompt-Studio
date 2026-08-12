@@ -40,7 +40,7 @@ $AssetNames = @{
 }
 $AssetName = $AssetNames[$Variant]
 $ReleaseApi = "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$Version"
-$Headers = @{ "User-Agent" = "MMH3-Prompt-Builder-runtime-fetch" }
+$Headers = @{ "User-Agent" = "Local-Prompt-Studio-runtime-fetch" }
 Write-Host "Querying official llama.cpp release metadata: $ReleaseApi"
 $Release = Invoke-RestMethod -Headers $Headers -Uri $ReleaseApi
 if ($Release.tag_name -ne $Version) {
@@ -75,7 +75,7 @@ if ($PinnedCommit -and ($Version -eq $PinnedVersion) -and ($Release.target_commi
 $Destination = Resolve-WorkspaceChild (Join-Path $ProjectRoot "runtime\$Variant")
 $TempRoot = Resolve-WorkspaceChild (Join-Path $ProjectRoot ".tmp")
 $TempDirectory = Resolve-WorkspaceChild (
-    (Join-Path $TempRoot ("mmh3-llama-" + [guid]::NewGuid().ToString("N")))
+    (Join-Path $TempRoot ("local-prompt-studio-llama-" + [guid]::NewGuid().ToString("N")))
 )
 New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $TempDirectory | Out-Null

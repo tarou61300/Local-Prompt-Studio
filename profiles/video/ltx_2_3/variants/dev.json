@@ -1,0 +1,45 @@
+{
+  "id": "dev",
+  "name": "22B Dev",
+  "target_model_version": "LTX-2.3 22B Dev",
+  "required_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "recommended_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "optional_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "length_guidance": {
+    "unit": "words",
+    "recommended_maximum": 200,
+    "source_level": "official",
+    "source_reference": "Lightricks/LTX-2 prompting guidance"
+  },
+  "inference_recommendations": {
+    "recommended_pipeline": "TI2VidTwoStagesPipeline",
+    "note": "Official LTX-2 pipeline documentation recommends the two-stage TI2Vid pipeline for production-quality text/image-to-video generation."
+  },
+  "sources": [
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/Lightricks/LTX-2",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_model_card",
+      "url": "https://huggingface.co/Lightricks/LTX-2.3",
+      "verified_at": "2026-08-12"
+    }
+  ]
+}

@@ -10,14 +10,25 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 VERSION = (PROJECT_ROOT / "VERSION").read_text(encoding="utf-8-sig").strip()
 APPLICATION_REQUIRED_FILES = (
-    "MMH3PromptBuilder.exe",
+    "LocalPromptStudio.exe",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_LICENSES.md",
     "CHANGELOG.md",
-    "COMMUNITY_TEST_CHECKLIST.md",
     "VERSION",
     "data/README.txt",
+    "_internal/locales/en-US.json",
+    "_internal/locales/ja-JP.json",
+    "_internal/profiles/video/minimax_h3/manifest.json",
+    "_internal/profiles/video/minimax_h3/instructions.md",
+    "_internal/profiles/video/minimax_h3/variants/base.json",
+    "_internal/profiles/video/wan_2_2/manifest.json",
+    "_internal/profiles/video/wan_2_2/instructions.md",
+    "_internal/profiles/video/wan_2_2/variants/a14b.json",
+    "_internal/profiles/video/ltx_2_3/manifest.json",
+    "_internal/profiles/video/ltx_2_3/instructions.md",
+    "_internal/profiles/video/ltx_2_3/variants/dev.json",
+    "_internal/profiles/video/ltx_2_3/variants/distilled_1_1.json",
     "licenses/llama.cpp-LICENSE.txt",
     "licenses/LGPL-3.0.txt",
     "licenses/LLVM-LICENSE.txt",
@@ -31,7 +42,6 @@ COMBINED_REQUIRED_FILES = (
     "LICENSE",
     "THIRD_PARTY_LICENSES.md",
     "CHANGELOG.md",
-    "COMMUNITY_TEST_CHECKLIST.md",
     "VERSION",
     "ComfyUI-Bridge/MMH3PromptBridge/__init__.py",
     "ComfyUI-Bridge/MMH3PromptBridge/js/mmh3_bridge.js",
@@ -94,11 +104,11 @@ TEXT_SUFFIXES = {".txt", ".md", ".json", ".ini", ".xml", ".url"}
 def audit_release(root: Path) -> dict[str, int | str]:
     root = root.resolve()
     errors: list[str] = []
-    combined_distribution = (root / "MMH3PromptBuilder" / "MMH3PromptBuilder.exe").is_file()
-    application_root = root / "MMH3PromptBuilder" if combined_distribution else root
+    combined_distribution = (root / "LocalPromptStudio" / "LocalPromptStudio.exe").is_file()
+    application_root = root / "LocalPromptStudio" if combined_distribution else root
     if combined_distribution:
         required_files = [
-            *(f"MMH3PromptBuilder/{relative}" for relative in APPLICATION_REQUIRED_FILES),
+            *(f"LocalPromptStudio/{relative}" for relative in APPLICATION_REQUIRED_FILES),
             *COMBINED_REQUIRED_FILES,
         ]
     else:

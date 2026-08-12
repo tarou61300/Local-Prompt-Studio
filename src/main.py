@@ -12,11 +12,12 @@ from PySide6.QtWidgets import QApplication
 from app.main_window import MainWindow
 from app.setup_dialog import SetupDialog
 from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
-from core.version import APP_VERSION, PRODUCT_NAME
+from core.localization import Localization
+from core.version import APP_VERSION, INTERNAL_APPLICATION_ID, PRODUCT_NAME
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="MMH3 Prompt Builder")
+    parser = argparse.ArgumentParser(description="Local Prompt Studio")
     parser.add_argument("--mock", action="store_true", help="Use the bundled development mock server")
     parser.add_argument("--skip-setup", action="store_true", help="Skip the first-run wizard for testing")
     parser.add_argument(
@@ -32,7 +33,7 @@ def parse_args() -> argparse.Namespace:
 def configure_logging(data_dir: Path) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(
-        data_dir / "mmh3-prompt-builder.log",
+        data_dir / "local-prompt-studio.log",
         maxBytes=1_000_000,
         backupCount=3,
         encoding="utf-8",
@@ -63,11 +64,12 @@ def main() -> int:
     args = parse_args()
     project_root, data_dir = application_paths(args)
     config_manager = ConfigManager(data_dir)
+    localization = Localization(project_root / "locales", config_manager.load().ui_locale)
 
     app = QApplication(sys.argv[:1])
     app.setApplicationName(PRODUCT_NAME)
     app.setApplicationVersion(APP_VERSION)
-    app.setOrganizationName(PRODUCT_NAME)
+    app.setOrganizationName(INTERNAL_APPLICATION_ID)
     try:
         config_manager.ensure_writable()
         configure_logging(config_manager.data_dir)
@@ -91,6 +93,7 @@ def main() -> int:
         config_manager=config_manager,
         server_url=server_url,
         dev_skill_path=dev_skill_path,
+        localization=localization,
     )
     window.show()
 
@@ -102,6 +105,7 @@ def main() -> int:
                 project_root,
                 window,
                 enforce_portable_skill_storage=getattr(sys, "frozen", False),
+                localization=localization,
             ).exec():
                 window.config = config_manager.load()
                 skill_path = (

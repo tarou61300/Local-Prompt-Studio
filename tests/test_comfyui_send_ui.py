@@ -374,10 +374,13 @@ def test_copy_save_and_settings_actions_remain_available(
     monkeypatch.setattr("app.main_window.SettingsDialog", FakeSettingsDialog)
     try:
         window.output_text.setPlainText(output)
-        buttons = {button.text(): button for button in window.findChildren(QPushButton)}
-        buttons["Copy"].click()
+        copy_button = window.findChild(QPushButton, "copy_button")
+        save_button = window.findChild(QPushButton, "save_button")
+        assert copy_button is not None
+        assert save_button is not None
+        copy_button.click()
         assert QApplication.clipboard().text() == output
-        buttons["Save as TXT"].click()
+        save_button.click()
         assert saved_path.read_text(encoding="utf-8") == output
         window._open_settings()
         assert len(settings_calls) == 1

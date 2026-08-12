@@ -44,7 +44,7 @@ $ExpectedVersionTuple = "($($VersionCore[0]), $($VersionCore[1]), $($VersionCore
 $ReadmeText = Get-Content -LiteralPath (Join-Path $ProjectRoot "README.md") -Raw
 $ChangelogText = Get-Content -LiteralPath (Join-Path $ProjectRoot "CHANGELOG.md") -Raw
 $WindowsVersionText = Get-Content -LiteralPath (Join-Path $ProjectRoot "packaging\version_info.txt") -Raw
-if (-not $ReadmeText.StartsWith("# MMH3 Prompt Builder v$Version")) {
+if (-not $ReadmeText.StartsWith("# Local Prompt Studio v$Version")) {
     throw "README version is inconsistent with VERSION."
 }
 if (-not $ChangelogText.Contains("## $Version") -or -not $ChangelogText.Contains($ReleaseDate)) {
@@ -82,12 +82,12 @@ foreach ($Variant in @("cpu", "vulkan")) {
 }
 
 $DistRoot = Resolve-WorkspaceChild (Join-Path $ProjectRoot "dist")
-$PyInstallerOutput = Resolve-WorkspaceChild (Join-Path $DistRoot "MMH3PromptBuilder")
-$PortableName = "MMH3-Prompt-Builder-v$Version-win-x64-portable"
+$PyInstallerOutput = Resolve-WorkspaceChild (Join-Path $DistRoot "LocalPromptStudio")
+$PortableName = "Local-Prompt-Studio-v$Version-win-x64-portable"
 $ReleaseRoot = Resolve-WorkspaceChild (Join-Path $ProjectRoot "release")
 $DistributionRoot = Resolve-WorkspaceChild (Join-Path $ReleaseRoot $PortableName)
 $ApplicationRoot = if ($IsPrerelease) {
-    Resolve-WorkspaceChild (Join-Path $DistributionRoot "MMH3PromptBuilder")
+    Resolve-WorkspaceChild (Join-Path $DistributionRoot "LocalPromptStudio")
 }
 else {
     $DistributionRoot
@@ -111,7 +111,7 @@ $env:PYINSTALLER_CONFIG_DIR = $PyInstallerConfigRoot
 
 Push-Location $ProjectRoot
 try {
-    & $Python -m PyInstaller --noconfirm --clean "MMH3PromptBuilder.spec"
+    & $Python -m PyInstaller --noconfirm --clean "LocalPromptStudio.spec"
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller build failed."
     }
@@ -139,7 +139,6 @@ $DocumentationFiles = @(
     "LICENSE",
     "THIRD_PARTY_LICENSES.md",
     "CHANGELOG.md",
-    "COMMUNITY_TEST_CHECKLIST.md",
     "VERSION"
 )
 foreach ($Name in $DocumentationFiles) {
@@ -203,17 +202,17 @@ if (Test-Path -LiteralPath $ZipPath) {
 }
 Compress-Archive -LiteralPath $DistributionRoot -DestinationPath $ZipPath -CompressionLevel Optimal
 
-$MainExe = Join-Path $ApplicationRoot "MMH3PromptBuilder.exe"
+$MainExe = Join-Path $ApplicationRoot "LocalPromptStudio.exe"
 $CpuServer = Join-Path $ApplicationRoot "_internal\runtime\cpu\llama-server.exe"
 $VulkanServer = Join-Path $ApplicationRoot "_internal\runtime\vulkan\llama-server.exe"
 $ZipHash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $ExeHash = (Get-FileHash -LiteralPath $MainExe -Algorithm SHA256).Hash.ToLowerInvariant()
 $CpuServerHash = (Get-FileHash -LiteralPath $CpuServer -Algorithm SHA256).Hash.ToLowerInvariant()
 $VulkanServerHash = (Get-FileHash -LiteralPath $VulkanServer -Algorithm SHA256).Hash.ToLowerInvariant()
-$ApplicationRelative = if ($IsPrerelease) { "$PortableName/MMH3PromptBuilder" } else { $PortableName }
+$ApplicationRelative = if ($IsPrerelease) { "$PortableName/LocalPromptStudio" } else { $PortableName }
 $ChecksumLines = @(
     "{0}  {1}" -f $ZipHash, (Split-Path $ZipPath -Leaf)
-    "{0}  {1}" -f $ExeHash, "$ApplicationRelative/MMH3PromptBuilder.exe"
+    "{0}  {1}" -f $ExeHash, "$ApplicationRelative/LocalPromptStudio.exe"
     "{0}  {1}" -f $CpuServerHash, "$ApplicationRelative/_internal/runtime/cpu/llama-server.exe"
     "{0}  {1}" -f $VulkanServerHash, "$ApplicationRelative/_internal/runtime/vulkan/llama-server.exe"
 )
@@ -228,7 +227,7 @@ $VulkanSourceUrl = (Get-Content -LiteralPath (Join-Path $ProjectRoot "runtime\vu
 $CpuAssetName = [System.IO.Path]::GetFileName($CpuSourceUrl)
 $VulkanAssetName = [System.IO.Path]::GetFileName($VulkanSourceUrl)
 $DistributionContents = if ($IsPrerelease) {
-    "Portable application, ComfyUI Prompt Bridge v$BridgeVersion source, user documentation, community test checklist, and required licenses"
+    "Portable application, ComfyUI Prompt Bridge v$BridgeVersion source, user documentation, and required licenses"
 }
 else {
     "Portable application, user documentation, and required licenses"

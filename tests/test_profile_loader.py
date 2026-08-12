@@ -1,0 +1,208 @@
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+from core.profile_loader import (
+    PROFILE_DUPLICATE_ID,
+    PROFILE_UNKNOWN_RENDERER,
+    PROFILE_UNSAFE_PATH,
+    PROFILE_UNSUPPORTED_SCHEMA,
+    ProfileLoader,
+)
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+BUILTIN_ROOT = PROJECT_ROOT / "profiles"
+
+
+def _manifest(profile_id: str, **changes):
+    value = {
+        "schema_version": 1,
+        "id": profile_id,
+        "name": profile_id,
+        "profile_version": "1.0.0",
+        "category": "video",
+        "renderer": "video_narrative",
+        "output_language": "en",
+        "default_variant": "base",
+        "supported_tasks": ["T2VA"],
+        "capabilities": {},
+        "instructions_file": "instructions.md",
+        "sources": [{"type": "custom"}],
+    }
+    value.update(changes)
+    return value
+
+
+def _write_profile(root: Path, profile_id: str, **manifest_changes) -> Path:
+    profile = root / "video" / profile_id
+    (profile / "variants").mkdir(parents=True)
+    (profile / "manifest.json").write_text(
+        json.dumps(_manifest(profile_id, **manifest_changes)), encoding="utf-8"
+    )
+    (profile / "instructions.md").write_text("instructions", encoding="utf-8")
+    (profile / "variants" / "base.json").write_text(
+        json.dumps(
+            {
+                "id": "base",
+                "name": "Base",
+                "target_model_version": None,
+                "required_prompt": {},
+                "recommended_prompt": {},
+                "optional_prompt": {},
+                "length_guidance": {},
+                "inference_recommendations": {},
+                "sources": [{"type": "custom"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return profile
+
+
+def test_builtin_h3_profile_discovery_and_manifest():
+    catalog = ProfileLoader(BUILTIN_ROOT, PROJECT_ROOT / ".tmp-unused").discover()
+    assert set(catalog.profiles) == {"minimax_h3", "wan_2_2", "ltx_2_3"}
+    assert catalog.errors == []
+    profile = catalog.profiles["minimax_h3"]
+    assert profile.manifest.schema_version == 1
+    assert profile.manifest.renderer == "video_narrative"
+    assert profile.manifest.supported_tasks == ("T2VA", "I2VA", "FL2VA", "L2VA", "Ref2VA")
+    assert profile.variant().id == "base"
+    assert profile.variant().optional_prompt.positive_prefix == ()
+    assert profile.variant().length_guidance.unit is None
+    assert profile.manifest.capabilities["legacy_h3_controls"] is True
+
+
+def test_supplied_wan_profile_metadata_and_dependency_contract():
+    profile = ProfileLoader(BUILTIN_ROOT, PROJECT_ROOT / ".tmp-unused").discover().profiles[
+        "wan_2_2"
+    ]
+
+    assert profile.manifest.default_variant == "a14b"
+    assert profile.manifest.supported_tasks == ("T2V", "I2V")
+    assert profile.variant().id == "a14b"
+    assert profile.manifest.renderer == "video_narrative"
+    assert profile.requires_dependency("prompt_skill") is False
+    assert profile.variant().length_guidance.unit is None
+
+
+def test_supplied_ltx_profile_metadata_and_dependency_contract():
+    profile = ProfileLoader(BUILTIN_ROOT, PROJECT_ROOT / ".tmp-unused").discover().profiles[
+        "ltx_2_3"
+    ]
+
+    assert profile.manifest.default_variant == "distilled_1_1"
+    assert profile.manifest.supported_tasks == ("T2V", "I2V")
+    assert set(profile.variants) == {"dev", "distilled_1_1"}
+    assert profile.variant().id == "distilled_1_1"
+    assert profile.manifest.renderer == "video_narrative"
+    assert profile.requires_dependency("prompt_skill") is False
+    assert profile.variants["dev"].length_guidance.recommended_maximum == 200
+    assert profile.variants["distilled_1_1"].length_guidance.recommended_maximum == 200
+
+
+def test_official_update_takes_precedence_over_builtin(tmp_path):
+    builtin = tmp_path / "builtin"
+    shutil.copytree(BUILTIN_ROOT, builtin)
+    official = tmp_path / "data" / "profiles" / "official"
+    profile = _write_profile(official, "minimax_h3")
+    raw = json.loads((profile / "manifest.json").read_text(encoding="utf-8"))
+    raw["name"] = "Updated H3"
+    (profile / "manifest.json").write_text(json.dumps(raw), encoding="utf-8")
+    catalog = ProfileLoader(builtin, tmp_path / "data").discover()
+    assert catalog.profiles["minimax_h3"].manifest.name == "Updated H3"
+    assert catalog.profiles["minimax_h3"].layer == "official"
+
+
+def test_custom_profile_is_discovered_separately(tmp_path):
+    _write_profile(tmp_path / "data" / "profiles" / "custom", "custom_video")
+    catalog = ProfileLoader(BUILTIN_ROOT, tmp_path / "data").discover()
+    assert "minimax_h3" in catalog.profiles
+    assert "custom_video" in catalog.custom_profiles
+
+
+def test_broken_custom_profile_isolated(tmp_path):
+    profile = tmp_path / "data" / "profiles" / "custom" / "video" / "broken"
+    profile.mkdir(parents=True)
+    (profile / "manifest.json").write_text("not-json", encoding="utf-8")
+    catalog = ProfileLoader(BUILTIN_ROOT, tmp_path / "data").discover()
+    assert "minimax_h3" in catalog.profiles
+    assert catalog.errors
+    assert catalog.custom_profiles == {}
+
+
+def test_unknown_renderer_schema_and_unsafe_path_rejected(tmp_path):
+    custom = tmp_path / "data" / "profiles" / "custom"
+    _write_profile(custom, "unknown_renderer", renderer="danbooru_tags")
+    _write_profile(custom, "wrong_schema", schema_version=2)
+    _write_profile(custom, "unsafe_path", instructions_file="../outside.md")
+    catalog = ProfileLoader(BUILTIN_ROOT, tmp_path / "data").discover()
+    codes = {error.code for error in catalog.errors}
+    assert PROFILE_UNKNOWN_RENDERER in codes
+    assert PROFILE_UNSUPPORTED_SCHEMA in codes
+    assert PROFILE_UNSAFE_PATH in codes
+
+
+def test_duplicate_custom_id_does_not_override_builtin(tmp_path):
+    _write_profile(tmp_path / "data" / "profiles" / "custom", "minimax_h3")
+    catalog = ProfileLoader(BUILTIN_ROOT, tmp_path / "data").discover()
+    assert catalog.profiles["minimax_h3"].layer == "builtin"
+    assert any(error.code == PROFILE_DUPLICATE_ID for error in catalog.errors)
+
+
+def test_executable_profile_content_is_rejected(tmp_path):
+    profile = _write_profile(
+        tmp_path / "data" / "profiles" / "custom", "unsafe_code"
+    )
+    (profile / "run.py").write_text("raise RuntimeError", encoding="utf-8")
+    catalog = ProfileLoader(BUILTIN_ROOT, tmp_path / "data").discover()
+    assert "unsafe_code" not in catalog.custom_profiles
+    assert any(error.code == PROFILE_UNSAFE_PATH for error in catalog.errors)
+
+
+def test_symlinked_profile_directory_is_rejected(tmp_path, monkeypatch):
+    link = _write_profile(
+        tmp_path / "data" / "profiles" / "custom",
+        "linked_profile",
+    )
+    original_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda path: path == link or original_is_symlink(path),
+    )
+
+    catalog = ProfileLoader(BUILTIN_ROOT, tmp_path / "data").discover()
+
+    assert "linked_profile" not in catalog.custom_profiles
+    assert any(error.code == PROFILE_UNSAFE_PATH for error in catalog.errors)
+
+
+def test_malformed_external_dependency_metadata_is_rejected(tmp_path):
+    custom = tmp_path / "data" / "profiles" / "custom"
+    _write_profile(
+        custom,
+        "bad_dependency",
+        external_dependencies=[
+            {
+                "id": "skill",
+                "kind": "prompt_skill",
+                "required": "yes",
+                "bundled": False,
+            }
+        ],
+    )
+    catalog = ProfileLoader(BUILTIN_ROOT, tmp_path / "data").discover()
+    assert "bad_dependency" not in catalog.custom_profiles
+
+
+def test_profile_loading_supports_japanese_and_spaces_in_path(tmp_path):
+    builtin = tmp_path / "AIツール Profile Data" / "profiles"
+    shutil.copytree(BUILTIN_ROOT, builtin)
+    data_dir = tmp_path / "利用者データ 空白"
+    catalog = ProfileLoader(builtin, data_dir).discover()
+    assert catalog.profiles["minimax_h3"].manifest.name == "MiniMax H3"
+    assert catalog.errors == []

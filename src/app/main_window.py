@@ -35,8 +35,12 @@ from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
 from core.history_manager import HistoryManager
 from core.inference_backends import BACKEND_VULKAN, backend_spec
 from core.llama_manager import LlamaServerManager
+from core.localization import Localization
 from core.model_manager import inspect_model
+from core.profile_loader import ProfileLoader
+from core.profile_models import LoadedProfile
 from core.prompt_engine import H3Reference, PromptEngine, PromptSettings, REFERENCE_LIMITS
+from core.renderers import LITERAL_CONTENT_NOT_PRESERVED, PROTECTED_TERM_NOT_PRESERVED
 from core.skill_manager import SkillManager
 from core.system_memory import (
     MemoryAssessment,
@@ -128,11 +132,25 @@ class MainWindow(QMainWindow):
         server_url: str | None = None,
         dev_skill_path: Path | None = None,
         bridge_service_factory: Callable[[str], ComfyUIBridgeService] | None = None,
+        localization: Localization | None = None,
     ) -> None:
         super().__init__()
         self.project_root = project_root
         self.config_manager = config_manager
         self.config = config_manager.load()
+        self.localization = localization or Localization(
+            project_root / "locales", self.config.ui_locale
+        )
+        self.tr = self.localization.tr
+        self.profile_catalog = ProfileLoader(
+            project_root / "profiles", config_manager.data_dir
+        ).discover()
+        try:
+            self.profile: LoadedProfile | None = self.profile_catalog.get(
+                self.config.selected_profile
+            )
+        except KeyError:
+            self.profile = self.profile_catalog.profiles.get("minimax_h3")
         if dev_skill_path is not None:
             self.config.skill_location = str(dev_skill_path)
         skill_path = (
@@ -168,7 +186,7 @@ class MainWindow(QMainWindow):
         self._last_memory_info: MemoryInfo | None = None
         self._vulkan_devices = []
 
-        self.setWindowTitle(f"{PRODUCT_NAME} {APP_DISPLAY_VERSION}")
+        self.setWindowTitle(f"{self.tr('app.title')} {APP_DISPLAY_VERSION}")
         self.resize(1120, 820)
         self.setMinimumSize(850, 640)
         self._build_ui()
@@ -181,21 +199,25 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         toolbar = QToolBar("Main")
+        toolbar.setObjectName("main_toolbar")
         toolbar.setMovable(False)
-        self.settings_action = QAction("設定", self)
+        self.settings_action = QAction(self.tr("toolbar.settings"), self)
+        self.settings_action.setObjectName("settings_action")
         self.settings_action.triggered.connect(self._open_settings)
         toolbar.addAction(self.settings_action)
-        about_action = QAction("このアプリについて", self)
+        about_action = QAction(self.tr("toolbar.about"), self)
+        about_action.setObjectName("about_action")
         about_action.triggered.connect(self._show_about)
         toolbar.addAction(about_action)
         self.addToolBar(toolbar)
 
         central = QWidget()
         root = QVBoxLayout(central)
-        title = QLabel("MMH3 Prompt Builder")
+        title = QLabel(self.tr("app.title"))
+        title.setObjectName("product_title")
         title.setStyleSheet("font-size: 24px; font-weight: 600;")
         root.addWidget(title)
-        subtitle = QLabel("Local Prompt Builder for MiniMax H3")
+        subtitle = QLabel(self.tr("app.subtitle"))
         subtitle.setStyleSheet("color: palette(mid);")
         root.addWidget(subtitle)
         self.readiness = QLabel()
@@ -205,22 +227,38 @@ class MainWindow(QMainWindow):
         self.memory_status.setWordWrap(True)
         root.addWidget(self.memory_status)
 
-        settings_group = QGroupBox("動画設定")
-        grid = QGridLayout(settings_group)
-        self.mode = self._combo(("T2VA", "I2VA", "FL2VA", "L2VA", "Ref2VA"))
-        self.mode.currentTextChanged.connect(self._update_mode_fields)
+        profile_group = QGroupBox(self.tr("target.title"))
+        profile_group.setObjectName("profile_group")
+        profile_layout = QFormLayout(profile_group)
+        self.profile_category = QComboBox()
+        self.profile_category.setObjectName("profile_category")
+        self.profile_model = QComboBox()
+        self.profile_model.setObjectName("profile_model")
+        self.profile_variant = QComboBox()
+        self.profile_variant.setObjectName("profile_variant")
+        self.mode = QComboBox()
+        self.mode.setObjectName("profile_task")
+        self.processing = self._combo(("Faithful", "Balanced", "Creative"))
+        self.processing.setObjectName("prompt_style")
+        profile_layout.addRow(self.tr("profile.category"), self.profile_category)
+        profile_layout.addRow(self.tr("profile.model"), self.profile_model)
+        profile_layout.addRow(self.tr("profile.variant"), self.profile_variant)
+        profile_layout.addRow(self.tr("profile.task"), self.mode)
+        profile_layout.addRow(self.tr("profile.style"), self.processing)
+        root.addWidget(profile_group)
+
+        self.legacy_video_settings_group = QGroupBox(self.tr("video.settings"))
+        self.legacy_video_settings_group.setObjectName("video_settings_group")
+        grid = QGridLayout(self.legacy_video_settings_group)
         self.duration = QSpinBox()
         self.duration.setRange(4, 15)
         self.duration.setValue(10)
-        self.duration.setSuffix(" 秒")
-        self.processing = self._combo(("Faithful", "Balanced", "Creative"))
+        self.duration.setSuffix(self.tr("unit.seconds_suffix"))
         self.camera = self._combo(CAMERAS)
         self.shot = self._combo(SHOTS)
         self.motion = self._combo(MOTIONS)
         entries = (
-            ("Mode", self.mode),
             ("Duration", self.duration),
-            ("Prompt Processing", self.processing),
             ("Camera", self.camera),
             ("Shot", self.shot),
             ("Motion", self.motion),
@@ -241,14 +279,14 @@ class MainWindow(QMainWindow):
         audio_row.addStretch()
         grid.addWidget(QLabel("Audio"), 4, 0)
         grid.addLayout(audio_row, 5, 0, 1, 3)
-        root.addWidget(settings_group)
+        root.addWidget(self.legacy_video_settings_group)
 
-        self.mode_group = QGroupBox("モード補足（ファイル自体の解析・送信は行いません）")
+        self.mode_group = QGroupBox(self.tr("mode.notes"))
         mode_layout = QVBoxLayout(self.mode_group)
-        self.start_note_label = QLabel("開始画像についての補足（任意）")
+        self.start_note_label = QLabel(self.tr("mode.start_note"))
         self.start_note = QPlainTextEdit()
         self.start_note.setMaximumHeight(70)
-        self.end_note_label = QLabel("終了画像についての補足（任意）")
+        self.end_note_label = QLabel(self.tr("mode.end_note"))
         self.end_note = QPlainTextEdit()
         self.end_note.setMaximumHeight(70)
         mode_layout.addWidget(self.start_note_label)
@@ -260,9 +298,9 @@ class MainWindow(QMainWindow):
         self.references.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         mode_layout.addWidget(self.references)
         ref_actions = QHBoxLayout()
-        add_ref = QPushButton("Referenceを追加")
+        add_ref = QPushButton(self.tr("reference.add"))
         add_ref.clicked.connect(self._add_reference)
-        remove_ref = QPushButton("選択行を削除")
+        remove_ref = QPushButton(self.tr("reference.remove"))
         remove_ref.clicked.connect(self._remove_reference)
         ref_actions.addWidget(add_ref)
         ref_actions.addWidget(remove_ref)
@@ -271,14 +309,14 @@ class MainWindow(QMainWindow):
         root.addWidget(self.mode_group)
 
         splitter = QSplitter(Qt.Vertical)
-        request_group = QGroupBox("Request（日本語・英語）")
+        request_group = QGroupBox(self.tr("input.request"))
         request_layout = QVBoxLayout(request_group)
         self.request_text = QPlainTextEdit()
-        self.request_text.setPlaceholderText("例：雨の東京の路地を、赤い傘の女性がゆっくり歩く。台詞は「もうすぐ着くよ」")
+        self.request_text.setPlaceholderText(self.tr("input.placeholder"))
         request_layout.addWidget(self.request_text)
         splitter.addWidget(request_group)
 
-        output_group = QGroupBox("H3 Prompt（編集可能）")
+        output_group = QGroupBox(self.tr("output.prompt"))
         output_layout = QVBoxLayout(output_group)
         self.output_text = QPlainTextEdit()
         output_layout.addWidget(self.output_text)
@@ -287,23 +325,27 @@ class MainWindow(QMainWindow):
         root.addWidget(splitter, 1)
 
         buttons = QHBoxLayout()
-        self.generate_button = QPushButton("Generate H3 Prompt")
+        self.generate_button = QPushButton(self.tr("common.generate"))
+        self.generate_button.setObjectName("generate_button")
         self.generate_button.clicked.connect(self.generate)
-        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button = QPushButton(self.tr("common.cancel"))
+        self.cancel_button.setObjectName("cancel_button")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancel_generation)
-        copy_button = QPushButton("Copy")
+        copy_button = QPushButton(self.tr("common.copy"))
+        copy_button.setObjectName("copy_button")
         copy_button.clicked.connect(lambda: self.output_text.selectAll() or self.output_text.copy())
-        save_button = QPushButton("Save as TXT")
+        save_button = QPushButton(self.tr("common.save"))
+        save_button.setObjectName("save_button")
         save_button.clicked.connect(self._save_output)
         self.send_comfyui_button = QPushButton("Send to ComfyUI")
         self.send_comfyui_button.setToolTip(
             "Send the current edited output to the selected ComfyUI text field."
         )
         self.send_comfyui_button.clicked.connect(self._send_to_comfyui)
-        self.regenerate_button = QPushButton("Regenerate")
+        self.regenerate_button = QPushButton(self.tr("common.regenerate"))
         self.regenerate_button.clicked.connect(self.generate)
-        clear = QPushButton("Clear")
+        clear = QPushButton(self.tr("common.clear"))
         clear.clicked.connect(self._clear_text)
         for button in (
             self.generate_button,
@@ -316,11 +358,16 @@ class MainWindow(QMainWindow):
         ):
             buttons.addWidget(button)
         root.addLayout(buttons)
-        self.status_label = QLabel("準備完了")
+        self.status_label = QLabel(self.tr("common.ready"))
         self.status_label.setWordWrap(True)
         root.addWidget(self.status_label)
         self.setCentralWidget(central)
         self.output_text.textChanged.connect(self._update_send_button_state)
+        self.profile_category.currentIndexChanged.connect(self._profile_category_changed)
+        self.profile_model.currentIndexChanged.connect(self._profile_model_changed)
+        self.profile_variant.currentIndexChanged.connect(self._profile_variant_changed)
+        self.mode.currentTextChanged.connect(self._update_mode_fields)
+        self._populate_profile_selectors()
         self._update_send_button_state()
         self._update_mode_fields(self.mode.currentText())
 
@@ -330,7 +377,137 @@ class MainWindow(QMainWindow):
         combo.addItems(values)
         return combo
 
+    def _available_profiles(self) -> tuple[LoadedProfile, ...]:
+        profiles = (
+            *self.profile_catalog.profiles.values(),
+            *self.profile_catalog.custom_profiles.values(),
+        )
+        return tuple(
+            sorted(
+                profiles,
+                key=lambda profile: (
+                    profile.manifest.category,
+                    profile.manifest.name.casefold(),
+                    profile.manifest.id,
+                ),
+            )
+        )
+
+    def _populate_profile_selectors(self) -> None:
+        profiles = self._available_profiles()
+        categories = sorted({profile.manifest.category for profile in profiles})
+        self.profile_category.blockSignals(True)
+        self.profile_category.clear()
+        for category in categories:
+            self.profile_category.addItem(
+                self.tr(f"profile.category.{category}"),
+                category,
+            )
+        selected_category = self.profile.manifest.category if self.profile else None
+        category_index = self.profile_category.findData(selected_category)
+        self.profile_category.setCurrentIndex(category_index if category_index >= 0 else 0)
+        self.profile_category.blockSignals(False)
+        self._populate_models(
+            str(self.profile_category.currentData() or ""),
+            self.profile.manifest.id if self.profile else None,
+        )
+        self._select_current_profile(persist=False)
+
+    def _populate_models(self, category: str, preferred_profile_id: str | None) -> None:
+        profiles = tuple(
+            profile
+            for profile in self._available_profiles()
+            if profile.manifest.category == category
+        )
+        self.profile_model.blockSignals(True)
+        self.profile_model.clear()
+        for profile in profiles:
+            self.profile_model.addItem(profile.manifest.name, profile.manifest.id)
+        selected_index = self.profile_model.findData(preferred_profile_id)
+        self.profile_model.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+        self.profile_model.blockSignals(False)
+
+    def _select_current_profile(self, *, persist: bool) -> None:
+        profile_id = self.profile_model.currentData()
+        try:
+            self.profile = self.profile_catalog.get(str(profile_id))
+        except KeyError:
+            self.profile = self.profile_catalog.profiles.get("minimax_h3")
+        self._populate_variants()
+        self._populate_tasks()
+        self._update_mode_fields(self.mode.currentText())
+        if persist:
+            self._persist_profile_selection()
+        if hasattr(self, "readiness"):
+            self._refresh_readiness()
+
+    def _populate_variants(self) -> None:
+        self.profile_variant.blockSignals(True)
+        self.profile_variant.clear()
+        if self.profile is not None:
+            for variant in self.profile.variants.values():
+                self.profile_variant.addItem(variant.name, variant.id)
+            preferred_variant = (
+                self.config.selected_variant
+                if self.config.selected_profile == self.profile.manifest.id
+                else self.profile.manifest.default_variant
+            )
+            selected_index = self.profile_variant.findData(preferred_variant)
+            if selected_index < 0:
+                selected_index = self.profile_variant.findData(
+                    self.profile.manifest.default_variant
+                )
+            self.profile_variant.setCurrentIndex(max(0, selected_index))
+        self.profile_variant.blockSignals(False)
+
+    def _populate_tasks(self) -> None:
+        previous_task = self.mode.currentData()
+        self.mode.blockSignals(True)
+        self.mode.clear()
+        if self.profile is not None:
+            for task in self.profile.manifest.supported_tasks:
+                self.mode.addItem(task, task)
+        selected_index = self.mode.findData(previous_task)
+        self.mode.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+        self.mode.blockSignals(False)
+
+    def _profile_category_changed(self) -> None:
+        self._populate_models(str(self.profile_category.currentData() or ""), None)
+        self._select_current_profile(persist=True)
+
+    def _profile_model_changed(self) -> None:
+        self._select_current_profile(persist=True)
+
+    def _profile_variant_changed(self) -> None:
+        self._persist_profile_selection()
+
+    def _persist_profile_selection(self) -> None:
+        if self.profile is None:
+            return
+        config = self.config_manager.load()
+        config.selected_profile = self.profile.manifest.id
+        config.selected_variant = str(
+            self.profile_variant.currentData() or self.profile.manifest.default_variant
+        )
+        try:
+            self.config_manager.save(config)
+            self.config = config
+        except OSError:
+            QMessageBox.warning(
+                self,
+                self.tr("settings.title"),
+                PORTABLE_WRITE_ERROR,
+            )
+
     def _update_mode_fields(self, mode: str) -> None:
+        legacy_controls = bool(
+            self.profile
+            and self.profile.manifest.capabilities.get("legacy_h3_controls", False)
+        )
+        self.legacy_video_settings_group.setVisible(legacy_controls)
+        if not legacy_controls:
+            self.mode_group.setVisible(False)
+            return
         start_visible = mode in {"I2VA", "FL2VA"}
         end_visible = mode in {"FL2VA", "L2VA"}
         refs_visible = mode == "Ref2VA"
@@ -488,8 +665,16 @@ class MainWindow(QMainWindow):
         if self.mock_mode and self.config.skill_location == "":
             self.config.skill_location = str(self.skill_manager.location)
         self.skill_manager = SkillManager(self.config.skill_location or self.skill_manager.location)
-        if not self.skill_manager.status().valid:
-            QMessageBox.warning(self, "Skill未導入", "MiniMax H3 Prompt Skillが未導入または破損しています。初回セットアップまたは設定を開いてください。")
+        if (
+            self.profile is not None
+            and self.profile.requires_dependency("prompt_skill")
+            and not self.skill_manager.status().valid
+        ):
+            QMessageBox.warning(
+                self,
+                self.tr("readiness.skill"),
+                self.tr("error.h3_skill_required"),
+            )
             return
         if not self.mock_mode and not self.server.runtime_available(self.config.inference_backend):
             QMessageBox.warning(
@@ -529,8 +714,12 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.Ok:
                 self._refresh_memory_display()
                 return
+        if self.profile is None:
+            QMessageBox.warning(self, "PROFILE_INVALID", self.tr("error.profile_invalid"))
+            return
+        variant_id = str(self.profile_variant.currentData() or self.profile.manifest.default_variant)
         self.worker = GenerationThread(
-            engine=PromptEngine(self.skill_manager),
+            engine=PromptEngine(self.skill_manager, self.profile, variant_id),
             server=self.server,
             config=self.config,
             request_text=request,
@@ -538,11 +727,18 @@ class MainWindow(QMainWindow):
             mock_mode=self.mock_mode,
             parent=self,
         )
-        self.worker.status_changed.connect(self.status_label.setText)
+        self.worker.status_changed.connect(self._set_generation_status)
         self.worker.result_ready.connect(self._generation_complete)
         self.worker.error_occurred.connect(self._generation_error)
         self.worker.finished.connect(self._generation_finished)
         self._generation_active = True
+        for selector in (
+            self.profile_category,
+            self.profile_model,
+            self.profile_variant,
+            self.mode,
+        ):
+            selector.setEnabled(False)
         self.generate_button.setEnabled(False)
         self.regenerate_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
@@ -558,13 +754,19 @@ class MainWindow(QMainWindow):
 
     def _generation_complete(self, output: str) -> None:
         self.output_text.setPlainText(output)
-        self.status_label.setText("完了")
+        self.status_label.setText(self.tr("status.complete"))
         try:
             self.history.add(
                 enabled=self.config.history_enabled,
                 mode=self.mode.currentText(),
                 request=self.request_text.toPlainText(),
                 output=output,
+                profile_id=self.profile.manifest.id if self.profile else "minimax_h3",
+                profile_version=self.profile.manifest.profile_version if self.profile else "1.0.0",
+                variant_id=str(self.profile_variant.currentData() or "base"),
+                renderer_id=self.profile.manifest.renderer if self.profile else "video_narrative",
+                processing_mode=self.processing.currentText(),
+                profile_hash=self.profile.content_hash if self.profile else "",
             )
         except (OSError, sqlite3.Error):
             QMessageBox.warning(
@@ -575,10 +777,29 @@ class MainWindow(QMainWindow):
 
     def _generation_error(self, message: str) -> None:
         self.status_label.setText("エラー")
+        if message == LITERAL_CONTENT_NOT_PRESERVED:
+            message = self.tr("error.literal_not_preserved")
+        elif message == PROTECTED_TERM_NOT_PRESERVED:
+            message = self.tr("error.protected_not_preserved")
         QMessageBox.warning(self, "生成できませんでした", message)
+
+    def _set_generation_status(self, status: str) -> None:
+        key = {
+            "PROMPT_LONGER_THAN_RECOMMENDED": "warning.prompt_long",
+            "PROMPT_SHORTER_THAN_RECOMMENDED": "warning.prompt_short",
+            "PROMPT_EXCEEDS_HARD_MAXIMUM": "warning.prompt_hard_maximum",
+        }.get(status, status)
+        self.status_label.setText(self.tr(key))
 
     def _generation_finished(self) -> None:
         self._generation_active = False
+        for selector in (
+            self.profile_category,
+            self.profile_model,
+            self.profile_variant,
+            self.mode,
+        ):
+            selector.setEnabled(True)
         self.generate_button.setEnabled(True)
         self.regenerate_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
@@ -591,11 +812,10 @@ class MainWindow(QMainWindow):
             model = (
                 f"{info.display_name} / {info.filename} / {info.size_gib:.2f} GiB"
                 if info.exists
-                else f"見つかりません（{info.filename}）"
+                else self.tr("readiness.not_found", filename=info.filename)
             )
         else:
-            model = "未設定"
-        skill = "Installed" if self.skill_manager.status().valid else "Not installed"
+            model = self.tr("readiness.not_set")
         mock = " / Mock server" if self.mock_mode else ""
         backend = backend_spec(self.config.inference_backend)
         runtime = (
@@ -616,15 +836,26 @@ class MainWindow(QMainWindow):
                 devices[0] if devices else None,
             )
             device_text = (
-                f" / Device: {selected.display_name} / {selected.uma_label}"
+                f" / {self.tr('readiness.device')}: {selected.display_name} / {selected.uma_label}"
                 if selected is not None
-                else " / Device: Not detected"
+                else f" / {self.tr('readiness.device')}: {self.tr('readiness.not_detected')}"
             )
-        self.readiness.setText(
-            f"LLMモデル: {model} / H3 Skill: {skill} / "
-            f"Backend: {backend.display_name}{device_text} / Runtime: {runtime} / "
-            f"Context: {self.config.context_size}{mock}"
+        segments = [f"{self.tr('readiness.model')}: {model}"]
+        if self.profile and self.profile.requires_dependency("prompt_skill"):
+            skill = (
+                self.tr("readiness.installed")
+                if self.skill_manager.status().valid
+                else self.tr("readiness.not_installed")
+            )
+            segments.append(f"{self.tr('readiness.skill')}: {skill}")
+        segments.extend(
+            (
+                f"{self.tr('readiness.backend')}: {backend.display_name}{device_text}",
+                f"{self.tr('readiness.runtime')}: {runtime}",
+                f"{self.tr('readiness.context')}: {self.config.context_size}{mock}",
+            )
         )
+        self.readiness.setText(" / ".join(segments))
         self.readiness.setStyleSheet("")
 
     def _memory_assessment(self, memory: MemoryInfo | None) -> MemoryAssessment | None:
@@ -689,7 +920,12 @@ class MainWindow(QMainWindow):
         self.memory_status.setText(text)
 
     def _open_settings(self) -> None:
-        if SettingsDialog(self.config_manager, self.project_root, self).exec():
+        if SettingsDialog(
+            self.config_manager,
+            self.project_root,
+            self,
+            localization=self.localization,
+        ).exec():
             self.config = self.config_manager.load()
             self.skill_manager = SkillManager(
                 self.config.skill_location
@@ -713,20 +949,18 @@ class MainWindow(QMainWindow):
     def _clear_text(self) -> None:
         self.request_text.clear()
         self.output_text.clear()
-        self.status_label.setText("準備完了")
+        self.status_label.setText(self.tr("common.ready"))
 
     def _show_about(self) -> None:
         QMessageBox.about(
             self,
-            "MMH3 Prompt Builderについて",
-            f"{PRODUCT_NAME} {APP_DISPLAY_VERSION}\n"
-            f"Release date: {APP_RELEASE_DATE}\n"
-            "Local Prompt Builder for MiniMax H3\n\n"
-            "Windows x64 Portable ZIP / CPU + Vulkan GPU\n"
-            "llama.cpp b9637\n\n"
-            "MiniMax公式製品ではない、非公式コミュニティツールです。\n"
-            "通常のPrompt生成はローカルで完結し、テレメトリはありません。\n"
-            "設定・ログ・履歴・取得Skillはdataフォルダへ保存します。",
+            self.tr("about.title"),
+            self.tr(
+                "about.body",
+                product=PRODUCT_NAME,
+                version=APP_DISPLAY_VERSION,
+                date=APP_RELEASE_DATE,
+            ),
         )
 
     def eventFilter(self, watched, event) -> bool:

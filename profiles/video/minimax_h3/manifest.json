@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "minimax_h3",
+  "name": "MiniMax H3",
+  "profile_version": "1.0.0",
+  "category": "video",
+  "renderer": "video_narrative",
+  "output_language": "en",
+  "default_variant": "base",
+  "supported_tasks": ["T2VA", "I2VA", "FL2VA", "L2VA", "Ref2VA"],
+  "capabilities": {
+    "processing_modes": ["Faithful", "Balanced", "Creative"],
+    "literal_content": true,
+    "protected_terms": true,
+    "separate_negative_prompt": false,
+    "legacy_h3_controls": true
+  },
+  "description_key": "profile.minimax_h3.description",
+  "instructions_file": "instructions.md",
+  "external_dependencies": [
+    {
+      "id": "minimax_h3_prompt_skill",
+      "kind": "prompt_skill",
+      "required": true,
+      "bundled": false
+    }
+  ],
+  "sources": [
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/MiniMax-AI/MiniMax-H3",
+      "verified_at": "2026-08-11"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "ltx_2_3",
+  "name": "LTX-2.3",
+  "profile_version": "1.0.0",
+  "category": "video",
+  "renderer": "video_narrative",
+  "output_language": "en",
+  "default_variant": "distilled_1_1",
+  "supported_tasks": ["T2V", "I2V"],
+  "capabilities": {
+    "processing_modes": ["Faithful", "Balanced", "Creative"],
+    "literal_content": true,
+    "protected_terms": true,
+    "separate_negative_prompt": false,
+    "audio_generation": true,
+    "speech": true,
+    "source_image_inspection": false,
+    "legacy_h3_controls": false
+  },
+  "description_key": "profile.ltx_2_3.description",
+  "instructions_file": "instructions.md",
+  "external_dependencies": [],
+  "sources": [
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/Lightricks/LTX-2",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_model_card",
+      "url": "https://huggingface.co/Lightricks/LTX-2.3",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/Lightricks/LTX-2/blob/main/packages/ltx-core/src/ltx_core/text_encoders/gemma/encoders/prompts/gemma_t2v_system_prompt.txt",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/Lightricks/LTX-2/blob/main/packages/ltx-core/src/ltx_core/text_encoders/gemma/encoders/prompts/gemma_i2v_system_prompt.txt",
+      "verified_at": "2026-08-12"
+    }
+  ]
+}

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.0-alpha.1 — 2026-08-12
+
+- Renamed the next-generation desktop product to Local Prompt Studio while preserving v1.x history.
+- Added UTF-8 English/Japanese UI localization with English fallback and persistent locale IDs.
+- Added Profile Schema v1, builtin/official/custom loading layers, strict validation, and data-only security rules.
+- Migrated MiniMax H3 generation behind the profile, variant, Core Transformation Policy, and `video_narrative` renderer architecture.
+- Added Literal Content, Protected Terms, advisory length guidance, and profile metadata in history.
+- Preserved the external MiniMax H3 Skill policy, local llama.cpp behavior, and MMH3 Prompt Bridge v1.2 compatibility.
+- Added the supplied Wan 2.2 and LTX-2.3 video profiles through the existing Schema v1 and `video_narrative` renderer.
+- Made profile, variant, and task selection catalog-driven while retaining H3-only advanced controls through profile capabilities.
+- Made the MiniMax H3 Skill optional during first-run setup and required only when the selected profile declares that dependency.
+
+This is a development foundation, not a release. Phase 2A-1 supports MiniMax H3, Wan 2.2, and LTX-2.3.
+
 ## 1.1.0-beta.1 — 2026-08-11
 
 Community test pre-release. This is not the final v1.1.0 release.

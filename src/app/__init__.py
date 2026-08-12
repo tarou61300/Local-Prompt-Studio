@@ -1,2 +1,1 @@
-"""PySide6 user interface for MMH3 Prompt Builder."""
-
+"""PySide6 user interface for Local Prompt Studio."""

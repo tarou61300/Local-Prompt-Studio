@@ -1,15 +1,26 @@
-# MMH3 Prompt Builder v1.1.0-beta.1
+# Local Prompt Studio v2.0.0-alpha.1
 
-**Community Test Pre-release — Windows x64 Portable Edition**
+**Phase 2A-1 development integration — not a release**
 
-Release date: 2026-08-11
+Development date: 2026-08-12
 
-MMH3 Prompt Builderは、日本語または英語の動画生成指示を、ローカルGGUFモデルを使って
-MiniMax H3向けの英語Promptへ整える非公式コミュニティツールです。
+Local Prompt Studioは、ローカルGGUFモデルを使うプロファイル駆動型Prompt変換ツールです。
+Phase 2A-1で機能する動画モデルプロファイルはMiniMax H3、Wan 2.2、LTX-2.3です。
+Krea、Animaなどの将来プロファイルはまだ実装されていません。
 
-v1.1.0-beta.1は、任意で利用できるComfyUI連携を追加したコミュニティテスト用プレリリースです。
-最終版v1.1.0ではありません。ComfyUIをインストールしていない場合も、従来のローカルPrompt生成は
-そのまま利用できます。
+UI言語はEnglishと日本語を選択でき、入力言語とは独立しています。ComfyUIをインストールして
+いない場合も、従来のローカルMiniMax H3 Prompt生成をそのまま利用できます。既存の
+MMH3 Prompt Bridge v1.2との後方互換性も維持します。
+
+## Profile architecture
+
+Builtin Profile、将来のOfficial Update、Custom ProfileをUTF-8のJSON／Markdown／textデータとして
+読み込みます。Profileはコードを実行せず、Python、JavaScript、PowerShell、実行ファイル、DLL、
+絶対パス、path traversalを許可しません。詳細は`docs/PROFILE_SCHEMA_V1.md`を参照してください。
+
+Core Transformation Policyは、明示された意味、Literal Content、Protected TermsをProfile推奨より
+優先します。`[speech:ja] おかえりなさい。`や`[text:en] OPEN`は行頭で指定でき、生成後に完全一致を
+検証します。`length_guidance`は助言のみで、切り詰め、padding、圧縮用の再生成は行いません。
 
 ## 動作環境
 
@@ -23,11 +34,9 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `MMH3-Prompt-Builder-v1.1.0-beta.1-win-x64-portable.zip` を右クリックします。
-2. 「すべて展開」を選びます。
-3. Downloads、Documents、Desktop等の書き込み可能な場所へ展開します。
-4. 展開された `MMH3-Prompt-Builder-v1.1.0-beta.1-win-x64-portable` フォルダを開きます。
-5. `MMH3PromptBuilder` フォルダ内の `MMH3PromptBuilder.exe` をダブルクリックします。
+既存v1.xリリースの利用者は、そのリリースに付属するREADMEの起動手順を使用してください。
+Phase 2A-1は開発段階であり、公開配布ZIPはまだありません。将来のWindows onedirでは
+`LocalPromptStudio.exe`が実行ファイル名になります。
 
 CMDまたはPowerShellを開く必要はありません。アプリとllama-serverはコンソールウィンドウを
 表示せずに動作します。
@@ -35,7 +44,7 @@ CMDまたはPowerShellを開く必要はありません。アプリとllama-serv
 ## 初回セットアップ
 
 1. 「既存のGGUFを選択」を押し、PC上の `.gguf` ファイルを選択します。
-2. 「MiniMax公式H3 Prompt Skillを取得」を押します。
+2. MiniMax H3を使用する場合だけ「MiniMax公式H3 Prompt Skillを取得」を押します。Wan 2.2とLTX-2.3では不要です。
 3. 最初は「CPU（デフォルト）」を選びます。
 4. 内容を確認し、「完了」を押します。
 
@@ -49,7 +58,7 @@ Skillフォルダを選んだ場合は読み取りに使用できますが、ア
 
 ## ComfyUI連携（任意・コミュニティテスト）
 
-MMH3 Prompt BuilderはComfyUIなしでも利用できます。連携を試す場合、ZIPに含まれる
+Local Prompt StudioはComfyUIなしでも利用できます。連携を試す場合、配布物に含まれる
 `ComfyUI-Bridge/MMH3PromptBridge` フォルダを、次の場所へフォルダごとコピーしてください。
 
 ```text
@@ -58,22 +67,22 @@ ComfyUI/custom_nodes/MMH3PromptBridge
 
 1. ComfyUIを終了し、Bridgeフォルダを上記の場所へコピーします。
 2. ComfyUIを再起動し、ComfyUIのブラウザ画面を開くか再読み込みします。
-3. MMH3の「設定」→「ComfyUI Integration」を開きます。
+3. Local Prompt Studioの「設定」→「ComfyUI Integration」を開きます。
 4. ローカルComfyUIでは、既定URL `http://127.0.0.1:8188` を使用します。
 5. 「Test Connection」を押します。
 6. 「Pair with ComfyUI」を押します。
-7. MMH3とComfyUIに表示された6桁コードが一致することを確認します。
+7. Local Prompt StudioとComfyUIに表示された6桁コードが一致することを確認します。
 8. 一致している場合だけ、ComfyUI側で「Allow」を押します。
 9. 送信先にするテキスト／Promptノードを右クリックします。
 10. 「MMH3 Prompt Bridge」→「Set as MMH3 Target」→対象の `text` を選びます。
-11. MMH3でPromptを生成し、必要なら出力欄を手動編集します。
+11. Local Prompt StudioでPromptを生成し、必要なら出力欄を手動編集します。
 12. 「Send to ComfyUI」を押し、選択した欄の文字列が変わることを確認します。
 
-MMH3はComfyUIのworkflowをキューへ追加せず、画像・動画生成を開始しません。`/prompt` APIも
+Local Prompt StudioはComfyUIのworkflowをキューへ追加せず、画像・動画生成を開始しません。`/prompt` APIも
 使用しません。「Paired」は現在のURLに対応する有効なローカル保存資格情報があるという意味で、
 ComfyUIが現在オンラインであることを示すものではありません。
 
-MMH3を再起動してもペアリング資格情報は保持されます。ComfyUIまたはブラウザを再起動・再読み込み
+Local Prompt Studioを再起動してもペアリング資格情報は保持されます。ComfyUIまたはブラウザを再起動・再読み込み
 した後は、送信先ターゲットを再選択する必要がある場合があります。Bearer token、client credential、
 Authorization headerを手動でコピーする手順はありません。リモートComfyUIにはHTTPSが必須で、
 ComfyUI自体を認証なしでインターネット公開しないでください。
@@ -122,7 +131,7 @@ Cancel、timeout、アプリ終了時には、このアプリが起動したllam
 ポータブルフォルダ内の `data` に保存します。
 
 - 設定: `data/config.json`
-- アプリログ: `data/mmh3-prompt-builder.log`
+- アプリログ: `data/local-prompt-studio.log`
 - llama-serverログ: `data/llama-server/`
 - 履歴（初期状態OFF）: `data/history.sqlite3`
 - 取得したSkill: `data/skills/h3-prompt-writing/`
@@ -137,7 +146,7 @@ ComfyUIへの通信は、ユーザーがTest Connection、Pair、Sendを明示�
 
 ## オフライン利用
 
-GGUFとSkillを準備済みなら、通常生成はオフラインで利用できます。llama-serverもoffline modeで
+GGUFと選択Profileに必要な依存データを準備済みなら、通常生成はオフラインで利用できます。llama-serverもoffline modeで
 起動します。ネットワークを使う操作は、公式Skillの取得・更新確認、公式モデルページを
 ユーザー自身が開いた場合、またはComfyUIのTest Connection・Pair・Sendを明示的に実行した場合だけです。
 
@@ -145,7 +154,7 @@ GGUFとSkillを準備済みなら、通常生成はオフラインで利用で�
 
 - **この場所には設定を書き込めません**: Downloads、Documents、Desktop等へZIPを展開し直します。
 - **モデル未設定**: 設定から既存GGUFを選びます。GGUFはアプリへコピーされません。
-- **Skill未設定**: オンライン状態で公式Skill取得ボタンを押します。
+- **H3 Skill未設定**: MiniMax H3を使用する場合は、オンライン状態で公式Skill取得ボタンを押します。Wan 2.2とLTX-2.3には不要です。
 - **Vulkan GPU未検出**: GPUドライバーを確認するか、CPUへ戻します。
 - **Context Size不足**: 8192、必要に応じて16384を選びます。
 - **RAM不足**: 他のアプリを閉じ、より小さいモデルまたはContextを検討します。
@@ -163,10 +172,10 @@ ZIPと主要EXEのSHA256は、ZIPと同じ場所の `SHA256SUMS.txt` に記録�
 できる上級者は、次のコマンドでZIPを確認できます。
 
 ```powershell
-Get-FileHash .\MMH3-Prompt-Builder-v1.1.0-beta.1-win-x64-portable.zip -Algorithm SHA256
+Get-FileHash .\Local-Prompt-Studio-<version>-win-x64-portable.zip -Algorithm SHA256
 ```
 
 ## ライセンス
 
-MMH3 Prompt Builder本体はMIT Licenseです。`LICENSE`、`THIRD_PARTY_LICENSES.md`、
+Local Prompt Studio本体はMIT Licenseです。`LICENSE`、`THIRD_PARTY_LICENSES.md`、
 `licenses` フォルダを参照してください。MiniMax公式製品ではありません。

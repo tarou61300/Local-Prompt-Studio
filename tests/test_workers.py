@@ -184,6 +184,11 @@ def test_real_generation_resubmits_backend_signature_when_server_already_exists(
         def request_payload(self, request_text, settings):
             return {"messages": [{"role": "user", "content": request_text}], "max_tokens": 10}
 
+        def finalize_output(self, request_text, settings, output):
+            from core.renderers import RenderResult
+
+            return RenderResult(output)
+
     class FakeServer:
         base_url = "http://127.0.0.1:1234"
 
@@ -222,3 +227,39 @@ def test_real_generation_resubmits_backend_signature_when_server_already_exists(
     assert launch["backend"] == BACKEND_VULKAN
     assert launch["backend_device"] == "Vulkan0"
     assert launch["gpu_layers"] == GPU_LAYERS_AUTO
+
+
+def test_generation_length_warning_is_emitted_after_rendered_result():
+    class FakeEngine:
+        def request_payload(self, request_text, settings):
+            return {"messages": [], "max_tokens": 10}
+
+        def finalize_output(self, request_text, settings, output):
+            from core.renderers import RenderResult
+
+            return RenderResult(
+                output,
+                warnings=("PROMPT_LONGER_THAN_RECOMMENDED",),
+            )
+
+    class FakeServer:
+        def generate(self, payload, timeout):
+            return "generated"
+
+    worker = GenerationThread(
+        engine=FakeEngine(),
+        server=FakeServer(),
+        config=AppConfig(),
+        request_text="test",
+        settings=PromptSettings(),
+        mock_mode=True,
+    )
+    events = []
+    worker.result_ready.connect(lambda result: events.append(("result", result)))
+    worker.status_changed.connect(lambda status: events.append(("status", status)))
+    worker.run()
+
+    assert events[-2:] == [
+        ("result", "generated"),
+        ("status", "PROMPT_LONGER_THAN_RECOMMENDED"),
+    ]

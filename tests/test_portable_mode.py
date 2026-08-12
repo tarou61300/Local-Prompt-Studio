@@ -13,7 +13,7 @@ from main import application_paths
 def test_frozen_application_defaults_to_data_beside_executable(tmp_path, monkeypatch):
     portable_root = tmp_path / "日本語 スペース" / "MMH3"
     internal_root = portable_root / "_internal"
-    executable = portable_root / "MMH3PromptBuilder.exe"
+    executable = portable_root / "LocalPromptStudio.exe"
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(internal_root), raising=False)
     monkeypatch.setattr(sys, "executable", str(executable))
@@ -27,7 +27,7 @@ def test_frozen_application_ignores_portable_data_override(tmp_path, monkeypatch
     external_data = tmp_path / "external-data"
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(portable_root / "_internal"), raising=False)
-    monkeypatch.setattr(sys, "executable", str(portable_root / "MMH3PromptBuilder.exe"))
+    monkeypatch.setattr(sys, "executable", str(portable_root / "LocalPromptStudio.exe"))
 
     _, data = application_paths(Namespace(portable_data=external_data))
 

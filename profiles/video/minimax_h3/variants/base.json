@@ -1,0 +1,32 @@
+{
+  "id": "base",
+  "name": "Base",
+  "target_model_version": null,
+  "required_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "recommended_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "optional_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "length_guidance": {},
+  "inference_recommendations": {},
+  "sources": [
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/MiniMax-AI/MiniMax-H3",
+      "verified_at": "2026-08-11"
+    }
+  ]
+}

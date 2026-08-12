@@ -1,2 +1,1 @@
-"""Application-independent MMH3 Prompt Builder services."""
-
+"""Application-independent Local Prompt Studio services."""

@@ -18,7 +18,7 @@ function Resolve-WorkspaceChild {
 }
 
 $Version = (Get-Content -LiteralPath (Join-Path $ProjectRoot "VERSION") -Raw).Trim()
-$PortableName = "MMH3-Prompt-Builder-v$Version-win-x64-portable"
+$PortableName = "Local-Prompt-Studio-v$Version-win-x64-portable"
 if (-not $ZipPath) {
     $ZipPath = Join-Path $ProjectRoot "release\$PortableName.zip"
 }
@@ -53,7 +53,7 @@ New-Item -ItemType Directory -Path $VerificationRoot -Force | Out-Null
 try {
     Expand-Archive -LiteralPath $ZipPath -DestinationPath $VerificationRoot
     $DistributionRoot = Resolve-WorkspaceChild (Join-Path $VerificationRoot $PortableName)
-    $NestedApplicationRoot = Join-Path $DistributionRoot "MMH3PromptBuilder"
+    $NestedApplicationRoot = Join-Path $DistributionRoot "LocalPromptStudio"
     $PortableRoot = if (Test-Path -LiteralPath $NestedApplicationRoot -PathType Container) {
         Resolve-WorkspaceChild $NestedApplicationRoot
     }
@@ -79,7 +79,7 @@ try {
     $env:APPDATA = $AppDataSentinel
     $env:PROGRAMDATA = $ProgramDataSentinel
     try {
-        $Application = Join-Path $PortableRoot "MMH3PromptBuilder.exe"
+        $Application = Join-Path $PortableRoot "LocalPromptStudio.exe"
         $VersionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Application)
         if ($VersionInfo.ProductVersion -ne $Version) {
             throw "Packaged ProductVersion is '$($VersionInfo.ProductVersion)', expected '$Version'."
@@ -108,7 +108,7 @@ try {
             if ($Process.HasExited) {
                 throw "Portable application exited before showing its MainWindow."
             }
-            if ($Process.MainWindowTitle -ne "MMH3 Prompt Builder v$Version") {
+            if ($Process.MainWindowTitle -ne "Local Prompt Studio v$Version") {
                 throw "Packaged MainWindow title is '$($Process.MainWindowTitle)'."
             }
 
@@ -286,7 +286,7 @@ public static class ReleaseWindowSearch
         $env:PROGRAMDATA = $PreviousProgramData
     }
 
-    $PortableLog = Join-Path $PortableRoot "data\mmh3-prompt-builder.log"
+    $PortableLog = Join-Path $PortableRoot "data\local-prompt-studio.log"
     if (-not (Test-Path -LiteralPath $PortableLog -PathType Leaf)) {
         throw "Portable data was not written beside the executable."
     }

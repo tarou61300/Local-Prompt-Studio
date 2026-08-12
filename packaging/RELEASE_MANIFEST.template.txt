@@ -1,6 +1,6 @@
-MMH3 Prompt Builder Release Manifest
+Local Prompt Studio Release Manifest
 
-MMH3 Prompt Builder version: {{APP_VERSION}}
+Local Prompt Studio version: {{APP_VERSION}}
 Release date: {{RELEASE_DATE}}
 Release kind: {{RELEASE_KIND}}
 Build type: Windows x64 portable / PyInstaller onedir
@@ -23,7 +23,7 @@ CPU runtime asset SHA256: {{CPU_ASSET_SHA256}}
 Vulkan runtime asset name: {{VULKAN_ASSET_NAME}}
 Vulkan runtime asset SHA256: {{VULKAN_ASSET_SHA256}}
 
-MMH3PromptBuilder.exe SHA256: {{EXE_SHA256}}
+LocalPromptStudio.exe SHA256: {{EXE_SHA256}}
 Release ZIP SHA256: {{ZIP_SHA256}}
 
 GGUF models are not bundled.

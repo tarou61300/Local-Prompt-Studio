@@ -38,6 +38,7 @@ from core.inference_backends import (
     GPU_LAYERS_AUTO,
 )
 from core.llama_manager import LlamaServerManager
+from core.localization import Localization
 from core.model_manager import inspect_model
 from core.skill_manager import SkillError, SkillManager
 from core.system_memory import (
@@ -134,13 +135,19 @@ class SettingsDialog(QDialog):
         project_root: Path,
         parent=None,
         bridge_service_factory: Callable[[str], ComfyUIBridgeService] | None = None,
+        localization: Localization | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("設定")
-        self.setMinimumWidth(650)
         self.config_manager = config_manager
         self.project_root = project_root
         self.config = config_manager.load()
+        self.localization = localization or Localization(
+            project_root / "locales", self.config.ui_locale
+        )
+        self.tr = self.localization.tr
+        self.setWindowTitle(self.tr("settings.title"))
+        self.setObjectName("settings_dialog")
+        self.setMinimumWidth(650)
         self._bridge_service_factory = bridge_service_factory or (
             lambda base_url: ComfyUIBridgeService(
                 base_url,
@@ -180,7 +187,7 @@ class SettingsDialog(QDialog):
         self.model_path = QLineEdit(self.config.model_path)
         model_row = QHBoxLayout()
         model_row.addWidget(self.model_path, 1)
-        browse_model = QPushButton("GGUFを選択…")
+        browse_model = QPushButton(self.tr("settings.choose_gguf"))
         browse_model.clicked.connect(self._choose_model)
         model_row.addWidget(browse_model)
         form.addRow("LLM Model Path", model_row)
@@ -246,28 +253,28 @@ class SettingsDialog(QDialog):
 
         self.memory_info = QLabel()
         self.memory_info.setWordWrap(True)
-        form.addRow("メモリ目安", self.memory_info)
+        form.addRow(self.tr("settings.memory_estimate"), self.memory_info)
 
         default_skill = config_manager.data_dir / "skills" / "h3-prompt-writing"
         self.skill_location = QLineEdit(self.config.skill_location or str(default_skill))
         skill_row = QHBoxLayout()
         skill_row.addWidget(self.skill_location, 1)
-        browse_skill = QPushButton("フォルダを選択…")
+        browse_skill = QPushButton(self.tr("settings.choose_folder"))
         browse_skill.clicked.connect(self._choose_skill_folder)
         skill_row.addWidget(browse_skill)
         form.addRow("Skill Location", skill_row)
 
         skill_actions = QHBoxLayout()
-        check_update = QPushButton("Skill更新確認")
+        check_update = QPushButton(self.tr("settings.skill_update"))
         check_update.clicked.connect(self._check_update)
         skill_actions.addWidget(check_update)
-        open_skill = QPushButton("Skillフォルダを開く")
+        open_skill = QPushButton(self.tr("settings.skill_open"))
         open_skill.clicked.connect(self._open_skill_folder)
         skill_actions.addWidget(open_skill)
         skill_actions.addStretch()
         form.addRow("", skill_actions)
 
-        self.history_enabled = QCheckBox("ローカル履歴を保存する（デフォルトOFF）")
+        self.history_enabled = QCheckBox(self.tr("settings.history_enabled"))
         self.history_enabled.setChecked(self.config.history_enabled)
         form.addRow("History", self.history_enabled)
 
@@ -275,6 +282,14 @@ class SettingsDialog(QDialog):
         self.theme.addItems(["System", "Light", "Dark"])
         self.theme.setCurrentText(self.config.theme)
         form.addRow("Theme", self.theme)
+
+        self.ui_locale = QComboBox()
+        self.ui_locale.setObjectName("ui_locale")
+        self.ui_locale.addItem(self.tr("locale.en-US"), "en-US")
+        self.ui_locale.addItem(self.tr("locale.ja-JP"), "ja-JP")
+        locale_index = self.ui_locale.findData(self.config.ui_locale)
+        self.ui_locale.setCurrentIndex(max(0, locale_index))
+        form.addRow(self.tr("settings.language"), self.ui_locale)
 
         comfyui_group = QGroupBox("ComfyUI Integration")
         comfyui_form = QFormLayout(comfyui_group)
@@ -296,13 +311,13 @@ class SettingsDialog(QDialog):
         comfyui_form.addRow("", self.comfyui_feedback)
         layout.addWidget(comfyui_group)
 
-        reset_button = QPushButton("設定を初期値へ戻す")
+        reset_button = QPushButton(self.tr("settings.reset"))
         reset_button.clicked.connect(self._reset_fields)
         layout.addWidget(reset_button)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Save).setText("保存")
-        buttons.button(QDialogButtonBox.Cancel).setText("キャンセル")
+        buttons.button(QDialogButtonBox.Save).setText(self.tr("settings.save"))
+        buttons.button(QDialogButtonBox.Cancel).setText(self.tr("settings.cancel"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -649,6 +664,7 @@ class SettingsDialog(QDialog):
         )
         self.history_enabled.setChecked(default.history_enabled)
         self.theme.setCurrentText(default.theme)
+        self.ui_locale.setCurrentIndex(self.ui_locale.findData(default.ui_locale))
         self.comfyui_url.setText(default.comfyui_url)
         self._update_comfyui_paired_state()
 
@@ -687,6 +703,8 @@ class SettingsDialog(QDialog):
         config.skill_location = self.skill_location.text().strip()
         config.history_enabled = self.history_enabled.isChecked()
         config.theme = self.theme.currentText()
+        previous_locale = config.ui_locale
+        config.ui_locale = str(self.ui_locale.currentData())
         config.comfyui_url = normalized_comfyui_url
         try:
             self.config_manager.save(config)
@@ -694,6 +712,12 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(self, "設定を保存できませんでした", PORTABLE_WRITE_ERROR)
             return
         self._saved_comfyui_url = normalized_comfyui_url
+        if config.ui_locale != previous_locale:
+            QMessageBox.information(
+                self,
+                self.tr("settings.language"),
+                self.tr("settings.language.restart"),
+            )
         super().accept()
 
     def reject(self) -> None:

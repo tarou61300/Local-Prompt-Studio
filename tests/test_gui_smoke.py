@@ -20,6 +20,7 @@ from core.inference_backends import (
     GPU_LAYERS_AUTO,
     BackendDevice,
 )
+from core.skill_manager import SkillManager
 from core.system_memory import GIB, MemoryInfo
 from mock_server import start_mock_server
 
@@ -38,13 +39,222 @@ def test_main_window_constructs_without_model(tmp_path):
             server_url=url,
             dev_skill_path=FIXTURE,
         )
-        assert window.windowTitle() == "MMH3 Prompt Builder v1.1.0-beta.1"
+        assert window.windowTitle() == "Local Prompt Studio v2.0.0-alpha.1"
+        assert window.profile_category.currentData() == "video"
+        assert window.profile_model.currentData() == "minimax_h3"
+        assert window.profile_variant.currentData() == "base"
+        assert [
+            window.profile_model.itemData(index)
+            for index in range(window.profile_model.count())
+        ] == ["ltx_2_3", "minimax_h3", "wan_2_2"]
+        assert [window.mode.itemData(index) for index in range(window.mode.count())] == [
+            "T2VA",
+            "I2VA",
+            "FL2VA",
+            "L2VA",
+            "Ref2VA",
+        ]
+        assert window.legacy_video_settings_group.isHidden() is False
         assert "未設定" in window.readiness.text()
         window.close()
         app.processEvents()
     finally:
         mock.shutdown()
         mock.server_close()
+
+
+def test_model_switch_repopulates_variants_tasks_controls_and_persists(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    manager = ConfigManager(tmp_path)
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+
+        window.profile_model.setCurrentIndex(window.profile_model.findData("wan_2_2"))
+        app.processEvents()
+        assert window.profile.manifest.id == "wan_2_2"
+        assert [
+            window.profile_variant.itemData(index)
+            for index in range(window.profile_variant.count())
+        ] == ["a14b"]
+        assert [window.mode.itemData(index) for index in range(window.mode.count())] == [
+            "T2V",
+            "I2V",
+        ]
+        assert window.legacy_video_settings_group.isHidden() is True
+        assert window.mode_group.isHidden() is True
+        assert "H3 Skill" not in window.readiness.text()
+        assert manager.load().selected_profile == "wan_2_2"
+        assert manager.load().selected_variant == "a14b"
+
+        window.profile_model.setCurrentIndex(window.profile_model.findData("ltx_2_3"))
+        app.processEvents()
+        assert window.profile.manifest.id == "ltx_2_3"
+        assert [
+            window.profile_variant.itemData(index)
+            for index in range(window.profile_variant.count())
+        ] == ["dev", "distilled_1_1"]
+        assert window.profile_variant.currentData() == "distilled_1_1"
+        window.profile_variant.setCurrentIndex(window.profile_variant.findData("dev"))
+        assert manager.load().selected_profile == "ltx_2_3"
+        assert manager.load().selected_variant == "dev"
+
+        window.profile_model.setCurrentIndex(window.profile_model.findData("minimax_h3"))
+        app.processEvents()
+        assert window.profile.manifest.id == "minimax_h3"
+        assert window.legacy_video_settings_group.isHidden() is False
+        assert "H3 Skill" in window.readiness.text()
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_unavailable_configured_profile_falls_back_to_minimax_h3(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    manager = ConfigManager(tmp_path)
+    manager.save(AppConfig(selected_profile="missing_profile", selected_variant="missing"))
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        assert window.profile.manifest.id == "minimax_h3"
+        assert window.profile_model.currentData() == "minimax_h3"
+        assert window.profile_variant.currentData() == "base"
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_h3_generation_requires_skill_but_wan_and_ltx_do_not(
+    tmp_path, monkeypatch
+):
+    app = QApplication.instance() or QApplication([])
+    warnings = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *args, **kwargs: warnings.append(args),
+    )
+    mock, url = start_mock_server()
+    try:
+        h3_manager = ConfigManager(tmp_path / "h3")
+        h3_manager.save(AppConfig(selected_profile="minimax_h3", selected_variant="base"))
+        h3 = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=h3_manager,
+            server_url=url,
+        )
+        h3.request_text.setPlainText("A subject moves.")
+        h3.generate()
+        assert h3.worker is None
+        assert warnings
+        assert h3.tr("error.h3_skill_required") in warnings[-1]
+        h3.close()
+        app.processEvents()
+
+        for profile_id, variant_id in (
+            ("wan_2_2", "a14b"),
+            ("ltx_2_3", "distilled_1_1"),
+        ):
+            manager = ConfigManager(tmp_path / profile_id)
+            manager.save(
+                AppConfig(selected_profile=profile_id, selected_variant=variant_id)
+            )
+            window = MainWindow(
+                project_root=PROJECT_ROOT,
+                config_manager=manager,
+                server_url=url,
+            )
+            window.request_text.setPlainText("A subject moves.")
+            window.generate()
+            assert window.worker is not None
+            deadline = time.monotonic() + 5
+            while window.worker.isRunning() and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.01)
+            app.processEvents()
+            assert window.worker.isRunning() is False
+            assert window.output_text.toPlainText()
+            window.close()
+            app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_main_window_uses_persisted_english_and_japanese_locales(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    mock, url = start_mock_server()
+    try:
+        english_manager = ConfigManager(tmp_path / "english")
+        english_manager.save(AppConfig(ui_locale="en-US"))
+        english = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=english_manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        assert english.generate_button.text() == "Generate Prompt"
+        assert english.settings_action.text() == "Settings"
+        assert english.profile_category.currentData() == "video"
+        assert "LLM Model: Not set" in english.readiness.text()
+        assert english.duration.suffix() == " sec"
+        english.close()
+        app.processEvents()
+
+        japanese_manager = ConfigManager(tmp_path / "japanese")
+        japanese_manager.save(AppConfig(ui_locale="ja-JP"))
+        japanese = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=japanese_manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        assert japanese.generate_button.text() == "Promptを生成"
+        assert japanese.settings_action.text() == "設定"
+        assert japanese.profile_category.currentData() == "video"
+        assert "LLMモデル: 未設定" in japanese.readiness.text()
+        assert japanese.duration.suffix() == " 秒"
+        japanese.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_settings_language_selection_persists_stable_locale_id(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    manager = ConfigManager(tmp_path)
+    manager.save(AppConfig(ui_locale="ja-JP"))
+    messages = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args: messages.append(args),
+    )
+    dialog = SettingsDialog(manager, PROJECT_ROOT)
+    try:
+        dialog.ui_locale.setCurrentIndex(dialog.ui_locale.findData("en-US"))
+        dialog.accept()
+        assert manager.load().ui_locale == "en-US"
+        assert manager.path.read_text(encoding="utf-8").count('"en-US"') == 1
+        assert messages
+    finally:
+        dialog.close()
+        app.processEvents()
 
 
 def test_generate_button_flow_uses_mock_without_model(tmp_path):
@@ -174,6 +384,34 @@ def test_packaged_setup_installs_skill_only_in_portable_data(tmp_path, monkeypat
         assert dialog.skill_path == manager.data_dir / "skills" / "h3-prompt-writing"
         assert dialog.skill_path != external_skill
         assert not external_skill.exists()
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_first_run_setup_can_finish_without_optional_h3_skill(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    model = tmp_path / "qwen3-4b-q4_k_m.gguf"
+    model.write_bytes(b"GGUF")
+    manager = ConfigManager(tmp_path / "data")
+    monkeypatch.setattr(
+        "core.llama_manager.LlamaServerManager.detect_vulkan_devices",
+        lambda self: [],
+    )
+    monkeypatch.setattr(
+        "core.llama_manager.LlamaServerManager.runtime_available",
+        lambda self, backend: True,
+    )
+    dialog = SetupDialog(manager, PROJECT_ROOT)
+    try:
+        dialog.model_path.setText(str(model))
+        assert SkillManager(dialog.skill_path).status().valid is False
+        dialog.accept()
+        saved = manager.load()
+        assert saved.setup_completed is True
+        assert saved.model_path == str(model)
+        assert saved.inference_backend == BACKEND_CPU
+        assert "MiniMax H3" in dialog.localization.tr("setup.h3_skill_optional")
     finally:
         dialog.close()
         app.processEvents()

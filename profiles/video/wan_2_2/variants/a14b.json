@@ -1,0 +1,40 @@
+{
+  "id": "a14b",
+  "name": "A14B",
+  "target_model_version": "Wan2.2 T2V-A14B / I2V-A14B",
+  "required_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "recommended_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "optional_prompt": {
+    "positive_prefix": [],
+    "positive_suffix": [],
+    "negative_prefix": [],
+    "negative_suffix": []
+  },
+  "length_guidance": {},
+  "inference_recommendations": {
+    "prompt_extension_recommended_by_official_repo": true,
+    "note": "Official Wan2.2 documentation recommends prompt extension. T2V and I2V use different expansion guidance; task-specific length guidance is kept in instructions.md because Profile Schema v1 length_guidance is variant-wide."
+  },
+  "sources": [
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/Wan-Video/Wan2.2",
+      "verified_at": "2026-08-12"
+    },
+    {
+      "type": "official_documentation",
+      "url": "https://github.com/Wan-Video/Wan2.2/blob/main/wan/utils/system_prompt.py",
+      "verified_at": "2026-08-12"
+    }
+  ]
+}

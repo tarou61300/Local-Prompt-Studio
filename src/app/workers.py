@@ -133,10 +133,10 @@ class GenerationThread(QThread):
 
     def run(self) -> None:
         try:
-            self.status_changed.emit("MiniMax H3 Skillを準備しています…")
+            self.status_changed.emit("status.preparing_profile")
             payload = self.engine.request_payload(self.request_text, self.settings)
             if not self.mock_mode:
-                self.status_changed.emit("選択したバックエンドでモデルを準備しています…")
+                self.status_changed.emit("status.preparing_model")
                 model = validate_model(self.config.model_path)
                 # Always submit the desired launch signature. The manager reuses an
                 # identical owned server and restarts only when backend/model/context
@@ -150,12 +150,19 @@ class GenerationThread(QThread):
                     gpu_layers=self.config.gpu_layers,
                 )
             if not self.mock_mode:
-                self.status_changed.emit("Context Sizeと出力予算を確認しています…")
+                self.status_changed.emit("status.preflight")
                 self.server.preflight_context(payload, self.config.context_size)
-            self.status_changed.emit("プロンプトを生成しています…")
+            self.status_changed.emit("status.generating")
             output = self.server.generate(payload, timeout=DEFAULT_GENERATION_TIMEOUT_SECONDS)
             if not self.isInterruptionRequested():
-                self.result_ready.emit(output)
+                rendered = self.engine.finalize_output(
+                    self.request_text,
+                    self.settings,
+                    output,
+                )
+                self.result_ready.emit(rendered.positive)
+                if rendered.warnings:
+                    self.status_changed.emit(rendered.warnings[0])
         except Exception as exc:  # GUI boundary: never show a Python traceback to the user.
             if self.isInterruptionRequested():
                 self.error_occurred.emit("生成はユーザーによってキャンセルされました。")

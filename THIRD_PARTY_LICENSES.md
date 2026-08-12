@@ -1,8 +1,8 @@
 # Third-party software and content
 
-MMH3 Prompt Builder v1.0.0 is distributed as a portable Windows x64 onedir
-application. The corresponding license texts are included in the `licenses`
-folder of the portable release.
+Local Prompt Studio portable builds use a Windows x64 PyInstaller onedir
+layout. The corresponding license texts are included in the `licenses` folder
+of the portable distribution.
 
 ## Python 3.12.13
 
@@ -21,7 +21,7 @@ install Python separately.
 
 Qt and PySide libraries remain dynamically linked files in the PyInstaller
 onedir `_internal` folder. Users may replace compatible library files subject
-to the LGPL terms. MMH3 Prompt Builder does not restrict reverse engineering
+to the LGPL terms. Local Prompt Studio does not restrict reverse engineering
 for debugging modifications to those LGPL components.
 
 ## PyInstaller 6.21.0 bootloader
@@ -75,5 +75,5 @@ official MiniMax repository only after explicit user action and is stored under
 the portable `data` folder. Upstream licensing terms apply.
 
 MiniMax, H3, Qwen, Qt, Python, llama.cpp, LLVM, Microsoft, AMD, Intel, and NVIDIA
-names identify their respective upstream projects. MMH3 Prompt Builder is an
+names identify their respective upstream projects. Local Prompt Studio is an
 unofficial community tool and claims no ownership of those names.

@@ -1,2 +1,1 @@
-"""MMH3 Prompt Builder source package."""
-
+"""Local Prompt Studio source package."""
