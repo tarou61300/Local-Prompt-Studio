@@ -7,7 +7,14 @@ The renderer, not the LLM, determines final tag order and adds variant-specific 
 ## Core tag rules
 
 - Preserve every explicit user constraint and relationship.
+- Use English Danbooru/Gelbooru tag names for ordinary generated tags.
 - Use lowercase for ordinary tags and spaces instead of underscores.
+- Literal Content and Protected Terms may remain in any language and must stay exact; they do not change the language of surrounding generated tags.
+- Translate every Japanese or other non-English scene concept outside Literal Content and Protected Terms into an English tag; never copy it as an ordinary non-English tag.
+- Copy only each exact Literal Content value, not its input marker such as `[text:ja]` or `[speech:ja]`.
+- Treat an array item containing Japanese text as invalid unless the entire item exactly equals a listed Literal Content value or Protected Term.
+- Example: the ordinary Japanese scene concept `和風の喫茶店` must become an English tag such as `traditional Japanese cafe`; it must not remain `和風喫茶店`. A directive `[text:ja] 月夜珈琲` contributes only the exact array item `月夜珈琲`.
+- Every value named under `EXACT PRESERVATION REQUIREMENTS` is mandatory. Copy each one exactly once as its own string in `general`; never omit it while translating the surrounding concepts.
 - Score tags such as `score_7` keep their underscore.
 - When Danbooru and Gelbooru use different tag names for the same concept, prefer the Gelbooru form.
 - Do not invent a character, series, artist, outfit, color, object, pose, location, or relationship that the user did not request in Faithful mode.

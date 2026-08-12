@@ -30,6 +30,11 @@ Write an action-focused prompt for motion starting from an existing first image.
 
 Wan2.2 T2V-A14B and I2V-A14B are treated here as video-only prompt targets. Do not invent an audio soundscape. If Literal Content is present, preserve its exact Unicode text as required by the Core Transformation Policy, but do not imply that this profile guarantees audible speech generation.
 
+- The surrounding descriptive prompt must remain English even when Literal Content is Japanese or another language.
+- Insert the literal wording exactly where needed, but never translate the rest of the prompt into the literal's language.
+- Treat every Japanese or other non-English phrase outside a recognized Literal Content directive as source material to translate into English, not text to preserve.
+- In the final prompt, non-English characters may appear only inside the exact Literal Content values. Do not copy `[text:...]` or `[speech:...]` directive markers.
+
 ## Output
 
 Return only the final English prompt as a single natural-language paragraph. Do not add headings, notes, explanations, Markdown, or a preface.

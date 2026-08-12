@@ -307,6 +307,39 @@ def test_anima_renderer_preserves_literal_and_protected_terms_without_normalizin
     assert "silver hair" in result.positive
 
 
+def test_anima_renderer_deterministically_restores_missing_exact_exceptions():
+    variant = _named_profile("anima").variant("turbo_v1_0")
+    literals = parse_literal_content("[text:ja] 月夜珈琲")
+    protected = normalize_protected_terms(["My_Custom_LoRA"])
+    generated = """{
+      "general": ["traditional_japanese_cafe"],
+      "negative": []
+    }"""
+
+    result = DanbooruTagsRenderer().render(
+        generated,
+        variant,
+        literals,
+        protected,
+    )
+
+    assert result.positive.endswith("traditional japanese cafe, 月夜珈琲, My_Custom_LoRA")
+
+
+def test_anima_renderer_removes_literal_directive_marker_without_changing_value():
+    variant = _named_profile("anima").variant("turbo_v1_0")
+    literals = parse_literal_content("[text:ja] 月夜珈琲")
+    generated = """{
+      "general": ["[text:ja] 月夜珈琲"],
+      "negative": []
+    }"""
+
+    result = DanbooruTagsRenderer().render(generated, variant, literals, ())
+
+    assert "[text:ja]" not in result.positive
+    assert result.positive.endswith("月夜珈琲")
+
+
 def test_anima_renderer_rejects_invalid_structured_output():
     variant = _named_profile("anima").variant("turbo_v1_0")
 
@@ -398,3 +431,45 @@ def test_all_existing_h3_modes_and_processing_modes_remain_supported(mode, proce
     engine = PromptEngine(SkillManager(SKILL), _profile(), "base")
     payload = engine.request_payload("A test.", PromptSettings(mode=mode, processing=processing))
     assert f"Mode: {mode}" in payload["messages"][0]["content"]
+
+def test_plain_output_instruction_keeps_surrounding_text_in_profile_language():
+    instruction = VideoNarrativeRenderer().llm_output_instruction("en")
+    assert "every non-literal concept" in instruction
+    assert "only text permitted to remain in another language" in instruction
+    assert "not input directive syntax" in instruction
+
+
+def test_danbooru_output_instruction_requires_english_tags_with_literal_exceptions():
+    instruction = DanbooruTagsRenderer().llm_output_instruction("en")
+    assert "Translate every ordinary concept" in instruction
+    assert "every ordinary generated tag must be in en" in instruction
+    assert "never copy input directive syntax" in instruction
+    assert "OUTPUT VALIDATION RULE" in instruction
+    assert "entire string exactly equals one listed" in instruction
+    assert "MANDATORY PRESERVATION RULE" in instruction
+    assert "Omitting any listed value is invalid" in instruction
+
+
+def test_wan_profile_requires_english_surrounding_prose_for_foreign_literals():
+    instructions = _named_profile("wan_2_2").instructions
+    assert "surrounding descriptive prompt must remain English" in instructions
+    assert "never translate the rest of the prompt" in instructions
+    assert "source material to translate into English" in instructions
+    assert "may appear only inside the exact Literal Content values" in instructions
+
+
+def test_krea_profile_forbids_dress_to_swimwear_reinterpretation_in_faithful_mode():
+    instructions = _named_profile("krea_2").instructions
+    assert "Japanese `ワンピース`" in instructions
+    assert "must never turn `ワンピース` into a swimsuit" in instructions
+
+
+def test_anima_profile_requires_english_ordinary_tags_while_preserving_literals():
+    instructions = _named_profile("anima").instructions
+    assert "English Danbooru/Gelbooru tag names" in instructions
+    assert "Literal Content and Protected Terms may remain in any language" in instructions
+    assert "into an English tag" in instructions
+    assert "not its input marker" in instructions
+    assert "array item containing Japanese text as invalid" in instructions
+    assert "traditional Japanese cafe" in instructions
+    assert "Every value named under `EXACT PRESERVATION REQUIREMENTS` is mandatory" in instructions

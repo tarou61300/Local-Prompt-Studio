@@ -26,6 +26,9 @@ _ANIMA_SECTION_ORDER = (
 _ANIMA_ALLOWED_SECTIONS = frozenset((*_ANIMA_SECTION_ORDER, "negative"))
 _SCORE_TAG = re.compile(r"^score_\d+$", re.IGNORECASE)
 _WEIGHTED_TAG = re.compile(r"^\((.+):([0-9]+(?:\.[0-9]+)?)\)$")
+_LITERAL_DIRECTIVE_TAG = re.compile(
+    r"^\[(?:speech|text):[a-zA-Z]+(?:-[a-zA-Z]+)*\]\s+(.+)$"
+)
 
 
 class TransformationError(RuntimeError):
@@ -80,8 +83,13 @@ def length_warnings(text: str, guidance: LengthGuidance) -> tuple[str, ...]:
 
 def _plain_output_instruction(output_language: str) -> str:
     return (
-        "Return only the complete prompt required by the selected profile, "
-        f"using its declared output language ({output_language}). "
+        "Return only the complete prompt required by the selected profile. "
+        f"Translate or express every non-literal concept from the user request in the declared output "
+        f"language ({output_language}), even when the input is written in another language. "
+        "The only text permitted to remain in another language is an exact Literal Content value or "
+        "Protected Term. Copy only those exact values, not input directive syntax such as [text:ja] or "
+        "[speech:ja]. Before returning, verify that removing those exact exception values leaves all "
+        f"generated descriptive text in {output_language}. "
         "Do not add analysis, a preface such as 'Here is your prompt', or Markdown fences."
     )
 
@@ -208,6 +216,9 @@ def _normalization_exemptions(
 
 def _normalize_danbooru_tag(value: str, *, artist: bool, exemptions: frozenset[str]) -> str:
     tag = value.strip()
+    directive = _LITERAL_DIRECTIVE_TAG.fullmatch(tag)
+    if directive is not None and directive.group(1) in exemptions:
+        tag = directive.group(1)
     if tag in exemptions:
         return tag
 
@@ -260,7 +271,17 @@ class DanbooruTagsRenderer:
             '"quality_meta_year_safety". Put 1girl/1boy/1other style count tags in "subject_count". '
             'Put character names in "character", series names in "series", artist tags in "artist", '
             'all other positive visual tags in "general", and only user-requested exclusions in "negative". '
-            "Literal Content and Protected Terms must appear as exact complete string values without changes."
+            f"Translate every ordinary concept from the user request into {output_language} "
+            "Danbooru/Gelbooru tag names, even when the input is written in another language. "
+            "Literal Content and Protected Terms are the only exact-preservation exceptions. Copy each "
+            "exception as its own exact complete string value, but never copy input directive syntax such "
+            "as [text:ja] or [speech:ja]. After excluding those exact exception values, every ordinary "
+            f"generated tag must be in {output_language}. OUTPUT VALIDATION RULE: an array string containing "
+            f"text outside {output_language} is invalid unless that entire string exactly equals one listed "
+            "Literal Content value or Protected Term. Do not combine an exact exception with a directive "
+            "marker or other generated words. MANDATORY PRESERVATION RULE: include every value listed in "
+            "EXACT PRESERVATION REQUIREMENTS exactly once as its own string in an appropriate positive "
+            "array, normally general. Omitting any listed value is invalid."
         )
 
     def request_payload_overrides(self) -> dict[str, object]:
@@ -314,6 +335,15 @@ class DanbooruTagsRenderer:
             generated_positive.extend(
                 _dedupe_tags(normalized_sections[section], positive_seen)
             )
+
+        assembled_positive = (*fixed_positive, *generated_positive, *fixed_positive_suffix)
+        for value in (
+            *(item.text for item in literals),
+            *(item.text for item in protected_terms),
+        ):
+            if value not in assembled_positive:
+                generated_positive.append(value)
+                assembled_positive = (*assembled_positive, value)
 
         positive_parts = [
             *fixed_positive,

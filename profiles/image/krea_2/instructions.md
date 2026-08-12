@@ -6,7 +6,9 @@ Shape the user's request into one clear English natural-language image prompt fo
 
 - Return one cohesive paragraph only.
 - Use natural language rather than Danbooru-style tags or quality-tag lists.
-- Preserve the user's subjects, actions, colors, spatial relationships, requested medium, and explicit constraints.
+- Preserve the user's subjects, actions, colors, spatial relationships, requested medium, clothing categories, and explicit constraints.
+- Do not reinterpret an explicitly named item merely because the surrounding scene suggests another category.
+- In particular, Japanese `ワンピース` used as clothing means a dress/one-piece dress unless the user explicitly says swimsuit, swimwear, bathing suit, 水着, or an equivalent term. A beach, seaside, or summer setting alone must never turn `ワンピース` into a swimsuit in Faithful mode.
 - Group each subject with its own attributes and action so relationships remain unambiguous.
 - Prefer concrete visual language about appearance, composition, framing, lighting, texture, environment, and spatial layout when those details are supported by the request.
 - Do not output analysis, headings, bullets, JSON, Markdown wrappers, or alternative prompt candidates.
