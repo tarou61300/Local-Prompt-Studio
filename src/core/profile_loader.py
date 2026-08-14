@@ -209,6 +209,7 @@ def _load_variant(root: Path, path: Path) -> ProfileVariant:
         "id",
         "name",
         "target_model_version",
+        "description",
         "required_prompt",
         "recommended_prompt",
         "optional_prompt",
@@ -229,6 +230,14 @@ def _load_variant(root: Path, path: Path) -> ProfileVariant:
         raise ProfileValidationError(PROFILE_INVALID)
     if target_model_version is not None and not isinstance(target_model_version, str):
         raise ProfileValidationError(PROFILE_INVALID)
+    descriptions = raw.get("description", {})
+    if not isinstance(descriptions, dict) or any(
+        not isinstance(locale_id, str)
+        or not isinstance(text, str)
+        or not text.strip()
+        for locale_id, text in descriptions.items()
+    ):
+        raise ProfileValidationError(PROFILE_INVALID)
     recommendations = raw.get("inference_recommendations", {})
     if not isinstance(recommendations, dict):
         raise ProfileValidationError(PROFILE_INVALID)
@@ -236,6 +245,7 @@ def _load_variant(root: Path, path: Path) -> ProfileVariant:
         id=variant_id,
         name=name,
         target_model_version=target_model_version,
+        descriptions=descriptions,
         required_prompt=_components(raw.get("required_prompt")),
         recommended_prompt=_components(raw.get("recommended_prompt")),
         optional_prompt=_components(raw.get("optional_prompt")),

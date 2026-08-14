@@ -6,7 +6,7 @@ Release date: 2026-08-13
 
 Local Prompt Studioは、ローカルGGUFモデルを使うプロファイル駆動型Prompt変換ツールです。
 対応する動画モデルプロファイルはMiniMax H3、Wan 2.2、LTX-2.3です。
-画像モデルプロファイルはKrea 2 Raw/TurboとAnima Base/Aesthetic/Turboに対応します。Animaではモデル推奨の品質系Positive/NegativeをProfileから決定的に組み立て、ユーザー指定の内容はタグ形式へ整形します。
+画像モデルプロファイルはKrea 2 Raw/TurboとAnima Base/Aesthetic/Turboに対応します。Animaでは入力をNatural / Tag / Hybridとして内部判定し、モデル推奨の品質系Positive/NegativeをProfileから決定的に組み立てます。
 
 UI言語はEnglishと日本語を選択でき、入力言語とは独立しています。ComfyUIをインストールして
 いない場合も、従来のローカルMiniMax H3 Prompt生成をそのまま利用できます。既存の
@@ -18,11 +18,13 @@ Builtin Profile、将来のOfficial Update、Custom ProfileをUTF-8のJSON／Mar
 読み込みます。Profileはコードを実行せず、Python、JavaScript、PowerShell、実行ファイル、DLL、
 絶対パス、path traversalを許可しません。詳細は`docs/PROFILE_SCHEMA_V1.md`を参照してください。
 
-Core Transformation Policyは、明示された意味、Literal Content、Protected TermsをProfile推奨より
-優先します。`[speech:ja] おかえりなさい。`や`[text:en] OPEN`は行頭で指定でき、生成後に完全一致を
-検証します。`length_guidance`は助言のみで、切り詰め、padding、圧縮用の再生成は行いません。
+MiniMax H3、Wan 2.2、LTX-2.3、Krea 2、Animaは、それぞれ独立した自己完結Rendererを使用します。
+UIにRenderer選択はなく、Profile切替時に内部で自動選択されます。正式なLiteral Content形式は
+`[speech:ja]おかえりなさい。[/speech]`と`[text:en]OPEN[/text]`で、複数行blockにも対応します。
+従来の行頭`[speech:ja] ...` / `[text:en] ...`も後方互換で認識します。生成後は本文の完全一致を
+検証し、marker自体は出力しません。`length_guidance`は助言のみで、切り詰め、padding、圧縮用の再生成は行いません。
 
-Animaは`danbooru_tags` rendererを使用し、Base v1.0、Aesthetic v1.1、Turbo v1.0を選択できます。
+AnimaはNatural / Tag / Hybridを入力から自動判定し、Base v1.0、Aesthetic v1.1、Turbo v1.0を選択できます。
 Aestheticでは公式推奨に従って`score_*`を固定Positive/Negativeから外します。通常は公式推奨の`safe`を含めますが、
 ユーザーが`sensitive` / `nsfw` / `explicit`を明示した場合はCore Policyを優先して競合する`safe`を自動で外します。AnimaではPositiveとNegativeを
 別々に表示します。既存ComfyUI Bridgeは送信先が1つだけなので、Animaで「Send to ComfyUI」を押した場合は

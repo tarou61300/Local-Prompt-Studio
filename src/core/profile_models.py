@@ -35,6 +35,7 @@ class ProfileVariant:
     id: str
     name: str
     target_model_version: str | None
+    descriptions: dict[str, str]
     required_prompt: PromptComponents
     recommended_prompt: PromptComponents
     optional_prompt: PromptComponents
@@ -42,6 +43,12 @@ class ProfileVariant:
     inference_recommendations: dict[str, Any]
     sources: tuple[ProfileSource, ...]
     path: Path
+
+    def description(self, locale_id: str) -> str:
+        return self.descriptions.get(
+            locale_id,
+            self.descriptions.get("en-US", ""),
+        )
 
 
 @dataclass(frozen=True, slots=True)

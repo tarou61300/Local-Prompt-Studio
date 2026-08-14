@@ -2,6 +2,10 @@
   "id": "a14b",
   "name": "A14B",
   "target_model_version": "Wan2.2 T2V-A14B / I2V-A14B",
+  "description": {
+    "en-US": "Prompt guidance for Wan 2.2 T2V-A14B and I2V-A14B.",
+    "ja-JP": "Wan 2.2 T2V-A14B / I2V-A14B向けのPrompt規則です。"
+  },
   "required_prompt": {
     "positive_prefix": [],
     "positive_suffix": [],

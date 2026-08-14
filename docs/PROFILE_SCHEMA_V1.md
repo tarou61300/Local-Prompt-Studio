@@ -1,6 +1,6 @@
 # Local Prompt Studio Profile Schema v1
 
-Phase 2A-3 supports the MiniMax H3, Wan 2.2, and LTX-2.3 video profiles plus the Krea 2 and Anima image profiles.
+Phase 2A-5 supports the MiniMax H3, Wan 2.2, and LTX-2.3 video profiles plus the Krea 2 and Anima image profiles.
 Profiles are UTF-8 data, never executable plugins. A profile may contain JSON,
 Markdown, and text files. Python,
 JavaScript, PowerShell, batch files, executables, DLLs, absolute references,
@@ -40,27 +40,36 @@ uses `official_documentation`, `official_model_card`, `studio`, `community`, or
 
 Variants contain separate required, recommended, and optional positive/negative
 prefixes/suffixes, advisory `length_guidance`, reference-only inference
-recommendations, provenance, and optional target model information. Optional
+recommendations, provenance, optional target model information, and optional
+localized `description` text used by the compact Variant help label. Optional
 components are stored separately and remain disabled unless a later UI explicitly
 enables them. Quantization is not a variant unless its prompt rules differ.
 
 The renderer assembles fixed profile components deterministically around model
-output. Phase 2A-3 registers `video_narrative`, `natural_language`, and `danbooru_tags`. Unknown
-renderer IDs fail closed. Separate positive/negative output is supported by the
-data model. Krea 2 uses a single natural-language positive prompt and does not
-invent a negative prompt. Anima uses a structured JSON LLM contract so the `danbooru_tags` renderer can deterministically order and normalize tag sections, add variant-specific recommended components, and return separate positive/negative outputs.
+output. Phase 2A-5 registers one renderer per builtin model: `minimax_h3`,
+`wan_2_2`, `ltx_2_3`, `krea_2`, and `anima`. Profile selection chooses the
+renderer internally; there is no renderer-selection UI. Unknown renderer IDs
+fail closed. Krea 2 uses a single natural-language positive prompt and never
+invents a negative prompt. Anima detects Natural, Tag, or Hybrid input. Natural
+and Tag use their existing JSON contracts; Hybrid uses a dedicated non-JSON
+contract while the renderer deterministically preserves the source tag prefix,
+applies variant components, and returns separate Positive/Negative outputs.
 
-## Core Transformation Policy
+## Renderer transformation policy
 
-The global English machine-facing policy has priority over profile
-recommendations: preserve explicit intent, Literal Content, and Protected Terms;
-then adapt to the selected profile. Fixed components are deterministic. Length
-guidance never truncates, pads, compresses, or triggers another LLM pass.
+Each model renderer owns its machine-facing Faithful/Balanced/Creative rules,
+format, language, structure, length guidance, literal/protected handling,
+variant behavior, and Positive/Negative validation. Registry, interfaces,
+configuration, history, and LLM transport remain neutral infrastructure. Fixed
+components are deterministic. Length guidance never truncates, pads, compresses,
+or triggers another LLM pass.
 
-Literal syntax is recognized only at the beginning of a line:
-`[speech:ja] ...` and `[text:en] ...`. The content after the marker must survive
-exactly. Protected Terms use a separate backend API. Neither value is written to
-ordinary logs.
+Preferred Literal syntax uses paired markers and supports multiple lines:
+`[speech:ja]...[/speech]` and `[text:en]...[/text]`. Legacy line-start markers
+remain supported and own the rest of that line. Explicit markers take priority
+over legacy syntax and contextual quote inference. Literal bodies survive
+exactly while marker syntax is removed. Protected Terms use a separate backend
+API. Neither value is written to ordinary logs.
 
 ## Localization and security
 

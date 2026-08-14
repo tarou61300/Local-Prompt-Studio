@@ -6,11 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .literal_content import parse_literal_content
 from .profile_loader import ProfileLoader
 from .profile_models import LoadedProfile, ProfileVariant
 from .protected_terms import normalize_protected_terms
-from .renderers import RenderResult, RendererRegistry
+from .renderers import RenderResult, RendererContext, RendererRegistry
 from .skill_manager import SkillManager
 
 
@@ -19,25 +18,6 @@ PROCESSING_MODES = ("Faithful", "Balanced", "Creative")
 REFERENCE_LIMITS = {"Picture": 9, "Video": 3, "Audio": 3}
 TEMPERATURES = {"Faithful": 0.35, "Balanced": 0.55, "Creative": 0.75}
 DEFAULT_MAX_OUTPUT_TOKENS = 1536
-
-CORE_TRANSFORMATION_POLICY = """CORE TRANSFORMATION POLICY (highest priority):
-1. Preserve explicit semantic user intent.
-2. Preserve Literal Content exactly, without translation, paraphrase, correction, romanization, punctuation normalization, or character changes.
-3. Preserve Protected Terms exactly, without translation, splitting, correction, removal, or renaming.
-4. Convert content into the format required by the selected model profile.
-5. Apply profile recommendations only when they do not conflict with user intent.
-6. Fixed profile components are assembled deterministically outside the LLM.
-7. Treat recommended prompt length as guidance only.
-8. Never remove, shorten, expand, or invent semantic content solely to reach a length target.
-9. In Faithful mode, do not invent unspecified semantic details.
-10. Prefer semantic preservation over profile conformity."""
-
-PROCESSING_INSTRUCTIONS = {
-    "Faithful": "Preserve every specified action and its order. Add no unspecified action or major detail.",
-    "Balanced": "Preserve the request; add only minimal continuity, timing, natural motion, ambience, or camera clarity.",
-    "Creative": "Preserve the central intent; you may add useful cinematic direction and natural visual detail.",
-}
-
 
 @dataclass(frozen=True, slots=True)
 class H3Reference:
@@ -103,24 +83,22 @@ class PromptEngine:
         if not request.strip():
             raise ValueError("Requestを入力してください。")
         self._validate(settings)
-        ui_block = self._ui_block(settings)
+        renderer = self.renderer_registry.get(self.profile.manifest.renderer)
+        analysis = renderer.analyze_request(request)
+        protected_terms = normalize_protected_terms(settings.protected_terms)
         external_materials = self._external_materials(settings)
         # Some embedded Jinja templates (including Qwen3.5 variants) accept a
         # system role only as the first message. Keep every instruction and the
         # Skill text unchanged, but place them in one leading system message.
         system_content = "\n\n".join(
             (
-                CORE_TRANSFORMATION_POLICY,
-                f"SELECTED PROFILE ({self.profile.manifest.id} v{self.profile.manifest.profile_version}):\n{self.profile.instructions}",
-                *external_materials,
-                ui_block,
-                (
-                    "OUTPUT FORMAT: "
-                    + self.renderer_registry.get(
-                        self.profile.manifest.renderer
-                    ).llm_output_instruction(self.profile.manifest.output_language)
+                renderer.system_instructions(
+                    self._renderer_context(settings),
+                    analysis,
+                    protected_terms,
                 ),
-                self._preservation_block(request, settings),
+                f"SELECTED PROFILE ({self.profile.manifest.id} v{self.profile.manifest.profile_version})",
+                *external_materials,
             )
         )
         return [
@@ -145,22 +123,9 @@ class PromptEngine:
             )
         return tuple(blocks)
 
-    def _preservation_block(self, request: str, settings: PromptSettings) -> str:
-        literals = parse_literal_content(request)
-        protected = normalize_protected_terms(settings.protected_terms)
-        lines = ["EXACT PRESERVATION REQUIREMENTS:"]
-        if literals:
-            lines.append("Copy each Literal Content value exactly into the finished prompt:")
-            lines.extend(f"- {item.kind}:{item.language}: {item.text}" for item in literals)
-        if protected:
-            lines.append("Copy each Protected Term exactly into the finished prompt:")
-            lines.extend(f"- {item.text}" for item in protected)
-        if len(lines) == 1:
-            lines.append("No explicit Literal Content or Protected Terms were supplied.")
-        return "\n".join(lines)
-
     def request_payload(self, request: str, settings: PromptSettings) -> dict[str, Any]:
         renderer = self.renderer_registry.get(self.profile.manifest.renderer)
+        analysis = renderer.analyze_request(request)
         payload: dict[str, Any] = {
             "messages": self.build_messages(request, settings),
             "temperature": TEMPERATURES[settings.processing],
@@ -168,18 +133,21 @@ class PromptEngine:
             "max_tokens": DEFAULT_MAX_OUTPUT_TOKENS,
             "stream": False,
         }
-        payload.update(renderer.request_payload_overrides())
+        payload.update(renderer.request_payload_overrides(analysis))
         return payload
 
     def finalize_output(
         self, request: str, settings: PromptSettings, generated: str
     ) -> RenderResult:
         renderer = self.renderer_registry.get(self.profile.manifest.renderer)
+        analysis = renderer.analyze_request(request)
         return renderer.render(
             clean_model_output(generated),
             self.variant,
-            parse_literal_content(request),
+            analysis.literals,
             normalize_protected_terms(settings.protected_terms),
+            input_mode=analysis.input_mode,
+            source_request=request,
         )
 
     def _validate(self, settings: PromptSettings) -> None:
@@ -204,41 +172,24 @@ class PromptEngine:
             used.add(key)
             counts[reference.kind] += 1
 
-    def _ui_block(self, settings: PromptSettings) -> str:
-        if not self.profile.manifest.capabilities.get("legacy_h3_controls", False):
-            return "\n".join(
-                (
-                    "UI SETTINGS (use only where they do not contradict the user):",
-                    f"Task: {settings.mode}",
-                    f"Prompt Processing: {settings.processing}",
-                    f"Processing rule: {PROCESSING_INSTRUCTIONS[settings.processing]}",
-                )
-            )
-        lines = [
-            "UI SETTINGS (use only where they do not contradict the user):",
-            f"Mode: {settings.mode}",
-            f"Duration: {settings.duration} seconds",
-            f"Prompt Processing: {settings.processing}",
-            f"Processing rule: {PROCESSING_INSTRUCTIONS[settings.processing]}",
-            f"Camera: {settings.camera}",
-            f"Shot: {settings.shot}",
-            f"Motion: {settings.motion}",
-            "Audio: " + ", ".join(
-                name
-                for name, enabled in (
-                    ("Environmental / scene audio", settings.environmental_audio),
-                    ("Dialogue", settings.dialogue),
-                    ("Background music", settings.background_music),
-                )
-                if enabled
+    def _renderer_context(self, settings: PromptSettings) -> RendererContext:
+        return RendererContext(
+            task=settings.mode,
+            processing=settings.processing,
+            output_language=self.profile.manifest.output_language,
+            variant_id=self.variant.id,
+            profile_instructions=self.profile.instructions,
+            duration=settings.duration,
+            camera=settings.camera,
+            shot=settings.shot,
+            motion=settings.motion,
+            environmental_audio=settings.environmental_audio,
+            dialogue=settings.dialogue,
+            background_music=settings.background_music,
+            start_frame_note=settings.start_frame_note.strip(),
+            end_frame_note=settings.end_frame_note.strip(),
+            references=tuple(
+                f"{reference.tag()} {reference.description.strip()}"
+                for reference in settings.references
             ),
-        ]
-        if settings.mode in {"I2VA", "FL2VA"} and settings.start_frame_note.strip():
-            lines.append(f"Start image note: {settings.start_frame_note.strip()}")
-        if settings.mode in {"FL2VA", "L2VA"} and settings.end_frame_note.strip():
-            lines.append(f"End image note: {settings.end_frame_note.strip()}")
-        if settings.mode == "Ref2VA":
-            lines.append("References (the files themselves are not analyzed or sent):")
-            for reference in settings.references:
-                lines.append(f"{reference.tag()} {reference.description.strip()}")
-        return "\n".join(lines)
+        )

@@ -19,7 +19,7 @@ class HistoryManager:
         profile_id: str = "minimax_h3",
         profile_version: str = "1.0.0",
         variant_id: str = "base",
-        renderer_id: str = "video_narrative",
+        renderer_id: str = "minimax_h3",
         processing_mode: str = "Faithful",
         profile_hash: str = "",
     ) -> bool:
@@ -37,7 +37,7 @@ class HistoryManager:
                     profile_id TEXT NOT NULL DEFAULT 'minimax_h3',
                     profile_version TEXT NOT NULL DEFAULT '1.0.0',
                     variant_id TEXT NOT NULL DEFAULT 'base',
-                    renderer_id TEXT NOT NULL DEFAULT 'video_narrative',
+                    renderer_id TEXT NOT NULL DEFAULT 'minimax_h3',
                     processing_mode TEXT NOT NULL DEFAULT 'Faithful',
                     profile_hash TEXT NOT NULL DEFAULT ''
                 )"""
@@ -49,7 +49,7 @@ class HistoryManager:
                 "profile_id": "TEXT NOT NULL DEFAULT 'minimax_h3'",
                 "profile_version": "TEXT NOT NULL DEFAULT '1.0.0'",
                 "variant_id": "TEXT NOT NULL DEFAULT 'base'",
-                "renderer_id": "TEXT NOT NULL DEFAULT 'video_narrative'",
+                "renderer_id": "TEXT NOT NULL DEFAULT 'minimax_h3'",
                 "processing_mode": "TEXT NOT NULL DEFAULT 'Faithful'",
                 "profile_hash": "TEXT NOT NULL DEFAULT ''",
             }

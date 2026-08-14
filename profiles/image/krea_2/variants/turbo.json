@@ -2,6 +2,10 @@
   "id": "turbo",
   "name": "Turbo",
   "target_model_version": "Krea 2 Turbo v1.0",
+  "description": {
+    "en-US": "Fast 8-step Krea 2 profile for high-quality image generation.",
+    "ja-JP": "高品質画像を高速生成するKrea 2の8-step推論向けです。"
+  },
   "required_prompt": {
     "positive_prefix": [],
     "positive_suffix": [],

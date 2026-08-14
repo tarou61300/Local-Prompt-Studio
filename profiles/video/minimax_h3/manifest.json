@@ -4,7 +4,7 @@
   "name": "MiniMax H3",
   "profile_version": "1.0.0",
   "category": "video",
-  "renderer": "video_narrative",
+  "renderer": "minimax_h3",
   "output_language": "en",
   "default_variant": "base",
   "supported_tasks": ["T2VA", "I2VA", "FL2VA", "L2VA", "Ref2VA"],

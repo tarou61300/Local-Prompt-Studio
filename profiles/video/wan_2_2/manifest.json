@@ -4,7 +4,7 @@
   "name": "Wan 2.2",
   "profile_version": "1.0.0",
   "category": "video",
-  "renderer": "video_narrative",
+  "renderer": "wan_2_2",
   "output_language": "en",
   "default_variant": "a14b",
   "supported_tasks": ["T2V", "I2V"],

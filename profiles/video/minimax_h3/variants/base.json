@@ -2,6 +2,10 @@
   "id": "base",
   "name": "Base",
   "target_model_version": null,
+  "description": {
+    "en-US": "Standard MiniMax H3 prompt rules for all supported H3 video tasks.",
+    "ja-JP": "MiniMax H3の全対応動画タスクで使う標準Prompt規則です。"
+  },
   "required_prompt": {
     "positive_prefix": [],
     "positive_suffix": [],

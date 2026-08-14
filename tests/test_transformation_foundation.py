@@ -14,10 +14,10 @@ from core.renderers import (
     DANBOORU_OUTPUT_INVALID,
     LITERAL_CONTENT_NOT_PRESERVED,
     PROTECTED_TERM_NOT_PRESERVED,
-    DanbooruTagsRenderer,
-    NaturalLanguageRenderer,
+    AnimaRenderer,
+    Krea2Renderer,
+    MiniMaxH3Renderer,
     TransformationError,
-    VideoNarrativeRenderer,
 )
 from core.skill_manager import SkillManager
 
@@ -59,7 +59,7 @@ def test_h3_profile_policy_and_skill_are_in_same_request():
     request = "[speech:ja] おかえりなさい。\nA person enters."
     payload = engine.request_payload(request, PromptSettings(processing="Faithful"))
     system = payload["messages"][0]["content"]
-    assert "CORE TRANSFORMATION POLICY" in system
+    assert "MINIMAX H3 RENDERER POLICY" in system
     assert "SELECTED PROFILE (minimax_h3 v1.0.0)" in system
     assert "EXTERNAL PROMPT SKILL" in system
     assert "おかえりなさい。" in system
@@ -95,7 +95,7 @@ def test_length_guidance_is_warning_only_and_never_changes_text():
         recommended_minimum=2,
         recommended_maximum=3,
     )
-    renderer = VideoNarrativeRenderer()
+    renderer = MiniMaxH3Renderer()
     short_variant = replace(variant, length_guidance=guidance)
     long_text = "one two three four explicit details"
     result = renderer.render(long_text, short_variant, (), ())
@@ -126,11 +126,11 @@ def test_required_and_recommended_components_are_assembled_deterministically():
             negative_suffix=("recommended-negative",),
         ),
     )
-    result = VideoNarrativeRenderer().render("generated", variant, (), ())
+    result = MiniMaxH3Renderer().render("generated", variant, (), ())
     assert result.positive == (
         "required-start recommended-start generated recommended-end required-end"
     )
-    assert result.negative == "required-negative recommended-negative"
+    assert result.negative is None
 
 
 def test_second_profile_can_use_core_engine_without_h3_dependency_or_model_branch():
@@ -253,7 +253,7 @@ def test_natural_language_renderer_preserves_fixed_component_contract():
             positive_suffix=("recommended-end",),
         ),
     )
-    result = NaturalLanguageRenderer().render("generated", variant, (), ())
+    result = Krea2Renderer().render("generated", variant, (), ())
     assert result.positive == (
         "required-start recommended-start generated recommended-end required-end"
     )
@@ -271,7 +271,7 @@ def test_anima_renderer_assembles_order_normalization_and_negative_deterministic
       "general": ["SILVER_HAIR", "blue_eyes", "score_7", "(CHIBI:2)"],
       "negative": ["bad_hands", "blurry"]
     }"""
-    result = DanbooruTagsRenderer().render(generated, variant, (), ())
+    result = AnimaRenderer().render(generated, variant, (), ())
 
     assert result.positive == (
         "masterpiece, best quality, score_7, year 2025, explicit, 1girl, "
@@ -295,7 +295,7 @@ def test_anima_renderer_preserves_literal_and_protected_terms_without_normalizin
       "negative": []
     }"""
 
-    result = DanbooruTagsRenderer().render(
+    result = AnimaRenderer().render(
         generated,
         variant,
         literals,
@@ -316,7 +316,7 @@ def test_anima_renderer_deterministically_restores_missing_exact_exceptions():
       "negative": []
     }"""
 
-    result = DanbooruTagsRenderer().render(
+    result = AnimaRenderer().render(
         generated,
         variant,
         literals,
@@ -334,7 +334,7 @@ def test_anima_renderer_removes_literal_directive_marker_without_changing_value(
       "negative": []
     }"""
 
-    result = DanbooruTagsRenderer().render(generated, variant, literals, ())
+    result = AnimaRenderer().render(generated, variant, literals, ())
 
     assert "[text:ja]" not in result.positive
     assert result.positive.endswith("月夜珈琲")
@@ -344,7 +344,7 @@ def test_anima_renderer_rejects_invalid_structured_output():
     variant = _named_profile("anima").variant("turbo_v1_0")
 
     with pytest.raises(TransformationError) as exc:
-        DanbooruTagsRenderer().render("1girl, silver hair", variant, (), ())
+        AnimaRenderer().render("1girl, silver hair", variant, (), ())
 
     assert exc.value.code == DANBOORU_OUTPUT_INVALID
 
@@ -352,16 +352,17 @@ def test_anima_renderer_rejects_invalid_structured_output():
 def test_anima_prompt_engine_requests_renderer_specific_json_contract():
     engine = PromptEngine(None, _named_profile("anima"), "turbo_v1_0")
     payload = engine.request_payload(
-        "銀髪の女性。青い目。",
+        "1girl, silver_hair, blue_eyes",
         PromptSettings(mode="T2I", processing="Faithful"),
     )
     system = payload["messages"][0]["content"]
 
     assert "SELECTED PROFILE (anima v1.0.0)" in system
-    assert '"quality_meta_year_safety"' in system
-    assert '"subject_count"' in system
-    assert '"negative"' in system
+    assert "quality_meta_year_safety" in system
+    assert "subject_count" in system
+    assert "negative" in system
     assert "valid JSON object" in system
+    assert "Detected input mode: TAG" in system
     assert payload["response_format"] == {"type": "json_object"}
     assert "EXTERNAL PROMPT SKILL" not in system
 
@@ -376,7 +377,7 @@ def test_anima_renderer_accepts_json_code_fence_and_harmless_wrapper_text():
   "negative": []
 }
 ```"""
-    fenced_result = DanbooruTagsRenderer().render(clean_model_output(fenced), variant, (), ())
+    fenced_result = AnimaRenderer().render(clean_model_output(fenced), variant, (), ())
     assert "1girl" in fenced_result.positive
     assert "silver hair" in fenced_result.positive
 
@@ -386,7 +387,7 @@ def test_anima_renderer_accepts_json_code_fence_and_harmless_wrapper_text():
   "general": ["long_hair", "school_uniform"],
   "negative": []
 }"""
-    wrapped_result = DanbooruTagsRenderer().render(wrapped, variant, (), ())
+    wrapped_result = AnimaRenderer().render(wrapped, variant, (), ())
     assert "long hair" in wrapped_result.positive
     assert "school uniform" in wrapped_result.positive
 
@@ -398,7 +399,7 @@ def test_anima_aesthetic_omits_score_tags_from_fixed_recommendations():
       "general": ["solo"],
       "negative": []
     }"""
-    result = DanbooruTagsRenderer().render(generated, variant, (), ())
+    result = AnimaRenderer().render(generated, variant, (), ())
 
     assert result.positive == "masterpiece, best quality, safe, 1girl, solo"
     assert "score_" not in result.positive
@@ -414,7 +415,7 @@ def test_anima_explicit_safety_tag_replaces_conflicting_default_safe():
       "negative": []
     }"""
 
-    result = DanbooruTagsRenderer().render(generated, variant, (), ())
+    result = AnimaRenderer().render(generated, variant, (), ())
 
     assert "explicit" in result.positive
     assert ", safe," not in f", {result.positive},"
@@ -433,21 +434,19 @@ def test_all_existing_h3_modes_and_processing_modes_remain_supported(mode, proce
     assert f"Mode: {mode}" in payload["messages"][0]["content"]
 
 def test_plain_output_instruction_keeps_surrounding_text_in_profile_language():
-    instruction = VideoNarrativeRenderer().llm_output_instruction("en")
-    assert "every non-literal concept" in instruction
-    assert "only text permitted to remain in another language" in instruction
-    assert "not input directive syntax" in instruction
+    instruction = MiniMaxH3Renderer().llm_output_instruction("en")
+    assert "natural-language video prompt" in instruction
+    assert "language exceptions" in instruction
+    assert "Remove [speech:*] and [text:*] markers" in instruction
 
 
 def test_danbooru_output_instruction_requires_english_tags_with_literal_exceptions():
-    instruction = DanbooruTagsRenderer().llm_output_instruction("en")
-    assert "Translate every ordinary concept" in instruction
-    assert "every ordinary generated tag must be in en" in instruction
-    assert "never copy input directive syntax" in instruction
-    assert "OUTPUT VALIDATION RULE" in instruction
-    assert "entire string exactly equals one listed" in instruction
-    assert "MANDATORY PRESERVATION RULE" in instruction
-    assert "Omitting any listed value is invalid" in instruction
+    instruction = AnimaRenderer().llm_output_instruction("en")
+    assert "Translate ordinary" in instruction
+    assert "into en" in instruction
+    assert "Never copy [speech:*] or [text:*] marker syntax" in instruction
+    assert "OUTPUT VALIDATION" in instruction
+    assert "only language exception" in instruction
 
 
 def test_wan_profile_requires_english_surrounding_prose_for_foreign_literals():
@@ -466,6 +465,7 @@ def test_krea_profile_forbids_dress_to_swimwear_reinterpretation_in_faithful_mod
 
 def test_anima_profile_requires_english_ordinary_tags_while_preserving_literals():
     instructions = _named_profile("anima").instructions
+    assert "Natural, Tag, or Hybrid" in instructions
     assert "English Danbooru/Gelbooru tag names" in instructions
     assert "Literal Content and Protected Terms may remain in any language" in instructions
     assert "into an English tag" in instructions

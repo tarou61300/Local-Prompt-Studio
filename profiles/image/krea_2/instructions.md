@@ -34,7 +34,7 @@ Creative:
 ## Visible text
 
 - When the user requests visible words, labels, signs, or typography, keep the requested wording exact and place the visible text in quotation marks in the final prompt.
-- Literal Content such as `[text:ja] 月夜珈琲` must preserve `月夜珈琲` exactly. Do not translate, romanize, correct, or normalize it.
+- Literal Content such as `[text:ja]月夜珈琲[/text]` must preserve `月夜珈琲` exactly. Do not translate, romanize, correct, or normalize it. Legacy line-start markers remain supported.
 - The target image model may still render text imperfectly; Local Prompt Studio only preserves the requested string in the prompt.
 
 ## Detail and length

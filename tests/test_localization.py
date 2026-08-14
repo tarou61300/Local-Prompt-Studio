@@ -17,6 +17,8 @@ def test_english_and_japanese_locales_load():
         "profile.ltx_2_3.description"
     )
     assert Localization(root, "en-US").tr("profile.task") == "Task"
+    assert Localization(root, "en-US").tr("profile.style") == "Prompt Transformation Style"
+    assert Localization(root, "ja-JP").tr("profile.style") == "Prompt変換スタイル"
     assert "Krea 2" in Localization(root, "en-US").tr(
         "profile.krea_2.description"
     )
@@ -26,7 +28,7 @@ def test_english_and_japanese_locales_load():
     assert "Anima" in Localization(root, "en-US").tr(
         "profile.anima.description"
     )
-    assert "Danbooru" in Localization(root, "ja-JP").tr(
+    assert "Hybrid" in Localization(root, "ja-JP").tr(
         "profile.anima.description"
     )
     assert Localization(root, "en-US").tr("output.negative") == "Negative Prompt (editable)"

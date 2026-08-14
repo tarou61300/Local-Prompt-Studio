@@ -2,6 +2,10 @@
   "id": "raw",
   "name": "Raw",
   "target_model_version": "Krea 2 Raw v1.0",
+  "description": {
+    "en-US": "Flexible base checkpoint for full-sampler inference and LoRA training.",
+    "ja-JP": "フルSampler推論やLoRA学習向けの柔軟なBaseチェックポイントです。"
+  },
   "required_prompt": {
     "positive_prefix": [],
     "positive_suffix": [],

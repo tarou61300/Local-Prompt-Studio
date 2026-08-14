@@ -2,6 +2,10 @@
   "id": "aesthetic_v1_1",
   "name": "Aesthetic v1.1",
   "target_model_version": "Anima-Aesthetic v1.1",
+  "description": {
+    "en-US": "Aesthetic v1.1 omits fixed score_* tags for its curated high-quality tuning.",
+    "ja-JP": "高品質調整済みのAesthetic v1.1向けで、固定score_*タグを使用しません。"
+  },
   "required_prompt": {},
   "recommended_prompt": {
     "positive_prefix": [

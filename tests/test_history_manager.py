@@ -22,4 +22,6 @@ def test_history_on_stores_locally(tmp_path):
             "request",
             "output",
         )
-
+        assert connection.execute("SELECT renderer_id FROM history").fetchone() == (
+            "minimax_h3",
+        )

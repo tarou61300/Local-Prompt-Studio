@@ -7,7 +7,7 @@ import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QComboBox, QFileDialog, QMessageBox
 
 from app.main_window import MainWindow
 from app.setup_dialog import SetupDialog
@@ -56,7 +56,131 @@ def test_main_window_constructs_without_model(tmp_path):
             "Ref2VA",
         ]
         assert window.legacy_video_settings_group.isHidden() is False
+        assert "[speech:ja]こんにちは[/speech]" in window.literal_hint.text()
+        assert "[text:ja]月夜珈琲[/text]" in window.request_text.toolTip()
+        assert all(
+            "renderer" not in widget.objectName().casefold()
+            for widget in window.findChildren(QComboBox)
+        )
         assert "未設定" in window.readiness.text()
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_copy_negative_save_txt_and_clear_actions_remain_available(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=ConfigManager(tmp_path / "data"),
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        window.profile_category.setCurrentIndex(window.profile_category.findData("image"))
+        window.profile_model.setCurrentIndex(window.profile_model.findData("anima"))
+        app.processEvents()
+
+        window.request_text.setPlainText("request")
+        window.output_text.setPlainText("positive prompt")
+        window.negative_output_text.setPlainText("negative prompt")
+        window.copy_button.click()
+        assert QApplication.clipboard().text() == "positive prompt"
+        window.copy_negative_button.click()
+        assert QApplication.clipboard().text() == "negative prompt"
+
+        saved = tmp_path / "saved prompt.txt"
+        monkeypatch.setattr(
+            QFileDialog,
+            "getSaveFileName",
+            lambda *args, **kwargs: (str(saved), "Text File (*.txt)"),
+        )
+        window._save_output()
+        assert saved.read_text(encoding="utf-8") == (
+            "[Positive]\npositive prompt\n\n[Negative]\nnegative prompt"
+        )
+
+        window._clear_text()
+        assert window.request_text.toPlainText() == ""
+        assert window.output_text.toPlainText() == ""
+        assert window.negative_output_text.toPlainText() == ""
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_generation_failure_clears_stale_output_and_disables_copy_and_send(
+    tmp_path, monkeypatch
+):
+    app = QApplication.instance() or QApplication([])
+    mock, url = start_mock_server(response_text="invalid hybrid output")
+    warnings = []
+    bridge_calls = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *args, **kwargs: warnings.append((args, kwargs)),
+    )
+
+    def forbidden_bridge(url_value):
+        bridge_calls.append(url_value)
+        raise AssertionError("stale output must not reach ComfyUI")
+
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=ConfigManager(tmp_path),
+            server_url=url,
+            dev_skill_path=FIXTURE,
+            bridge_service_factory=forbidden_bridge,
+        )
+        window.profile_category.setCurrentIndex(window.profile_category.findData("image"))
+        window.profile_model.setCurrentIndex(window.profile_model.findData("anima"))
+        app.processEvents()
+
+        window.output_text.setPlainText("stale positive")
+        window.negative_output_text.setPlainText("stale negative")
+        assert window.copy_button.isEnabled()
+        assert window.copy_negative_button.isEnabled()
+        assert window.send_comfyui_button.isEnabled()
+
+        window.request_text.setPlainText(
+            "ginntuinn, 1girl, silver hair. A young woman is sitting beside a café "
+            "window, wearing a white dress and smiling gently at the viewer."
+        )
+        window.generate()
+        assert window.worker is not None
+        assert window.output_text.toPlainText() == ""
+        assert window.negative_output_text.toPlainText() == ""
+        assert not window.copy_button.isEnabled()
+        assert not window.copy_negative_button.isEnabled()
+        assert not window.send_comfyui_button.isEnabled()
+
+        deadline = time.monotonic() + 5
+        while window.worker.isRunning() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        app.processEvents()
+
+        assert not window.worker.isRunning()
+        assert warnings
+        assert window.output_text.toPlainText() == ""
+        assert window.negative_output_text.toPlainText() == ""
+        assert not window.copy_button.isEnabled()
+        assert not window.copy_negative_button.isEnabled()
+        assert not window.send_comfyui_button.isEnabled()
+
+        QApplication.clipboard().setText("clipboard sentinel")
+        window.copy_button.click()
+        window.copy_negative_button.click()
+        window.send_comfyui_button.click()
+        assert QApplication.clipboard().text() == "clipboard sentinel"
+        assert bridge_calls == []
         window.close()
         app.processEvents()
     finally:
@@ -225,7 +349,7 @@ def test_image_category_selects_anima_and_shows_separate_negative_output(tmp_pat
         assert "Positive" in window.output_group.title() or "ポジティブ" in window.output_group.title()
         assert "H3 Skill" not in window.readiness.text()
 
-        window.request_text.setPlainText("[text:ja] 月夜珈琲")
+        window.request_text.setPlainText("1girl, silver_hair\n[text:ja] 月夜珈琲")
         window.generate()
         assert window.worker is not None
         deadline = time.monotonic() + 5
@@ -343,6 +467,12 @@ def test_main_window_uses_persisted_english_and_japanese_locales(tmp_path):
         assert english.profile_category.currentData() == "video"
         assert "LLM Model: Not set" in english.readiness.text()
         assert english.duration.suffix() == " sec"
+        english_style_label = english.processing.parentWidget().layout().labelForField(
+            english.processing
+        )
+        assert english_style_label.text() == "Prompt Transformation Style"
+        assert english.profile_variant_help.text()
+        assert english.prompt_style_help.text()
         english.close()
         app.processEvents()
 
@@ -359,7 +489,63 @@ def test_main_window_uses_persisted_english_and_japanese_locales(tmp_path):
         assert japanese.profile_category.currentData() == "video"
         assert "LLMモデル: 未設定" in japanese.readiness.text()
         assert japanese.duration.suffix() == " 秒"
+        japanese_style_label = japanese.processing.parentWidget().layout().labelForField(
+            japanese.processing
+        )
+        assert japanese_style_label.text() == "Prompt変換スタイル"
+        assert "標準Prompt規則" in japanese.profile_variant_help.text()
+        assert japanese.prompt_style_help.text()
         japanese.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_variant_and_renderer_help_update_without_renderer_selection_ui(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    manager = ConfigManager(tmp_path)
+    manager.save(AppConfig(ui_locale="en-US"))
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+
+        assert "MiniMax H3" in window.profile_variant_help.text()
+        faithful = window.prompt_style_help.text()
+        assert faithful
+        assert window.profile_variant.toolTip() == window.profile_variant_help.text()
+        assert window.processing.toolTip() == window.prompt_style_help.text()
+
+        window.processing.setCurrentText("Balanced")
+        app.processEvents()
+        assert "H3" in window.prompt_style_help.text()
+        assert window.prompt_style_help.text() != faithful
+
+        window.profile_model.setCurrentIndex(window.profile_model.findData("ltx_2_3"))
+        app.processEvents()
+        assert "Distilled 1.1" in window.profile_variant_help.text()
+        assert "LTX" in window.prompt_style_help.text()
+        distilled_help = window.profile_variant_help.text()
+
+        window.profile_variant.setCurrentIndex(window.profile_variant.findData("dev"))
+        app.processEvents()
+        assert "22B Dev" in window.profile_variant_help.text()
+        assert window.profile_variant_help.text() != distilled_help
+
+        window.profile_category.setCurrentIndex(window.profile_category.findData("image"))
+        app.processEvents()
+        window.profile_model.setCurrentIndex(window.profile_model.findData("krea_2"))
+        app.processEvents()
+        assert "8-step" in window.profile_variant_help.text()
+        assert "Krea" in window.prompt_style_help.text()
+        assert window.findChild(QComboBox, "renderer") is None
+
+        window.close()
         app.processEvents()
     finally:
         mock.shutdown()

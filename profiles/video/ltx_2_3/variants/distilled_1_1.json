@@ -2,6 +2,10 @@
   "id": "distilled_1_1",
   "name": "22B Distilled 1.1",
   "target_model_version": "LTX-2.3 22B Distilled 1.1",
+  "description": {
+    "en-US": "Faster 22B Distilled 1.1 profile with the same prompt semantics.",
+    "ja-JP": "同じPrompt規則を保った高速な22B Distilled 1.1向けです。"
+  },
   "required_prompt": {
     "positive_prefix": [],
     "positive_suffix": [],

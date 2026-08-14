@@ -2,6 +2,10 @@
   "id": "turbo_v1_0",
   "name": "Turbo v1.0",
   "target_model_version": "Anima-Turbo v1.0",
+  "description": {
+    "en-US": "Fast Turbo v1.0 profile with standard Anima quality, score, safety, and Negative tags.",
+    "ja-JP": "標準の品質・score・safe・Negativeタグを使う高速なTurbo v1.0向けです。"
+  },
   "required_prompt": {},
   "recommended_prompt": {
     "positive_prefix": [

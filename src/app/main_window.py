@@ -41,10 +41,12 @@ from core.profile_loader import ProfileLoader
 from core.profile_models import LoadedProfile
 from core.prompt_engine import H3Reference, PromptEngine, PromptSettings, REFERENCE_LIMITS
 from core.renderers import (
+    ANIMA_HYBRID_OUTPUT_INVALID,
     DANBOORU_OUTPUT_INVALID,
     LITERAL_CONTENT_NOT_PRESERVED,
     PROTECTED_TERM_NOT_PRESERVED,
     RenderResult,
+    RendererRegistry,
 )
 from core.skill_manager import SkillManager
 from core.system_memory import (
@@ -147,8 +149,11 @@ class MainWindow(QMainWindow):
             project_root / "locales", self.config.ui_locale
         )
         self.tr = self.localization.tr
+        self.renderer_registry = RendererRegistry()
         self.profile_catalog = ProfileLoader(
-            project_root / "profiles", config_manager.data_dir
+            project_root / "profiles",
+            config_manager.data_dir,
+            self.renderer_registry,
         ).discover()
         try:
             self.profile: LoadedProfile | None = self.profile_catalog.get(
@@ -241,15 +246,29 @@ class MainWindow(QMainWindow):
         self.profile_model.setObjectName("profile_model")
         self.profile_variant = QComboBox()
         self.profile_variant.setObjectName("profile_variant")
+        self.profile_variant_help = QLabel()
+        self.profile_variant_help.setObjectName("profile_variant_help")
+        self.profile_variant_help.setWordWrap(True)
+        self.profile_variant_help.setStyleSheet(
+            "color: palette(mid); font-size: 11px;"
+        )
         self.mode = QComboBox()
         self.mode.setObjectName("profile_task")
         self.processing = self._combo(("Faithful", "Balanced", "Creative"))
         self.processing.setObjectName("prompt_style")
+        self.prompt_style_help = QLabel()
+        self.prompt_style_help.setObjectName("prompt_style_help")
+        self.prompt_style_help.setWordWrap(True)
+        self.prompt_style_help.setStyleSheet(
+            "color: palette(mid); font-size: 11px;"
+        )
         profile_layout.addRow(self.tr("profile.category"), self.profile_category)
         profile_layout.addRow(self.tr("profile.model"), self.profile_model)
         profile_layout.addRow(self.tr("profile.variant"), self.profile_variant)
+        profile_layout.addRow("", self.profile_variant_help)
         profile_layout.addRow(self.tr("profile.task"), self.mode)
         profile_layout.addRow(self.tr("profile.style"), self.processing)
+        profile_layout.addRow("", self.prompt_style_help)
         root.addWidget(profile_group)
 
         self.legacy_video_settings_group = QGroupBox(self.tr("video.settings"))
@@ -318,7 +337,13 @@ class MainWindow(QMainWindow):
         request_layout = QVBoxLayout(request_group)
         self.request_text = QPlainTextEdit()
         self.request_text.setPlaceholderText(self.tr("input.placeholder"))
+        self.request_text.setToolTip(self.tr("input.literal_hint"))
         request_layout.addWidget(self.request_text)
+        self.literal_hint = QLabel(self.tr("input.literal_hint"))
+        self.literal_hint.setObjectName("literal_syntax_hint")
+        self.literal_hint.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.literal_hint.setToolTip(self.tr("input.literal_hint"))
+        request_layout.addWidget(self.literal_hint)
         splitter.addWidget(request_group)
 
         self.output_group = QGroupBox(self.tr("output.prompt"))
@@ -385,10 +410,12 @@ class MainWindow(QMainWindow):
         root.addWidget(self.status_label)
         self.setCentralWidget(central)
         self.output_text.textChanged.connect(self._update_send_button_state)
+        self.negative_output_text.textChanged.connect(self._update_send_button_state)
         self.profile_category.currentIndexChanged.connect(self._profile_category_changed)
         self.profile_model.currentIndexChanged.connect(self._profile_model_changed)
         self.profile_variant.currentIndexChanged.connect(self._profile_variant_changed)
         self.mode.currentTextChanged.connect(self._update_mode_fields)
+        self.processing.currentTextChanged.connect(self._update_prompt_style_help)
         self._populate_profile_selectors()
         self._update_send_button_state()
         self._update_mode_fields(self.mode.currentText())
@@ -459,6 +486,7 @@ class MainWindow(QMainWindow):
         self._populate_tasks()
         self._update_mode_fields(self.mode.currentText())
         self._update_output_fields()
+        self._update_prompt_style_help()
         if persist:
             self._persist_profile_selection()
         if hasattr(self, "readiness"):
@@ -506,6 +534,7 @@ class MainWindow(QMainWindow):
                 )
             self.profile_variant.setCurrentIndex(max(0, selected_index))
         self.profile_variant.blockSignals(False)
+        self._update_variant_help()
 
     def _populate_tasks(self) -> None:
         previous_task = self.mode.currentData()
@@ -526,7 +555,39 @@ class MainWindow(QMainWindow):
         self._select_current_profile(persist=True)
 
     def _profile_variant_changed(self) -> None:
+        self._update_variant_help()
         self._persist_profile_selection()
+
+    def _update_variant_help(self) -> None:
+        text = ""
+        if self.profile is not None:
+            variant_id = str(
+                self.profile_variant.currentData()
+                or self.profile.manifest.default_variant
+            )
+            try:
+                text = self.profile.variant(variant_id).description(
+                    self.localization.locale_id
+                )
+            except KeyError:
+                pass
+        self.profile_variant_help.setText(text)
+        self.profile_variant_help.setToolTip(text)
+        self.profile_variant.setToolTip(text)
+        self.profile_variant_help.setVisible(bool(text))
+
+    def _update_prompt_style_help(self, processing: str | None = None) -> None:
+        text = ""
+        if self.profile is not None:
+            renderer = self.renderer_registry.get(self.profile.manifest.renderer)
+            text = renderer.prompt_style_description(
+                processing or self.processing.currentText(),
+                self.localization.locale_id,
+            )
+        self.prompt_style_help.setText(text)
+        self.prompt_style_help.setToolTip(text)
+        self.processing.setToolTip(text)
+        self.prompt_style_help.setVisible(bool(text))
 
     def _persist_profile_selection(self) -> None:
         if self.profile is None:
@@ -614,12 +675,24 @@ class MainWindow(QMainWindow):
         )
 
     def _update_send_button_state(self) -> None:
+        generation_idle = not self._generation_active
+        self.copy_button.setEnabled(
+            bool(self.output_text.toPlainText()) and generation_idle
+        )
+        self.copy_negative_button.setEnabled(
+            bool(self.negative_output_text.toPlainText()) and generation_idle
+        )
         self.send_comfyui_button.setEnabled(
             bool(self.output_text.toPlainText())
             and self._send_worker is None
-            and not self._generation_active
+            and generation_idle
             and not self._send_close_requested
         )
+
+    def _invalidate_generation_output(self) -> None:
+        self.output_text.clear()
+        self.negative_output_text.clear()
+        self._update_send_button_state()
 
     def _set_send_conflicting_actions_enabled(self, enabled: bool) -> None:
         self.generate_button.setEnabled(enabled)
@@ -779,6 +852,7 @@ class MainWindow(QMainWindow):
         self.worker.error_occurred.connect(self._generation_error)
         self.worker.finished.connect(self._generation_finished)
         self._generation_active = True
+        self._invalidate_generation_output()
         for selector in (
             self.profile_category,
             self.profile_model,
@@ -813,7 +887,7 @@ class MainWindow(QMainWindow):
                 profile_id=self.profile.manifest.id if self.profile else "minimax_h3",
                 profile_version=self.profile.manifest.profile_version if self.profile else "1.0.0",
                 variant_id=str(self.profile_variant.currentData() or "base"),
-                renderer_id=self.profile.manifest.renderer if self.profile else "video_narrative",
+                renderer_id=self.profile.manifest.renderer if self.profile else "minimax_h3",
                 processing_mode=self.processing.currentText(),
                 profile_hash=self.profile.content_hash if self.profile else "",
             )
@@ -825,6 +899,7 @@ class MainWindow(QMainWindow):
             )
 
     def _generation_error(self, message: str) -> None:
+        self._invalidate_generation_output()
         self.status_label.setText("エラー")
         if message == LITERAL_CONTENT_NOT_PRESERVED:
             message = self.tr("error.literal_not_preserved")
@@ -832,6 +907,8 @@ class MainWindow(QMainWindow):
             message = self.tr("error.protected_not_preserved")
         elif message == DANBOORU_OUTPUT_INVALID:
             message = self.tr("error.danbooru_output_invalid")
+        elif message == ANIMA_HYBRID_OUTPUT_INVALID:
+            message = self.tr("error.anima_hybrid_output_invalid")
         QMessageBox.warning(self, self.tr("error.generation_title"), message)
 
     def _set_generation_status(self, status: str) -> None:

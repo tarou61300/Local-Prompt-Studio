@@ -2,6 +2,10 @@
   "id": "base_v1_0",
   "name": "Base v1.0",
   "target_model_version": "Anima-Base v1.0",
+  "description": {
+    "en-US": "Flexible Base v1.0 profile with standard quality, score, safety, and Negative tags.",
+    "ja-JP": "標準の品質・score・safe・Negativeタグを使う柔軟なBase v1.0向けです。"
+  },
   "required_prompt": {},
   "recommended_prompt": {
     "positive_prefix": [

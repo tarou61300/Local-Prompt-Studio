@@ -24,7 +24,7 @@ def _manifest(profile_id: str, **changes):
         "name": profile_id,
         "profile_version": "1.0.0",
         "category": "video",
-        "renderer": "video_narrative",
+        "renderer": "minimax_h3",
         "output_language": "en",
         "default_variant": "base",
         "supported_tasks": ["T2VA"],
@@ -68,12 +68,29 @@ def test_builtin_h3_profile_discovery_and_manifest():
     assert catalog.errors == []
     profile = catalog.profiles["minimax_h3"]
     assert profile.manifest.schema_version == 1
-    assert profile.manifest.renderer == "video_narrative"
+    assert profile.manifest.renderer == "minimax_h3"
     assert profile.manifest.supported_tasks == ("T2VA", "I2VA", "FL2VA", "L2VA", "Ref2VA")
     assert profile.variant().id == "base"
     assert profile.variant().optional_prompt.positive_prefix == ()
     assert profile.variant().length_guidance.unit is None
     assert profile.manifest.capabilities["legacy_h3_controls"] is True
+    assert "MiniMax H3" in profile.variant().description("en-US")
+    assert "標準Prompt規則" in profile.variant().description("ja-JP")
+
+
+def test_all_builtin_variants_provide_english_and_japanese_descriptions():
+    profiles = ProfileLoader(BUILTIN_ROOT, PROJECT_ROOT / ".tmp-unused").discover().profiles
+
+    variants = [
+        variant
+        for profile in profiles.values()
+        for variant in profile.variants.values()
+    ]
+    assert len(variants) == 9
+    for variant in variants:
+        assert variant.description("en-US")
+        assert variant.description("ja-JP")
+        assert variant.description("unsupported-locale") == variant.description("en-US")
 
 
 def test_supplied_wan_profile_metadata_and_dependency_contract():
@@ -84,7 +101,7 @@ def test_supplied_wan_profile_metadata_and_dependency_contract():
     assert profile.manifest.default_variant == "a14b"
     assert profile.manifest.supported_tasks == ("T2V", "I2V")
     assert profile.variant().id == "a14b"
-    assert profile.manifest.renderer == "video_narrative"
+    assert profile.manifest.renderer == "wan_2_2"
     assert profile.requires_dependency("prompt_skill") is False
     assert profile.variant().length_guidance.unit is None
 
@@ -98,7 +115,7 @@ def test_supplied_ltx_profile_metadata_and_dependency_contract():
     assert profile.manifest.supported_tasks == ("T2V", "I2V")
     assert set(profile.variants) == {"dev", "distilled_1_1"}
     assert profile.variant().id == "distilled_1_1"
-    assert profile.manifest.renderer == "video_narrative"
+    assert profile.manifest.renderer == "ltx_2_3"
     assert profile.requires_dependency("prompt_skill") is False
     assert profile.variants["dev"].length_guidance.recommended_maximum == 200
     assert profile.variants["distilled_1_1"].length_guidance.recommended_maximum == 200
@@ -114,7 +131,7 @@ def test_krea_2_profile_metadata_and_variant_contract():
     assert profile.manifest.supported_tasks == ("T2I",)
     assert set(profile.variants) == {"raw", "turbo"}
     assert profile.variant().id == "turbo"
-    assert profile.manifest.renderer == "natural_language"
+    assert profile.manifest.renderer == "krea_2"
     assert profile.requires_dependency("prompt_skill") is False
     assert profile.manifest.capabilities["separate_negative_prompt"] is False
     assert profile.variant().length_guidance.unit is None
@@ -131,7 +148,12 @@ def test_anima_profile_metadata_and_variant_contract():
     ]
 
     assert profile.manifest.category == "image"
-    assert profile.manifest.renderer == "danbooru_tags"
+    assert profile.manifest.renderer == "anima"
+    assert profile.manifest.capabilities["adaptive_prompting"] == [
+        "natural",
+        "tag",
+        "hybrid",
+    ]
     assert profile.manifest.default_variant == "turbo_v1_0"
     assert profile.manifest.supported_tasks == ("T2I",)
     assert profile.requires_dependency("prompt_skill") is False
@@ -182,6 +204,7 @@ def test_custom_profile_is_discovered_separately(tmp_path):
     catalog = ProfileLoader(BUILTIN_ROOT, tmp_path / "data").discover()
     assert "minimax_h3" in catalog.profiles
     assert "custom_video" in catalog.custom_profiles
+    assert catalog.custom_profiles["custom_video"].variant().description("ja-JP") == ""
 
 
 def test_broken_custom_profile_isolated(tmp_path):
