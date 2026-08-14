@@ -33,6 +33,12 @@ def test_english_and_japanese_locales_load():
     )
     assert Localization(root, "en-US").tr("output.negative") == "Negative Prompt (editable)"
     assert "ネガティブ" in Localization(root, "ja-JP").tr("output.negative")
+    assert "not requested" in Localization(root, "en-US").tr(
+        "error.unrequested_semantic_tag"
+    )
+    assert "ユーザー未指定" in Localization(root, "ja-JP").tr(
+        "error.unrequested_semantic_tag"
+    )
 
 
 def test_missing_japanese_key_falls_back_to_english(tmp_path):

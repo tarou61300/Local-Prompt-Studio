@@ -3,24 +3,18 @@
   "name": "Base v1.0",
   "target_model_version": "Anima-Base v1.0",
   "description": {
-    "en-US": "Flexible Base v1.0 profile with standard quality, score, safety, and Negative tags.",
-    "ja-JP": "標準の品質・score・safe・Negativeタグを使う柔軟なBase v1.0向けです。"
+    "en-US": "Flexible Base v1.0 profile with quality-only fixed Positive and Negative components.",
+    "ja-JP": "品質系だけの固定Positive/Negative componentを使う柔軟なBase v1.0向けです。"
   },
   "required_prompt": {},
   "recommended_prompt": {
     "positive_prefix": [
       "masterpiece",
-      "best quality",
-      "score_7",
-      "safe"
+      "best quality"
     ],
     "negative_prefix": [
       "worst quality",
       "low quality",
-      "score_1",
-      "score_2",
-      "score_3",
-      "artist name",
       "blurry",
       "jpeg artifacts",
       "chromatic aberration"

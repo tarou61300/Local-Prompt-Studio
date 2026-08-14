@@ -14,7 +14,7 @@ PORTABLE_WRITE_ERROR = (
     "この場所には設定を書き込めません。Downloads、Documents、Desktop等の"
     "書き込み可能なフォルダへ解凍してください。"
 )
-CONFIG_VERSION = 5
+CONFIG_VERSION = 6
 DEFAULT_CONTEXT_SIZE = 8192
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
 CONTEXT_PRESETS = (
@@ -47,6 +47,7 @@ class AppConfig:
     ui_locale: str = "ja-JP"
     selected_profile: str = "minimax_h3"
     selected_variant: str = "base"
+    auto_quality_tags: bool = True
 
     def normalized(self) -> "AppConfig":
         self.inference_backend = normalize_backend_id(self.inference_backend)
@@ -66,6 +67,8 @@ class AppConfig:
             self.selected_profile = "minimax_h3"
         if not isinstance(self.selected_variant, str) or not self.selected_variant.strip():
             self.selected_variant = "base"
+        if not isinstance(self.auto_quality_tags, bool):
+            self.auto_quality_tags = True
         return self
 
 
@@ -102,6 +105,8 @@ class ConfigManager:
                 raw.setdefault("ui_locale", "ja-JP")
                 raw.setdefault("selected_profile", "minimax_h3")
                 raw.setdefault("selected_variant", "base")
+            if stored_version < 6:
+                raw.setdefault("auto_quality_tags", True)
             raw["config_version"] = CONFIG_VERSION
             allowed = {item.name for item in fields(AppConfig)}
             values = {key: value for key, value in raw.items() if key in allowed}

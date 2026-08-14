@@ -21,6 +21,7 @@ LITERAL_CONTENT_NOT_PRESERVED = "LITERAL_CONTENT_NOT_PRESERVED"
 PROTECTED_TERM_NOT_PRESERVED = "PROTECTED_TERM_NOT_PRESERVED"
 DANBOORU_OUTPUT_INVALID = "DANBOORU_OUTPUT_INVALID"
 ANIMA_HYBRID_OUTPUT_INVALID = "ANIMA_HYBRID_OUTPUT_INVALID"
+UNREQUESTED_SEMANTIC_TAG = "UNREQUESTED_SEMANTIC_TAG"
 UNKNOWN_RENDERER = "UNKNOWN_RENDERER"
 
 _ANIMA_SECTION_ORDER = (
@@ -81,6 +82,7 @@ class RendererContext:
     start_frame_note: str = ""
     end_frame_note: str = ""
     references: tuple[str, ...] = ()
+    auto_quality_tags: bool = True
 
 
 class Renderer(Protocol):
@@ -112,6 +114,7 @@ class Renderer(Protocol):
         *,
         input_mode: str | None = None,
         source_request: str | None = None,
+        auto_quality_tags: bool = True,
     ) -> RenderResult: ...
 
 
@@ -198,6 +201,110 @@ def _load_json_object(generated: str) -> dict[str, object]:
 class MiniMaxH3Renderer:
     renderer_id = "minimax_h3"
 
+    @staticmethod
+    def _validate_no_unrequested_semantic_tags(
+        output: str,
+        source_request: str | None,
+        literals: tuple[LiteralContent, ...],
+        protected_terms: tuple[ProtectedTerm, ...],
+    ) -> None:
+        requested = "\n".join(
+            (
+                source_request or "",
+                *(item.text for item in literals),
+                *(item.text for item in protected_terms),
+            )
+        ).casefold().replace("_", " ")
+        aliases: list[str] = []
+        if "安全" in requested:
+            aliases.append("safe")
+        if "センシティブ" in requested:
+            aliases.append("sensitive")
+        if "成人向け" in requested:
+            aliases.extend(("nsfw", "explicit"))
+        aliases.extend(
+            f"{match.group(1)}s"
+            for match in re.finditer(r"((?:18|19|20)\d0)年代", requested)
+        )
+        requested += "\n" + "\n".join(aliases)
+        restricted = (
+            re.compile(r"\b(?:safe|sensitive|nsfw|explicit)\b", re.IGNORECASE),
+            re.compile(r"\bscore_\d+\b", re.IGNORECASE),
+            re.compile(
+                r"\b(?:artist|character|copyright|series)\s*:\s*[^,.;\n]+",
+                re.IGNORECASE,
+            ),
+            re.compile(r"(?:^|,\s*)by\s+[^,.;\n]+(?=,|[.;]|$)", re.IGNORECASE),
+            re.compile(
+                r"\b(?:art|artwork|painting|illustration|image|style)\s+by\s+[^,.;\n]+",
+                re.IGNORECASE,
+            ),
+            re.compile(r"(?<!\w)@[\w -]+", re.IGNORECASE),
+            re.compile(r"\b(?:(?:18|19|20)\d{2}|(?:18|19|20)\d0s|retro|vintage)\b", re.IGNORECASE),
+            re.compile(
+                r"(?:^|,\s*)(?:1girls?|1boys?|1others?|girls?|boys?|women|woman|"
+                r"men|man|female|male|child|children|teens?|teenagers?|adults?|"
+                r"loli|shota|(?:young|old|elderly|teenage|adult|middle[- ]aged)\s+"
+                r"(?:girl|boy|woman|man|person|people|character|subject)s?)(?=,|[.;]|$)",
+                re.IGNORECASE,
+            ),
+        )
+        for pattern in restricted:
+            for match in pattern.finditer(output):
+                candidate = match.group(0).strip(" ,.;").casefold().replace("_", " ")
+                forms = {candidate}
+                if ":" in candidate:
+                    forms.add(candidate.split(":", 1)[1].strip())
+                by_match = re.search(r"\bby\s+(.+)$", candidate)
+                if by_match is not None:
+                    forms.add(by_match.group(1).strip())
+                if candidate.startswith("@"):
+                    forms.add(candidate[1:].strip())
+                if not any(
+                    form
+                    and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", requested)
+                    for form in forms
+                ):
+                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
+
+    @staticmethod
+    def _fixed_quality_components(
+        variant: ProfileVariant,
+        *,
+        enabled: bool = True,
+        generated: str = "",
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        if not enabled:
+            return (), ()
+        quality = re.compile(
+            r"^(?:masterpiece|best quality|high quality)$",
+            re.IGNORECASE,
+        )
+        seen: set[str] = set()
+
+        def unique_quality(values: tuple[str, ...]) -> tuple[str, ...]:
+            result: list[str] = []
+            for value in values:
+                key = value.strip().casefold()
+                if (
+                    not quality.fullmatch(value.strip())
+                    or key in seen
+                    or re.search(rf"(?<!\w){re.escape(key)}(?!\w)", generated, re.IGNORECASE)
+                ):
+                    continue
+                seen.add(key)
+                result.append(value)
+            return tuple(result)
+
+        return (
+            unique_quality(
+                (*variant.required_prompt.positive_prefix, *variant.recommended_prompt.positive_prefix)
+            ),
+            unique_quality(
+                (*variant.recommended_prompt.positive_suffix, *variant.required_prompt.positive_suffix)
+            ),
+        )
+
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
         descriptions = (
             {
@@ -255,6 +362,13 @@ class MiniMaxH3Renderer:
             "Balanced": "Preserve the request; add only restrained continuity, timing, natural motion, ambience, or camera clarity.",
             "Creative": "Preserve the central intent while adding useful cinematic direction and natural visual detail.",
         }[context.processing]
+        quality_policy = (
+            "AUTOMATIC QUALITY TAGS: ON. The renderer adds only its configured quality "
+            "components after generation. Preserve user-supplied quality tags, but do not invent extras."
+            if context.auto_quality_tags
+            else "AUTOMATIC QUALITY TAGS: OFF. Do not add or invent quality tags. Preserve any "
+            "quality tags explicitly supplied by the user."
+        )
         audio = ", ".join(
             label
             for label, enabled in (
@@ -285,9 +399,10 @@ class MiniMaxH3Renderer:
         return "\n\n".join(
             (
                 """CORE TRANSFORMATION POLICY — MINIMAX H3 RENDERER POLICY (highest priority):
-Transform the user request into one finished MiniMax H3 prompt. Preserve semantic intent, action order, camera directions, relationships, timing, Literal Content, and Protected Terms. The installed official MiniMax H3 Skill is authoritative for H3 model syntax. Preserve the existing T2VA, I2VA, FL2VA, L2VA, and Ref2VA task meanings. Produce a natural-language English video narrative with one Positive prompt and no Negative prompt. Preserve exact dialogue in its original language. Interpret explicitly marked speech/text before contextual quote inference; spoken quotes belong to dialogue, while signs/labels are visible text. Never alter meaning merely to approach a length target. Return no analysis, preface, Markdown, or marker syntax.""",
+Transform the user request into one finished MiniMax H3 prompt. Preserve semantic intent, action order, camera directions, relationships, timing, Literal Content, and Protected Terms. The installed official MiniMax H3 Skill is authoritative for H3 model syntax. Preserve the existing T2VA, I2VA, FL2VA, L2VA, and Ref2VA task meanings. Produce a natural-language English video narrative with one Positive prompt and no Negative prompt. Preserve exact dialogue in its original language. Interpret explicitly marked speech/text before contextual quote inference; spoken quotes belong to dialogue, while signs/labels are visible text. Quality metadata must follow the AUTOMATIC QUALITY TAGS setting below. Never add unrequested rating/safety, score/ranking, artist/byline, age/demographic, copyright/character, or year/era metadata in any processing mode. Preserve those categories only when the user explicitly supplied them. Never alter meaning merely to approach a length target. Return no analysis, preface, Markdown, or marker syntax.""",
                 _profile_configuration(context),
                 "\n".join(controls),
+                quality_policy,
                 _preservation_requirements(analysis.literals, protected_terms),
                 self.llm_output_instruction(context.output_language),
             )
@@ -314,23 +429,131 @@ Transform the user request into one finished MiniMax H3 prompt. Preserve semanti
         *,
         input_mode: str | None = None,
         source_request: str | None = None,
+        auto_quality_tags: bool = True,
     ) -> RenderResult:
         body = remove_literal_markers(generated)
+        fixed_prefix, fixed_suffix = self._fixed_quality_components(
+            variant,
+            enabled=auto_quality_tags,
+            generated=body,
+        )
         positive = " ".join(
             (
-                *variant.required_prompt.positive_prefix,
-                *variant.recommended_prompt.positive_prefix,
+                *fixed_prefix,
                 body,
-                *variant.recommended_prompt.positive_suffix,
-                *variant.required_prompt.positive_suffix,
+                *fixed_suffix,
             )
         ).strip()
+        self._validate_no_unrequested_semantic_tags(
+            positive,
+            source_request,
+            literals,
+            protected_terms,
+        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, None, length_warnings(positive, variant.length_guidance))
 
 
 class Wan22Renderer:
     renderer_id = "wan_2_2"
+
+    @staticmethod
+    def _validate_no_unrequested_semantic_tags(
+        output: str,
+        source_request: str | None,
+        literals: tuple[LiteralContent, ...],
+        protected_terms: tuple[ProtectedTerm, ...],
+    ) -> None:
+        requested = "\n".join(
+            (
+                source_request or "",
+                *(item.text for item in literals),
+                *(item.text for item in protected_terms),
+            )
+        ).casefold().replace("_", " ")
+        aliases: list[str] = []
+        if "安全" in requested:
+            aliases.append("safe")
+        if "センシティブ" in requested:
+            aliases.append("sensitive")
+        if "成人向け" in requested:
+            aliases.extend(("nsfw", "explicit"))
+        aliases.extend(
+            f"{match.group(1)}s"
+            for match in re.finditer(r"((?:18|19|20)\d0)年代", requested)
+        )
+        requested += "\n" + "\n".join(aliases)
+        restricted = (
+            re.compile(r"\b(?:safe|sensitive|nsfw|explicit)\b", re.IGNORECASE),
+            re.compile(r"\bscore_\d+\b", re.IGNORECASE),
+            re.compile(r"\b(?:artist|character|copyright|series)\s*:\s*[^,.;\n]+", re.IGNORECASE),
+            re.compile(r"(?:^|,\s*)by\s+[^,.;\n]+(?=,|[.;]|$)", re.IGNORECASE),
+            re.compile(r"\b(?:art|artwork|painting|illustration|image|style)\s+by\s+[^,.;\n]+", re.IGNORECASE),
+            re.compile(r"(?<!\w)@[\w -]+", re.IGNORECASE),
+            re.compile(r"\b(?:(?:18|19|20)\d{2}|(?:18|19|20)\d0s|retro|vintage)\b", re.IGNORECASE),
+            re.compile(
+                r"(?:^|,\s*)(?:1girls?|1boys?|1others?|girls?|boys?|women|woman|"
+                r"men|man|female|male|child|children|teens?|teenagers?|adults?|"
+                r"loli|shota|(?:young|old|elderly|teenage|adult|middle[- ]aged)\s+"
+                r"(?:girl|boy|woman|man|person|people|character|subject)s?)(?=,|[.;]|$)",
+                re.IGNORECASE,
+            ),
+        )
+        for pattern in restricted:
+            for match in pattern.finditer(output):
+                candidate = match.group(0).strip(" ,.;").casefold().replace("_", " ")
+                forms = {candidate}
+                if ":" in candidate:
+                    forms.add(candidate.split(":", 1)[1].strip())
+                by_match = re.search(r"\bby\s+(.+)$", candidate)
+                if by_match is not None:
+                    forms.add(by_match.group(1).strip())
+                if candidate.startswith("@"):
+                    forms.add(candidate[1:].strip())
+                if not any(
+                    form
+                    and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", requested)
+                    for form in forms
+                ):
+                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
+
+    @staticmethod
+    def _fixed_quality_components(
+        variant: ProfileVariant,
+        *,
+        enabled: bool = True,
+        generated: str = "",
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        if not enabled:
+            return (), ()
+        quality = re.compile(
+            r"^(?:masterpiece|best quality|high quality)$",
+            re.IGNORECASE,
+        )
+        seen: set[str] = set()
+
+        def unique_quality(values: tuple[str, ...]) -> tuple[str, ...]:
+            result: list[str] = []
+            for value in values:
+                key = value.strip().casefold()
+                if (
+                    not quality.fullmatch(value.strip())
+                    or key in seen
+                    or re.search(rf"(?<!\w){re.escape(key)}(?!\w)", generated, re.IGNORECASE)
+                ):
+                    continue
+                seen.add(key)
+                result.append(value)
+            return tuple(result)
+
+        return (
+            unique_quality(
+                (*variant.required_prompt.positive_prefix, *variant.recommended_prompt.positive_prefix)
+            ),
+            unique_quality(
+                (*variant.recommended_prompt.positive_suffix, *variant.required_prompt.positive_suffix)
+            ),
+        )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
         descriptions = (
@@ -383,6 +606,13 @@ class Wan22Renderer:
             "Balanced": "Add only restrained motion, continuity, framing, lighting, or environmental detail that supports the request.",
             "Creative": "Add useful visual and cinematic detail without replacing or contradicting any explicit content.",
         }[context.processing]
+        quality_policy = (
+            "AUTOMATIC QUALITY TAGS: ON. The renderer adds only its configured quality "
+            "components after generation. Preserve user-supplied quality tags, but do not invent extras."
+            if context.auto_quality_tags
+            else "AUTOMATIC QUALITY TAGS: OFF. Do not add or invent quality tags. Preserve any "
+            "quality tags explicitly supplied by the user."
+        )
         task = (
             "T2V: prioritize subject and observable action; 60-200 English words is soft official extension guidance only."
             if context.task == "T2V"
@@ -391,9 +621,10 @@ class Wan22Renderer:
         return "\n\n".join(
             (
                 """WAN 2.2 RENDERER POLICY (highest priority):
-Produce one clean natural-language English video prompt for A14B T2V/I2V. Preserve subjects, actions, order, constraints, camera, style, Literal Content, and Protected Terms. Use concrete observable description and never force a photographic style over an explicit medium. Wan A14B is treated as video-only: do not invent audio and do not promise audible speech. Explicit speech/text markers override contextual quote inference; distinguish spoken quotes from visible signs/labels. Keep the surrounding prompt English and exact literal bodies in their original language. Never pad, shorten, or rewrite meaning to meet a length suggestion. One Positive prompt only; no Negative prompt, headings, JSON, or Markdown.""",
+Produce one clean natural-language English video prompt for A14B T2V/I2V. Preserve subjects, actions, order, constraints, camera, style, Literal Content, and Protected Terms. Use concrete observable description and never force a photographic style over an explicit medium. Wan A14B is treated as video-only: do not invent audio and do not promise audible speech. Explicit speech/text markers override contextual quote inference; distinguish spoken quotes from visible signs/labels. Keep the surrounding prompt English and exact literal bodies in their original language. Quality metadata must follow the AUTOMATIC QUALITY TAGS setting below. Never add unrequested rating/safety, score/ranking, artist/byline, age/demographic, copyright/character, or year/era metadata in any processing mode. Preserve those categories only when explicitly supplied by the user. Never pad, shorten, or rewrite meaning to meet a length suggestion. One Positive prompt only; no Negative prompt, headings, JSON, or Markdown.""",
                 _profile_configuration(context),
                 f"Task: {task}\nPrompt Processing: {context.processing}\nProcessing rule: {processing}\nVariant: {context.variant_id} (A14B rules)",
+                quality_policy,
                 _preservation_requirements(analysis.literals, protected_terms),
                 self.llm_output_instruction(context.output_language),
             )
@@ -420,23 +651,131 @@ Produce one clean natural-language English video prompt for A14B T2V/I2V. Preser
         *,
         input_mode: str | None = None,
         source_request: str | None = None,
+        auto_quality_tags: bool = True,
     ) -> RenderResult:
         body = remove_literal_markers(generated)
+        fixed_prefix, fixed_suffix = self._fixed_quality_components(
+            variant,
+            enabled=auto_quality_tags,
+            generated=body,
+        )
         positive = " ".join(
             (
-                *variant.required_prompt.positive_prefix,
-                *variant.recommended_prompt.positive_prefix,
+                *fixed_prefix,
                 body,
-                *variant.recommended_prompt.positive_suffix,
-                *variant.required_prompt.positive_suffix,
+                *fixed_suffix,
             )
         ).strip()
+        self._validate_no_unrequested_semantic_tags(
+            positive,
+            source_request,
+            literals,
+            protected_terms,
+        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, None, length_warnings(positive, variant.length_guidance))
 
 
 class LTX23Renderer:
     renderer_id = "ltx_2_3"
+
+    @staticmethod
+    def _validate_no_unrequested_semantic_tags(
+        output: str,
+        source_request: str | None,
+        literals: tuple[LiteralContent, ...],
+        protected_terms: tuple[ProtectedTerm, ...],
+    ) -> None:
+        requested = "\n".join(
+            (
+                source_request or "",
+                *(item.text for item in literals),
+                *(item.text for item in protected_terms),
+            )
+        ).casefold().replace("_", " ")
+        aliases: list[str] = []
+        if "安全" in requested:
+            aliases.append("safe")
+        if "センシティブ" in requested:
+            aliases.append("sensitive")
+        if "成人向け" in requested:
+            aliases.extend(("nsfw", "explicit"))
+        aliases.extend(
+            f"{match.group(1)}s"
+            for match in re.finditer(r"((?:18|19|20)\d0)年代", requested)
+        )
+        requested += "\n" + "\n".join(aliases)
+        restricted = (
+            re.compile(r"\b(?:safe|sensitive|nsfw|explicit)\b", re.IGNORECASE),
+            re.compile(r"\bscore_\d+\b", re.IGNORECASE),
+            re.compile(r"\b(?:artist|character|copyright|series)\s*:\s*[^,.;\n]+", re.IGNORECASE),
+            re.compile(r"(?:^|,\s*)by\s+[^,.;\n]+(?=,|[.;]|$)", re.IGNORECASE),
+            re.compile(r"\b(?:art|artwork|painting|illustration|image|style)\s+by\s+[^,.;\n]+", re.IGNORECASE),
+            re.compile(r"(?<!\w)@[\w -]+", re.IGNORECASE),
+            re.compile(r"\b(?:(?:18|19|20)\d{2}|(?:18|19|20)\d0s|retro|vintage)\b", re.IGNORECASE),
+            re.compile(
+                r"(?:^|,\s*)(?:1girls?|1boys?|1others?|girls?|boys?|women|woman|"
+                r"men|man|female|male|child|children|teens?|teenagers?|adults?|"
+                r"loli|shota|(?:young|old|elderly|teenage|adult|middle[- ]aged)\s+"
+                r"(?:girl|boy|woman|man|person|people|character|subject)s?)(?=,|[.;]|$)",
+                re.IGNORECASE,
+            ),
+        )
+        for pattern in restricted:
+            for match in pattern.finditer(output):
+                candidate = match.group(0).strip(" ,.;").casefold().replace("_", " ")
+                forms = {candidate}
+                if ":" in candidate:
+                    forms.add(candidate.split(":", 1)[1].strip())
+                by_match = re.search(r"\bby\s+(.+)$", candidate)
+                if by_match is not None:
+                    forms.add(by_match.group(1).strip())
+                if candidate.startswith("@"):
+                    forms.add(candidate[1:].strip())
+                if not any(
+                    form
+                    and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", requested)
+                    for form in forms
+                ):
+                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
+
+    @staticmethod
+    def _fixed_quality_components(
+        variant: ProfileVariant,
+        *,
+        enabled: bool = True,
+        generated: str = "",
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        if not enabled:
+            return (), ()
+        quality = re.compile(
+            r"^(?:masterpiece|best quality|high quality)$",
+            re.IGNORECASE,
+        )
+        seen: set[str] = set()
+
+        def unique_quality(values: tuple[str, ...]) -> tuple[str, ...]:
+            result: list[str] = []
+            for value in values:
+                key = value.strip().casefold()
+                if (
+                    not quality.fullmatch(value.strip())
+                    or key in seen
+                    or re.search(rf"(?<!\w){re.escape(key)}(?!\w)", generated, re.IGNORECASE)
+                ):
+                    continue
+                seen.add(key)
+                result.append(value)
+            return tuple(result)
+
+        return (
+            unique_quality(
+                (*variant.required_prompt.positive_prefix, *variant.recommended_prompt.positive_prefix)
+            ),
+            unique_quality(
+                (*variant.recommended_prompt.positive_suffix, *variant.required_prompt.positive_suffix)
+            ),
+        )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
         descriptions = (
@@ -489,6 +828,13 @@ class LTX23Renderer:
             "Balanced": "Add restrained visual, motion, continuity, lighting, or audio detail that directly supports the scene.",
             "Creative": "Add useful environment, lighting, motion, camera, or sound detail without replacing explicit intent.",
         }[context.processing]
+        quality_policy = (
+            "AUTOMATIC QUALITY TAGS: ON. The renderer adds only its configured quality "
+            "components after generation. Preserve user-supplied quality tags, but do not invent extras."
+            if context.auto_quality_tags
+            else "AUTOMATIC QUALITY TAGS: OFF. Do not add or invent quality tags. Preserve any "
+            "quality tags explicitly supplied by the user."
+        )
         task = (
             "T2V: begin with the main action/setup and proceed chronologically."
             if context.task == "T2V"
@@ -497,9 +843,10 @@ class LTX23Renderer:
         return "\n\n".join(
             (
                 """LTX-2.3 RENDERER POLICY (highest priority):
-Produce one detailed natural-language English joint audio-video prompt for LTX-2.3. Keep a chronological flow and describe observable action, camera, environment, lighting/colors, and synchronized audio/dialogue where requested. Do not invent dialogue, camera movement, timestamps, cuts, or non-visual/non-auditory sensations. Preserve exact dialogue and state its spoken language when useful. Explicit speech/text markers override contextual quote inference; distinguish speech from signs/labels. Preserve Literal Content and Protected Terms exactly and remove marker syntax. The official 200-word guidance is soft only: never alter, omit, or invent meaning to fit it. One Positive prompt only; no Negative prompt, heading, list, or Markdown. Dev and Distilled variants share prompt semantics; inference settings are not emitted into the prompt.""",
+Produce one detailed natural-language English joint audio-video prompt for LTX-2.3. Keep a chronological flow and describe observable action, camera, environment, lighting/colors, and synchronized audio/dialogue where requested. Do not invent dialogue, camera movement, timestamps, cuts, or non-visual/non-auditory sensations. Preserve exact dialogue and state its spoken language when useful. Explicit speech/text markers override contextual quote inference; distinguish speech from signs/labels. Preserve Literal Content and Protected Terms exactly and remove marker syntax. Quality metadata must follow the AUTOMATIC QUALITY TAGS setting below. Never add unrequested rating/safety, score/ranking, artist/byline, age/demographic, copyright/character, or year/era metadata in any processing mode. Preserve those categories only when explicitly supplied by the user. The official 200-word guidance is soft only: never alter, omit, or invent meaning to fit it. One Positive prompt only; no Negative prompt, heading, list, or Markdown. Dev and Distilled variants share prompt semantics; inference settings are not emitted into the prompt.""",
                 _profile_configuration(context),
                 f"Task: {task}\nPrompt Processing: {context.processing}\nProcessing rule: {processing}\nVariant: {context.variant_id}",
+                quality_policy,
                 _preservation_requirements(analysis.literals, protected_terms),
                 self.llm_output_instruction(context.output_language),
             )
@@ -526,23 +873,131 @@ Produce one detailed natural-language English joint audio-video prompt for LTX-2
         *,
         input_mode: str | None = None,
         source_request: str | None = None,
+        auto_quality_tags: bool = True,
     ) -> RenderResult:
         body = remove_literal_markers(generated)
+        fixed_prefix, fixed_suffix = self._fixed_quality_components(
+            variant,
+            enabled=auto_quality_tags,
+            generated=body,
+        )
         positive = " ".join(
             (
-                *variant.required_prompt.positive_prefix,
-                *variant.recommended_prompt.positive_prefix,
+                *fixed_prefix,
                 body,
-                *variant.recommended_prompt.positive_suffix,
-                *variant.required_prompt.positive_suffix,
+                *fixed_suffix,
             )
         ).strip()
+        self._validate_no_unrequested_semantic_tags(
+            positive,
+            source_request,
+            literals,
+            protected_terms,
+        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, None, length_warnings(positive, variant.length_guidance))
 
 
 class Krea2Renderer:
     renderer_id = "krea_2"
+
+    @staticmethod
+    def _validate_no_unrequested_semantic_tags(
+        output: str,
+        source_request: str | None,
+        literals: tuple[LiteralContent, ...],
+        protected_terms: tuple[ProtectedTerm, ...],
+    ) -> None:
+        requested = "\n".join(
+            (
+                source_request or "",
+                *(item.text for item in literals),
+                *(item.text for item in protected_terms),
+            )
+        ).casefold().replace("_", " ")
+        aliases: list[str] = []
+        if "安全" in requested:
+            aliases.append("safe")
+        if "センシティブ" in requested:
+            aliases.append("sensitive")
+        if "成人向け" in requested:
+            aliases.extend(("nsfw", "explicit"))
+        aliases.extend(
+            f"{match.group(1)}s"
+            for match in re.finditer(r"((?:18|19|20)\d0)年代", requested)
+        )
+        requested += "\n" + "\n".join(aliases)
+        restricted = (
+            re.compile(r"\b(?:safe|sensitive|nsfw|explicit)\b", re.IGNORECASE),
+            re.compile(r"\bscore_\d+\b", re.IGNORECASE),
+            re.compile(r"\b(?:artist|character|copyright|series)\s*:\s*[^,.;\n]+", re.IGNORECASE),
+            re.compile(r"(?:^|,\s*)by\s+[^,.;\n]+(?=,|[.;]|$)", re.IGNORECASE),
+            re.compile(r"\b(?:art|artwork|painting|illustration|image|style)\s+by\s+[^,.;\n]+", re.IGNORECASE),
+            re.compile(r"(?<!\w)@[\w -]+", re.IGNORECASE),
+            re.compile(r"\b(?:(?:18|19|20)\d{2}|(?:18|19|20)\d0s|retro|vintage)\b", re.IGNORECASE),
+            re.compile(
+                r"(?:^|,\s*)(?:1girls?|1boys?|1others?|girls?|boys?|women|woman|"
+                r"men|man|female|male|child|children|teens?|teenagers?|adults?|"
+                r"loli|shota|(?:young|old|elderly|teenage|adult|middle[- ]aged)\s+"
+                r"(?:girl|boy|woman|man|person|people|character|subject)s?)(?=,|[.;]|$)",
+                re.IGNORECASE,
+            ),
+        )
+        for pattern in restricted:
+            for match in pattern.finditer(output):
+                candidate = match.group(0).strip(" ,.;").casefold().replace("_", " ")
+                forms = {candidate}
+                if ":" in candidate:
+                    forms.add(candidate.split(":", 1)[1].strip())
+                by_match = re.search(r"\bby\s+(.+)$", candidate)
+                if by_match is not None:
+                    forms.add(by_match.group(1).strip())
+                if candidate.startswith("@"):
+                    forms.add(candidate[1:].strip())
+                if not any(
+                    form
+                    and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", requested)
+                    for form in forms
+                ):
+                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
+
+    @staticmethod
+    def _fixed_quality_components(
+        variant: ProfileVariant,
+        *,
+        enabled: bool = True,
+        generated: str = "",
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        if not enabled:
+            return (), ()
+        quality = re.compile(
+            r"^(?:masterpiece|best quality|high quality)$",
+            re.IGNORECASE,
+        )
+        seen: set[str] = set()
+
+        def unique_quality(values: tuple[str, ...]) -> tuple[str, ...]:
+            result: list[str] = []
+            for value in values:
+                key = value.strip().casefold()
+                if (
+                    not quality.fullmatch(value.strip())
+                    or key in seen
+                    or re.search(rf"(?<!\w){re.escape(key)}(?!\w)", generated, re.IGNORECASE)
+                ):
+                    continue
+                seen.add(key)
+                result.append(value)
+            return tuple(result)
+
+        return (
+            unique_quality(
+                (*variant.required_prompt.positive_prefix, *variant.recommended_prompt.positive_prefix)
+            ),
+            unique_quality(
+                (*variant.recommended_prompt.positive_suffix, *variant.required_prompt.positive_suffix)
+            ),
+        )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
         descriptions = (
@@ -595,12 +1050,20 @@ class Krea2Renderer:
             "Balanced": "Add a small amount of composition, framing, lighting, texture, or atmosphere without changing the scene.",
             "Creative": "Enrich composition, lighting, atmosphere, texture, and presentation while preserving every subject, action, relationship, medium, and constraint.",
         }[context.processing]
+        quality_policy = (
+            "AUTOMATIC QUALITY TAGS: ON. The renderer adds only its configured quality "
+            "components after generation. Preserve user-supplied quality tags, but do not invent extras."
+            if context.auto_quality_tags
+            else "AUTOMATIC QUALITY TAGS: OFF. Do not add or invent quality tags. Preserve any "
+            "quality tags explicitly supplied by the user."
+        )
         return "\n\n".join(
             (
                 """KREA 2 RENDERER POLICY (highest priority):
-Produce one cohesive English natural-language image prompt, never Danbooru tags, quality-tag lists, JSON, or a Negative prompt. Preserve subjects, actions, colors, spatial relationships, medium, clothing categories, and constraints. Group each subject with its attributes/action. Japanese ワンピース used as clothing means a dress unless swimwear is explicit; a beach alone never changes it. Explicit speech/text markers override quote-context inference. Distinguish spoken words from visible signs/labels; place requested visible text in quotation marks and preserve its exact body. Preserve Protected Terms exactly. Never add, delete, compress, or rewrite meaning to reach a length. Krea Raw and Turbo use the same natural-language prompt contract; never emit inference parameters. Return no analysis, alternatives, headings, or Markdown.""",
+Produce one cohesive English natural-language image prompt, never Danbooru tags, quality-tag lists, JSON, or a Negative prompt. Preserve subjects, actions, colors, spatial relationships, medium, clothing categories, and constraints. Group each subject with its attributes/action. Japanese ワンピース used as clothing means a dress unless swimwear is explicit; a beach alone never changes it. Explicit speech/text markers override quote-context inference. Distinguish spoken words from visible signs/labels; place requested visible text in quotation marks and preserve its exact body. Preserve Protected Terms exactly. Quality metadata must follow the AUTOMATIC QUALITY TAGS setting below. Never add unrequested rating/safety, score/ranking, artist/byline, age/demographic, copyright/character, or year/era metadata in any processing mode. Preserve those categories only when explicitly supplied by the user. Never add, delete, compress, or rewrite meaning to reach a length. Krea Raw and Turbo use the same natural-language prompt contract; never emit inference parameters. Return no analysis, alternatives, headings, or Markdown.""",
                 _profile_configuration(context),
                 f"Task: T2I\nPrompt Processing: {context.processing}\nProcessing rule: {processing}\nVariant: {context.variant_id}",
+                quality_policy,
                 _preservation_requirements(analysis.literals, protected_terms),
                 self.llm_output_instruction(context.output_language),
             )
@@ -627,17 +1090,27 @@ Produce one cohesive English natural-language image prompt, never Danbooru tags,
         *,
         input_mode: str | None = None,
         source_request: str | None = None,
+        auto_quality_tags: bool = True,
     ) -> RenderResult:
         body = remove_literal_markers(generated)
+        fixed_prefix, fixed_suffix = self._fixed_quality_components(
+            variant,
+            enabled=auto_quality_tags,
+            generated=body,
+        )
         positive = " ".join(
             (
-                *variant.required_prompt.positive_prefix,
-                *variant.recommended_prompt.positive_prefix,
+                *fixed_prefix,
                 body,
-                *variant.recommended_prompt.positive_suffix,
-                *variant.required_prompt.positive_suffix,
+                *fixed_suffix,
             )
         ).strip()
+        self._validate_no_unrequested_semantic_tags(
+            positive,
+            source_request,
+            literals,
+            protected_terms,
+        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, None, length_warnings(positive, variant.length_guidance))
 
@@ -685,6 +1158,119 @@ def _dedupe_tags(values: tuple[str, ...] | list[str], seen: set[str]) -> list[st
 class AnimaRenderer:
     renderer_id = "anima"
 
+    @staticmethod
+    def _semantic_reference_text(
+        source_request: str | None,
+        literals: tuple[LiteralContent, ...],
+        protected_terms: tuple[ProtectedTerm, ...],
+    ) -> str:
+        requested = "\n".join(
+            (
+                source_request or "",
+                *(item.text for item in literals),
+                *(item.text for item in protected_terms),
+            )
+        ).casefold().replace("_", " ")
+        aliases: list[str] = []
+        if "安全" in requested:
+            aliases.append("safe")
+        if "センシティブ" in requested:
+            aliases.append("sensitive")
+        if "成人向け" in requested:
+            aliases.extend(("nsfw", "explicit", "adult"))
+        if re.search(r"(?:女性|女の人)", requested):
+            aliases.extend(("woman", "female"))
+        if re.search(r"(?:少女|女の子)", requested):
+            aliases.append("girl")
+        if re.search(r"(?:男性|男の人)", requested):
+            aliases.extend(("man", "male"))
+        if re.search(r"(?:少年|男の子)", requested):
+            aliases.append("boy")
+        if re.search(r"(?:子供|子ども)", requested):
+            aliases.extend(("child", "children"))
+        if "若い" in requested:
+            aliases.append("young")
+        if re.search(r"(?:高齢|老人)", requested):
+            aliases.extend(("old", "elderly"))
+        if "若い" in requested and re.search(r"(?:女性|女の人)", requested):
+            aliases.append("young woman")
+        if "若い" in requested and re.search(r"(?:男性|男の人)", requested):
+            aliases.append("young man")
+        aliases.extend(
+            f"{match.group(1)}s"
+            for match in re.finditer(r"((?:18|19|20)\d0)年代", requested)
+        )
+        return requested + "\n" + "\n".join(aliases)
+
+    @staticmethod
+    def _semantic_term_was_requested(candidate: str, requested: str) -> bool:
+        normalized = candidate.strip(" ,.;").casefold().replace("_", " ")
+        forms = {normalized}
+        if ":" in normalized:
+            forms.add(normalized.split(":", 1)[1].strip())
+        by_match = re.search(r"\bby\s+(.+)$", normalized)
+        if by_match is not None:
+            forms.add(by_match.group(1).strip())
+        if normalized.startswith("@"):
+            forms.add(normalized[1:].strip())
+        return any(
+            form
+            and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", requested)
+            for form in forms
+        )
+
+    @classmethod
+    def _validate_no_unrequested_semantic_tags(
+        cls,
+        output: str,
+        source_request: str | None,
+        literals: tuple[LiteralContent, ...],
+        protected_terms: tuple[ProtectedTerm, ...],
+    ) -> None:
+        requested = cls._semantic_reference_text(
+            source_request,
+            literals,
+            protected_terms,
+        )
+        restricted = (
+            re.compile(r"\b(?:safe|sensitive|nsfw|explicit)\b", re.IGNORECASE),
+            re.compile(r"\bscore_\d+\b", re.IGNORECASE),
+            re.compile(r"\b(?:artist|character|copyright|series)\s*:\s*[^,.;\n]+", re.IGNORECASE),
+            re.compile(r"(?:^|,\s*)by\s+[^,.;\n]+(?=,|[.;]|$)", re.IGNORECASE),
+            re.compile(r"\b(?:art|artwork|painting|illustration|image|style)\s+by\s+[^,.;\n]+", re.IGNORECASE),
+            re.compile(r"(?<!\w)@[\w -]+", re.IGNORECASE),
+            re.compile(r"\b(?:(?:18|19|20)\d{2}|(?:18|19|20)\d0s|retro|vintage)\b", re.IGNORECASE),
+            re.compile(
+                r"(?:^|,\s*)(?:1girls?|1boys?|1others?|girls?|boys?|women|woman|"
+                r"men|man|female|male|child|children|teens?|teenagers?|adults?|"
+                r"loli|shota|(?:young|old|elderly|teenage|adult|middle[- ]aged)\s+"
+                r"(?:girl|boy|woman|man|person|people|character|subject)s?)(?=,|[.;]|$)",
+                re.IGNORECASE,
+            ),
+        )
+        for pattern in restricted:
+            for match in pattern.finditer(output):
+                if not cls._semantic_term_was_requested(match.group(0), requested):
+                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
+
+    @classmethod
+    def _validate_structured_semantic_sections(
+        cls,
+        sections: dict[str, tuple[str, ...]],
+        source_request: str | None,
+        literals: tuple[LiteralContent, ...],
+        protected_terms: tuple[ProtectedTerm, ...],
+    ) -> None:
+        requested = cls._semantic_reference_text(
+            source_request,
+            literals,
+            protected_terms,
+        )
+        for section in ("subject_count", "character", "series", "artist"):
+            for value in sections[section]:
+                if not cls._semantic_term_was_requested(value, requested):
+                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
+
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
         descriptions = (
             {
@@ -717,6 +1303,17 @@ class AnimaRenderer:
             len(part.split()) <= 5 and not re.search(r"[.!?。！？]", part)
             for part in comma_parts
         )
+        first_boundary = re.search(r"[.!?。！？](?:\s+|$)", value)
+        leading_tag_prefix = False
+        if first_boundary is not None:
+            leading_parts = [
+                part.strip()
+                for part in value[: first_boundary.start()].split(",")
+                if part.strip()
+            ]
+            leading_tag_prefix = len(leading_parts) >= 2 and all(
+                len(part.split()) <= 5 for part in leading_parts
+            )
         natural = bool(
             re.search(r"[.!?。！？]", value)
             or re.search(
@@ -726,7 +1323,7 @@ class AnimaRenderer:
             )
             or re.search(r"(?:が|は|を|に|で|する|いる|ある|描|立|座|歩)", value)
         )
-        tags = tag_marker or compact_tag_list
+        tags = tag_marker or compact_tag_list or leading_tag_prefix
         if tags and natural:
             return "hybrid"
         if tags:
@@ -769,6 +1366,13 @@ class AnimaRenderer:
             "Balanced": "Add only a small number of strongly implied composition or presentation details.",
             "Creative": "Enrich composition, lighting, atmosphere, background, and style without replacing explicit content.",
         }[context.processing]
+        quality_policy = (
+            "AUTOMATIC QUALITY TAGS: ON. The renderer adds only this variant's configured "
+            "quality components after generation. Preserve user-supplied quality tags, but do not invent extras."
+            if context.auto_quality_tags
+            else "AUTOMATIC QUALITY TAGS: OFF. Do not add or invent quality tags. Preserve any "
+            "quality tags explicitly supplied by the user."
+        )
         mode_contract = {
             "natural": (
                 'Return one valid JSON object with exactly "positive" and "negative" string fields. Write the positive as '
@@ -790,11 +1394,16 @@ class AnimaRenderer:
         return "\n\n".join(
             (
                 """ANIMA RENDERER POLICY (highest priority):
-Adapt to the detected input form instead of forcing one format: Natural remains English natural language, Tag remains organized Danbooru/Gelbooru-style tags, and Mixed remains Hybrid. Produce separate Positive and Negative prompts. Preserve all explicit constraints, relationships, Literal Content, and Protected Terms. Explicit speech/text markers override contextual quote inference; distinguish spoken content from visible signs/labels. Ordinary tag concepts are English; exact exceptions retain their Unicode and case. Do not include the variant's fixed quality/safety/negative recommendations because the renderer adds them. Base and Turbo use their configured quality/score prefixes; Aesthetic must not add score_* recommendations. User-requested explicit/nsfw/sensitive safety replaces a conflicting default safe. Never invent or remove meaning for prompt length. Tag dropout means exhaustive tagging is unnecessary. Follow the selected mode contract exactly and return no Markdown.""",
+Adapt to the detected input form instead of forcing one format: Natural remains English natural language, Tag remains organized Danbooru/Gelbooru-style tags, and Mixed remains Hybrid. Produce separate Positive and Negative prompts. Preserve all explicit constraints, relationships, Literal Content, and Protected Terms. Explicit speech/text markers override contextual quote inference; distinguish spoken content from visible signs/labels. Ordinary tag concepts are English; exact exceptions retain their Unicode and case. Quality metadata must follow the AUTOMATIC QUALITY TAGS setting below. Never add unrequested rating/safety tags, score/ranking tags, artist/byline tags, age/demographic tags, copyright/character tags, or year/era/style-era tags in any mode or processing style. Preserve those categories only when explicitly supplied by the user. Never invent or remove meaning for prompt length. Tag dropout means exhaustive tagging is unnecessary. Follow the selected mode contract exactly and return no Markdown.""",
                 _profile_configuration(context),
                 f"Detected input mode: {mode.upper()}\nMode contract: {mode_contract}\nPrompt Processing: {context.processing}\nProcessing rule: {processing}\nVariant: {context.variant_id}",
+                quality_policy,
                 _preservation_requirements(analysis.literals, protected_terms),
-                self._mode_output_instruction(context.output_language, mode),
+                self._mode_output_instruction(
+                    context.output_language,
+                    mode,
+                    context.auto_quality_tags,
+                ),
             )
         )
 
@@ -802,14 +1411,23 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         return self._mode_output_instruction(output_language, "tag")
 
     @staticmethod
-    def _mode_output_instruction(output_language: str, mode: str) -> str:
+    def _mode_output_instruction(
+        output_language: str,
+        mode: str,
+        auto_quality_tags: bool = True,
+    ) -> str:
         if mode == "hybrid":
+            quality_assembly = (
+                "The renderer adds the unchanged source tag prefix and its configured quality components. "
+                if auto_quality_tags
+                else "The renderer adds the unchanged source tag prefix without automatic quality components. "
+            )
             return (
                 "OUTPUT VALIDATION: Return plain text, not JSON, in exactly this form:\n"
                 "ANIMA_NATURAL:\n<English natural-language portion>\n"
                 "ANIMA_NEGATIVE:\n<comma-separated user exclusions, or empty>\n"
-                "The renderer adds the unchanged source tag prefix and fixed variant components. "
-                "Never output ANIMA_TAGS, Markdown fences, or [speech:*]/[text:*] marker syntax."
+                + quality_assembly
+                + "Never output ANIMA_TAGS, Markdown fences, or [speech:*]/[text:*] marker syntax."
             )
         return (
             "OUTPUT VALIDATION: Return only the JSON contract selected above. Translate ordinary "
@@ -840,28 +1458,75 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
 
     @staticmethod
     def _fixed_components(
-        variant: ProfileVariant, generated_positive: str
+        variant: ProfileVariant,
+        auto_quality_tags: bool = True,
     ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-        fixed_positive = (
-            *variant.required_prompt.positive_prefix,
-            *variant.recommended_prompt.positive_prefix,
+        if not auto_quality_tags:
+            return (), (), (), ()
+        quality_component = re.compile(
+            r"^(?:masterpiece|best quality|high quality|worst quality|low quality|"
+            r"blurry|jpeg artifacts|chromatic aberration)$",
+            re.IGNORECASE,
         )
-        if re.search(r"\b(?:sensitive|nsfw|explicit)\b", generated_positive, re.IGNORECASE):
-            fixed_positive = tuple(item for item in fixed_positive if item.casefold() != "safe")
+
+        def quality_only(values: tuple[str, ...], seen: set[str]) -> tuple[str, ...]:
+            result: list[str] = []
+            for value in values:
+                key = value.strip().casefold()
+                if not quality_component.fullmatch(value.strip()) or key in seen:
+                    continue
+                seen.add(key)
+                result.append(value)
+            return tuple(result)
+
+        positive_seen: set[str] = set()
+        negative_seen: set[str] = set()
+
         return (
-            fixed_positive,
-            (
+            quality_only(
+                (
+                    *variant.required_prompt.positive_prefix,
+                    *variant.recommended_prompt.positive_prefix,
+                ),
+                positive_seen,
+            ),
+            quality_only(
+                (
                 *variant.recommended_prompt.positive_suffix,
                 *variant.required_prompt.positive_suffix,
+                ),
+                positive_seen,
             ),
-            (
+            quality_only(
+                (
                 *variant.required_prompt.negative_prefix,
                 *variant.recommended_prompt.negative_prefix,
+                ),
+                negative_seen,
             ),
-            (
+            quality_only(
+                (
                 *variant.recommended_prompt.negative_suffix,
                 *variant.required_prompt.negative_suffix,
+                ),
+                negative_seen,
             ),
+        )
+
+    @staticmethod
+    def _quality_components_not_in_text(
+        values: tuple[str, ...],
+        text: str,
+    ) -> tuple[str, ...]:
+        return tuple(
+            value
+            for value in values
+            if re.search(
+                rf"(?<!\w){re.escape(value.strip())}(?!\w)",
+                text,
+                re.IGNORECASE,
+            )
+            is None
         )
 
     def _render_natural(
@@ -870,6 +1535,8 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         variant: ProfileVariant,
         literals: tuple[LiteralContent, ...],
         protected_terms: tuple[ProtectedTerm, ...],
+        source_request: str | None,
+        auto_quality_tags: bool,
     ) -> RenderResult:
         if set(raw) != {"positive", "negative"}:
             raise TransformationError(DANBOORU_OUTPUT_INVALID)
@@ -882,7 +1549,24 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         generated_positive = remove_literal_markers(generated_positive.strip())
         generated_negative = remove_literal_markers(generated_negative.strip())
         fixed_positive, fixed_positive_suffix, fixed_negative, fixed_negative_suffix = self._fixed_components(
-            variant, generated_positive
+            variant,
+            auto_quality_tags,
+        )
+        fixed_positive = self._quality_components_not_in_text(
+            fixed_positive,
+            generated_positive,
+        )
+        fixed_positive_suffix = self._quality_components_not_in_text(
+            fixed_positive_suffix,
+            generated_positive,
+        )
+        fixed_negative = self._quality_components_not_in_text(
+            fixed_negative,
+            generated_negative,
+        )
+        fixed_negative_suffix = self._quality_components_not_in_text(
+            fixed_negative_suffix,
+            generated_negative,
         )
         positive_prefix = ", ".join(fixed_positive)
         positive = " ".join(
@@ -899,6 +1583,12 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
             for part in (*fixed_negative, generated_negative, *fixed_negative_suffix)
             if part
         ).strip() or None
+        self._validate_no_unrequested_semantic_tags(
+            "\n".join((positive, negative or "")),
+            source_request,
+            literals,
+            protected_terms,
+        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, negative, length_warnings(positive, variant.length_guidance))
 
@@ -908,8 +1598,16 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         variant: ProfileVariant,
         literals: tuple[LiteralContent, ...],
         protected_terms: tuple[ProtectedTerm, ...],
+        source_request: str | None,
+        auto_quality_tags: bool,
     ) -> RenderResult:
         sections = self._tag_sections(raw, _ANIMA_TAG_KEYS)
+        self._validate_structured_semantic_sections(
+            sections,
+            source_request,
+            literals,
+            protected_terms,
+        )
         exemptions = _normalization_exemptions(literals, protected_terms)
         normalized_sections: dict[str, list[str]] = {}
         for section in _ANIMA_SECTION_ORDER:
@@ -919,7 +1617,7 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
             ]
         fixed_positive, fixed_positive_suffix, fixed_negative, fixed_negative_suffix = self._fixed_components(
             variant,
-            ", ".join(normalized_sections["quality_meta_year_safety"]),
+            auto_quality_tags,
         )
         positive_seen = {item.casefold() for item in (*fixed_positive, *fixed_positive_suffix)}
         generated_positive: list[str] = []
@@ -940,6 +1638,12 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         negative = ", ".join(
             (*fixed_negative, *_dedupe_tags(generated_negative, negative_seen), *fixed_negative_suffix)
         ).strip() or None
+        self._validate_no_unrequested_semantic_tags(
+            "\n".join((positive, negative or "")),
+            source_request,
+            literals,
+            protected_terms,
+        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, negative, length_warnings(positive, variant.length_guidance))
 
@@ -965,6 +1669,7 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         variant: ProfileVariant,
         literals: tuple[LiteralContent, ...],
         protected_terms: tuple[ProtectedTerm, ...],
+        auto_quality_tags: bool,
     ) -> RenderResult:
         if source_request is None:
             raise TransformationError(ANIMA_HYBRID_OUTPUT_INVALID)
@@ -979,7 +1684,20 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         source_tags = self._hybrid_source_tags(source_request)
         fixed_positive, fixed_positive_suffix, fixed_negative, fixed_negative_suffix = self._fixed_components(
             variant,
-            ", ".join((*source_tags, natural)),
+            auto_quality_tags,
+        )
+        fixed_positive = self._quality_components_not_in_text(fixed_positive, natural)
+        fixed_positive_suffix = self._quality_components_not_in_text(
+            fixed_positive_suffix,
+            natural,
+        )
+        fixed_negative = self._quality_components_not_in_text(
+            fixed_negative,
+            generated_negative,
+        )
+        fixed_negative_suffix = self._quality_components_not_in_text(
+            fixed_negative_suffix,
+            generated_negative,
         )
         positive_seen = {item.casefold() for item in (*fixed_positive, *fixed_positive_suffix)}
         preserved_tags = _dedupe_tags(list(source_tags), positive_seen)
@@ -1002,6 +1720,12 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         negative = ", ".join(
             (*fixed_negative, *_dedupe_tags(normalized_negative, negative_seen), *fixed_negative_suffix)
         ).strip() or None
+        self._validate_no_unrequested_semantic_tags(
+            "\n".join((positive, negative or "")),
+            source_request,
+            literals,
+            protected_terms,
+        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, negative, length_warnings(positive, variant.length_guidance))
 
@@ -1014,6 +1738,7 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         *,
         input_mode: str | None = None,
         source_request: str | None = None,
+        auto_quality_tags: bool = True,
     ) -> RenderResult:
         mode = input_mode or "tag"
         if mode == "hybrid":
@@ -1023,12 +1748,27 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
                 variant,
                 literals,
                 protected_terms,
+                auto_quality_tags,
             )
         raw = _load_json_object(generated)
         if mode == "natural":
-            return self._render_natural(raw, variant, literals, protected_terms)
+            return self._render_natural(
+                raw,
+                variant,
+                literals,
+                protected_terms,
+                source_request,
+                auto_quality_tags,
+            )
         if mode == "tag":
-            return self._render_tag(raw, variant, literals, protected_terms)
+            return self._render_tag(
+                raw,
+                variant,
+                literals,
+                protected_terms,
+                source_request,
+                auto_quality_tags,
+            )
         raise TransformationError(DANBOORU_OUTPUT_INVALID)
 
 

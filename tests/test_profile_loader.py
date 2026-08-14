@@ -170,16 +170,27 @@ def test_anima_profile_metadata_and_variant_contract():
     assert base.recommended_prompt.positive_prefix == (
         "masterpiece",
         "best quality",
-        "score_7",
-        "safe",
     )
     assert base.optional_prompt.positive_prefix == ()
-    assert "score_1" not in aesthetic.recommended_prompt.negative_prefix
     assert aesthetic.recommended_prompt.positive_prefix == (
         "masterpiece",
         "best quality",
-        "safe",
     )
+    for variant in (base, aesthetic, turbo):
+        fixed = (
+            *variant.required_prompt.positive_prefix,
+            *variant.recommended_prompt.positive_prefix,
+            *variant.recommended_prompt.positive_suffix,
+            *variant.required_prompt.positive_suffix,
+            *variant.required_prompt.negative_prefix,
+            *variant.recommended_prompt.negative_prefix,
+            *variant.recommended_prompt.negative_suffix,
+            *variant.required_prompt.negative_suffix,
+        )
+        fixed_text = ", ".join(fixed).casefold()
+        assert "safe" not in fixed_text
+        assert "score_" not in fixed_text
+        assert "artist" not in fixed_text
     assert turbo.inference_recommendations["steps_min"] == 8
     assert turbo.inference_recommendations["steps_max"] == 12
     assert turbo.inference_recommendations["cfg"] == 1.0

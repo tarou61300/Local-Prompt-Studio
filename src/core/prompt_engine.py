@@ -44,6 +44,7 @@ class PromptSettings:
     end_frame_note: str = ""
     references: list[H3Reference] = field(default_factory=list)
     protected_terms: tuple[str, ...] = ()
+    auto_quality_tags: bool = True
 
 
 def clean_model_output(text: str) -> str:
@@ -148,6 +149,7 @@ class PromptEngine:
             normalize_protected_terms(settings.protected_terms),
             input_mode=analysis.input_mode,
             source_request=request,
+            auto_quality_tags=settings.auto_quality_tags,
         )
 
     def _validate(self, settings: PromptSettings) -> None:
@@ -192,4 +194,5 @@ class PromptEngine:
                 f"{reference.tag()} {reference.description.strip()}"
                 for reference in settings.references
             ),
+            auto_quality_tags=settings.auto_quality_tags,
         )

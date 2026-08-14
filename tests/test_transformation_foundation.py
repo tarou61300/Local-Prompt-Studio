@@ -16,8 +16,10 @@ from core.renderers import (
     PROTECTED_TERM_NOT_PRESERVED,
     AnimaRenderer,
     Krea2Renderer,
+    LTX23Renderer,
     MiniMaxH3Renderer,
     TransformationError,
+    Wan22Renderer,
 )
 from core.skill_manager import SkillManager
 
@@ -97,7 +99,7 @@ def test_length_guidance_is_warning_only_and_never_changes_text():
     )
     renderer = MiniMaxH3Renderer()
     short_variant = replace(variant, length_guidance=guidance)
-    long_text = "one two three four explicit details"
+    long_text = "one two three four visible details"
     result = renderer.render(long_text, short_variant, (), ())
     assert result.positive == long_text
     assert result.warnings == ("PROMPT_LONGER_THAN_RECOMMENDED",)
@@ -111,26 +113,78 @@ def test_length_guidance_is_warning_only_and_never_changes_text():
     assert hard_result.warnings == ("PROMPT_EXCEEDS_HARD_MAXIMUM",)
 
 
-def test_required_and_recommended_components_are_assembled_deterministically():
+@pytest.mark.parametrize(
+    "renderer",
+    [
+        MiniMaxH3Renderer(),
+        Wan22Renderer(),
+        LTX23Renderer(),
+    ],
+)
+def test_video_renderer_fixed_components_keep_only_quality_terms(renderer):
     variant = _profile().variant()
     variant = replace(
         variant,
         required_prompt=PromptComponents(
-            positive_prefix=("required-start",),
-            positive_suffix=("required-end",),
+            positive_prefix=("masterpiece", "safe"),
+            positive_suffix=("high quality", "artist:unrequested"),
             negative_prefix=("required-negative",),
         ),
         recommended_prompt=PromptComponents(
-            positive_prefix=("recommended-start",),
-            positive_suffix=("recommended-end",),
+            positive_prefix=("best quality", "score_7"),
+            positive_suffix=("vintage",),
             negative_suffix=("recommended-negative",),
         ),
     )
-    result = MiniMaxH3Renderer().render("generated", variant, (), ())
-    assert result.positive == (
-        "required-start recommended-start generated recommended-end required-end"
-    )
+    result = renderer.render("generated", variant, (), ())
+    assert result.positive == "masterpiece best quality generated high quality"
     assert result.negative is None
+
+
+@pytest.mark.parametrize(
+    "renderer",
+    [
+        MiniMaxH3Renderer(),
+        Wan22Renderer(),
+        LTX23Renderer(),
+        Krea2Renderer(),
+    ],
+)
+def test_single_positive_renderers_honor_quality_toggle_and_remove_auto_duplicates(
+    renderer,
+):
+    variant = replace(
+        _profile().variant(),
+        required_prompt=PromptComponents(
+            positive_prefix=("masterpiece", "masterpiece", "safe"),
+            positive_suffix=("high quality",),
+        ),
+        recommended_prompt=PromptComponents(
+            positive_prefix=("best quality",),
+            positive_suffix=("best quality", "score_7"),
+        ),
+    )
+
+    enabled = renderer.render(
+        "best quality generated scene",
+        variant,
+        (),
+        (),
+        auto_quality_tags=True,
+    )
+    disabled = renderer.render(
+        "best quality generated scene",
+        variant,
+        (),
+        (),
+        auto_quality_tags=False,
+    )
+
+    assert enabled.positive == "masterpiece best quality generated scene high quality"
+    assert enabled.positive.casefold().count("best quality") == 1
+    assert "safe" not in enabled.positive
+    assert "score_" not in enabled.positive
+    assert disabled.positive == "best quality generated scene"
 
 
 def test_second_profile_can_use_core_engine_without_h3_dependency_or_model_branch():
@@ -240,23 +294,21 @@ def test_krea_2_uses_natural_language_renderer_without_h3_skill_or_controls():
     assert result.warnings == ()
 
 
-def test_natural_language_renderer_preserves_fixed_component_contract():
+def test_krea_fixed_components_keep_only_quality_terms():
     variant = _named_profile("krea_2").variant("turbo")
     variant = replace(
         variant,
         required_prompt=PromptComponents(
-            positive_prefix=("required-start",),
-            positive_suffix=("required-end",),
+            positive_prefix=("masterpiece", "safe"),
+            positive_suffix=("high quality", "1990s"),
         ),
         recommended_prompt=PromptComponents(
-            positive_prefix=("recommended-start",),
-            positive_suffix=("recommended-end",),
+            positive_prefix=("best quality", "score_7"),
+            positive_suffix=("artist:unrequested",),
         ),
     )
     result = Krea2Renderer().render("generated", variant, (), ())
-    assert result.positive == (
-        "required-start recommended-start generated recommended-end required-end"
-    )
+    assert result.positive == "masterpiece best quality generated high quality"
     assert result.negative is None
 
 
@@ -271,16 +323,25 @@ def test_anima_renderer_assembles_order_normalization_and_negative_deterministic
       "general": ["SILVER_HAIR", "blue_eyes", "score_7", "(CHIBI:2)"],
       "negative": ["bad_hands", "blurry"]
     }"""
-    result = AnimaRenderer().render(generated, variant, (), ())
+    source_request = (
+        "year_2025, explicit, 1girl, Fern_(Sousou_no_Frieren), "
+        "Sousou_no_Frieren, Some_Artist, silver_hair, blue_eyes, score_7, chibi"
+    )
+    result = AnimaRenderer().render(
+        generated,
+        variant,
+        (),
+        (),
+        source_request=source_request,
+    )
 
     assert result.positive == (
-        "masterpiece, best quality, score_7, year 2025, explicit, 1girl, "
+        "masterpiece, best quality, year 2025, explicit, 1girl, "
         "fern (sousou no frieren), sousou no frieren, @some artist, "
-        "silver hair, blue eyes, (chibi:2)"
+        "silver hair, blue eyes, score_7, (chibi:2)"
     )
     assert result.negative == (
-        "worst quality, low quality, score_1, score_2, score_3, artist name, "
-        "blurry, jpeg artifacts, chromatic aberration, bad hands"
+        "worst quality, low quality, blurry, jpeg artifacts, chromatic aberration, bad hands"
     )
     assert result.warnings == ()
 
@@ -377,7 +438,13 @@ def test_anima_renderer_accepts_json_code_fence_and_harmless_wrapper_text():
   "negative": []
 }
 ```"""
-    fenced_result = AnimaRenderer().render(clean_model_output(fenced), variant, (), ())
+    fenced_result = AnimaRenderer().render(
+        clean_model_output(fenced),
+        variant,
+        (),
+        (),
+        source_request="1girl, silver_hair, blue_eyes",
+    )
     assert "1girl" in fenced_result.positive
     assert "silver hair" in fenced_result.positive
 
@@ -387,7 +454,13 @@ def test_anima_renderer_accepts_json_code_fence_and_harmless_wrapper_text():
   "general": ["long_hair", "school_uniform"],
   "negative": []
 }"""
-    wrapped_result = AnimaRenderer().render(wrapped, variant, (), ())
+    wrapped_result = AnimaRenderer().render(
+        wrapped,
+        variant,
+        (),
+        (),
+        source_request="1girl, long_hair, school_uniform",
+    )
     assert "long hair" in wrapped_result.positive
     assert "school uniform" in wrapped_result.positive
 
@@ -399,14 +472,20 @@ def test_anima_aesthetic_omits_score_tags_from_fixed_recommendations():
       "general": ["solo"],
       "negative": []
     }"""
-    result = AnimaRenderer().render(generated, variant, (), ())
+    result = AnimaRenderer().render(
+        generated,
+        variant,
+        (),
+        (),
+        source_request="1girl, solo",
+    )
 
-    assert result.positive == "masterpiece, best quality, safe, 1girl, solo"
+    assert result.positive == "masterpiece, best quality, 1girl, solo"
     assert "score_" not in result.positive
     assert "score_" not in (result.negative or "")
 
 
-def test_anima_explicit_safety_tag_replaces_conflicting_default_safe():
+def test_anima_explicit_safety_tag_is_preserved_without_default_safe():
     variant = _named_profile("anima").variant("turbo_v1_0")
     generated = """{
       "quality_meta_year_safety": ["explicit"],
@@ -415,7 +494,13 @@ def test_anima_explicit_safety_tag_replaces_conflicting_default_safe():
       "negative": []
     }"""
 
-    result = AnimaRenderer().render(generated, variant, (), ())
+    result = AnimaRenderer().render(
+        generated,
+        variant,
+        (),
+        (),
+        source_request="explicit, 1girl, solo",
+    )
 
     assert "explicit" in result.positive
     assert ", safe," not in f", {result.positive},"

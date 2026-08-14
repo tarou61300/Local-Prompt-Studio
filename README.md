@@ -6,7 +6,7 @@ Release date: 2026-08-14
 
 Local Prompt Studioは、ローカルGGUFモデルを使うプロファイル駆動型Prompt変換ツールです。
 対応する動画モデルプロファイルはMiniMax H3、Wan 2.2、LTX-2.3です。
-画像モデルプロファイルはKrea 2 Raw/TurboとAnima Base/Aesthetic/Turboに対応します。Animaでは入力をNatural / Tag / Hybridとして内部判定し、モデル推奨の品質系Positive/NegativeをProfileから決定的に組み立てます。
+画像モデルプロファイルはKrea 2 Raw/TurboとAnima Base/Aesthetic/Turboに対応します。Animaでは入力をNatural / Tag / Hybridとして内部判定し、「品質タグを自動追加」がONの場合だけ、モデル推奨の品質系Positive/NegativeをProfileから決定的に組み立てます。
 
 UI言語はEnglishと日本語を選択でき、入力言語とは独立しています。ComfyUIをインストールして
 いない場合も、従来のローカルMiniMax H3 Prompt生成をそのまま利用できます。既存の
@@ -25,8 +25,8 @@ UIにRenderer選択はなく、Profile切替時に内部で自動選択されま
 検証し、marker自体は出力しません。`length_guidance`は助言のみで、切り詰め、padding、圧縮用の再生成は行いません。
 
 AnimaはNatural / Tag / Hybridを入力から自動判定し、Base v1.0、Aesthetic v1.1、Turbo v1.0を選択できます。
-Aestheticでは公式推奨に従って`score_*`を固定Positive/Negativeから外します。通常は公式推奨の`safe`を含めますが、
-ユーザーが`sensitive` / `nsfw` / `explicit`を明示した場合はCore Policyを優先して競合する`safe`を自動で外します。AnimaではPositiveとNegativeを
+Aestheticを含む全Anima Variantで、「品質タグを自動追加」がONの場合に自動付与する固定componentは品質系だけです。OFFの場合は品質componentを自動付与せず、ユーザーが明示した品質タグはどちらの場合も保持します。`safe` / `sensitive` / `nsfw` / `explicit`、
+`score_*`、artist、character/copyright、age/demographic、year/era系タグは、ユーザーが明示した場合だけ保持します。AnimaではPositiveとNegativeを
 別々に表示します。既存ComfyUI Bridgeは送信先が1つだけなので、Animaで「Send to ComfyUI」を押した場合は
 Positive Promptだけを送信し、Negative Promptは手動コピーします。
 

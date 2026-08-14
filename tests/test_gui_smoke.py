@@ -44,6 +44,7 @@ def test_main_window_constructs_without_model(tmp_path):
         assert window.profile_category.currentData() == "video"
         assert window.profile_model.currentData() == "minimax_h3"
         assert window.profile_variant.currentData() == "base"
+        assert window.auto_quality_tags.isChecked() is True
         assert [
             window.profile_model.itemData(index)
             for index in range(window.profile_model.count())
@@ -359,7 +360,9 @@ def test_image_category_selects_anima_and_shows_separate_negative_output(tmp_pat
         app.processEvents()
 
         assert window.worker.isRunning() is False
-        assert "masterpiece, best quality, score_7" in window.output_text.toPlainText()
+        assert "masterpiece, best quality" in window.output_text.toPlainText()
+        assert "score_" not in window.output_text.toPlainText()
+        assert "safe" not in window.output_text.toPlainText().split(", ")
         assert "月夜珈琲" in window.output_text.toPlainText()
         assert "worst quality" in window.negative_output_text.toPlainText()
         assert "bad hands" in window.negative_output_text.toPlainText()
@@ -471,6 +474,7 @@ def test_main_window_uses_persisted_english_and_japanese_locales(tmp_path):
             english.processing
         )
         assert english_style_label.text() == "Prompt Transformation Style"
+        assert english.auto_quality_tags.text() == "Automatically add quality tags"
         assert english.profile_variant_help.text()
         assert english.prompt_style_help.text()
         english.close()
@@ -493,9 +497,38 @@ def test_main_window_uses_persisted_english_and_japanese_locales(tmp_path):
             japanese.processing
         )
         assert japanese_style_label.text() == "Prompt変換スタイル"
+        assert japanese.auto_quality_tags.text() == "品質タグを自動追加"
         assert "標準Prompt規則" in japanese.profile_variant_help.text()
         assert japanese.prompt_style_help.text()
         japanese.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_auto_quality_tags_checkbox_persists_and_enters_prompt_settings(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    manager = ConfigManager(tmp_path)
+    manager.save(AppConfig(auto_quality_tags=False))
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+
+        assert window.auto_quality_tags.isChecked() is False
+        assert window._collect_settings().auto_quality_tags is False
+
+        window.auto_quality_tags.setChecked(True)
+        app.processEvents()
+
+        assert manager.load().auto_quality_tags is True
+        assert window._collect_settings().auto_quality_tags is True
+        window.close()
         app.processEvents()
     finally:
         mock.shutdown()

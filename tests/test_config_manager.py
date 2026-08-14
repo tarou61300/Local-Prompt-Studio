@@ -24,6 +24,7 @@ def test_settings_save_and_load(tmp_path):
         model_path=r"D:\Models\Qwen3-8B-Q4_K_M.gguf",
         cpu_threads=8,
         history_enabled=True,
+        auto_quality_tags=False,
         skill_location=r"D:\Skills\h3-prompt-writing",
     )
     manager.save(expected)
@@ -31,6 +32,7 @@ def test_settings_save_and_load(tmp_path):
     assert actual.model_path == expected.model_path
     assert actual.cpu_threads == 8
     assert actual.history_enabled is True
+    assert actual.auto_quality_tags is False
     assert manager.path.is_file()
     stored_text = manager.path.read_text(encoding="utf-8")
     assert "client_credential" not in stored_text
@@ -38,7 +40,7 @@ def test_settings_save_and_load(tmp_path):
 
 
 def test_default_context_is_8192():
-    assert CONFIG_VERSION == 5
+    assert CONFIG_VERSION == 6
     assert AppConfig().context_size == 8192
     assert DEFAULT_CONTEXT_SIZE == 8192
     assert AppConfig().comfyui_url == DEFAULT_COMFYUI_URL
@@ -47,6 +49,7 @@ def test_default_context_is_8192():
     assert AppConfig().ui_locale == "ja-JP"
     assert AppConfig().selected_profile == "minimax_h3"
     assert AppConfig().selected_variant == "base"
+    assert AppConfig().auto_quality_tags is True
 
 
 def test_v1_default_context_is_migrated(tmp_path):
@@ -149,6 +152,20 @@ def test_v5_locale_and_profile_ids_round_trip(tmp_path):
     assert loaded.ui_locale == "en-US"
     assert loaded.selected_profile == "minimax_h3"
     assert loaded.selected_variant == "base"
+
+
+def test_v5_config_migrates_with_auto_quality_tags_enabled(tmp_path):
+    manager = ConfigManager(tmp_path)
+    tmp_path.mkdir(exist_ok=True)
+    manager.path.write_text(
+        json.dumps({"config_version": 5, "auto_quality_tags": None}),
+        encoding="utf-8",
+    )
+
+    loaded = manager.load()
+
+    assert loaded.config_version == CONFIG_VERSION
+    assert loaded.auto_quality_tags is True
 
 
 def test_vulkan_backend_device_and_explicit_layers_round_trip(tmp_path):

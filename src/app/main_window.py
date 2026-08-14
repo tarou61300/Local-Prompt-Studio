@@ -47,6 +47,7 @@ from core.renderers import (
     PROTECTED_TERM_NOT_PRESERVED,
     RenderResult,
     RendererRegistry,
+    UNREQUESTED_SEMANTIC_TAG,
 )
 from core.skill_manager import SkillManager
 from core.system_memory import (
@@ -262,6 +263,9 @@ class MainWindow(QMainWindow):
         self.prompt_style_help.setStyleSheet(
             "color: palette(mid); font-size: 11px;"
         )
+        self.auto_quality_tags = QCheckBox(self.tr("profile.auto_quality_tags"))
+        self.auto_quality_tags.setObjectName("auto_quality_tags")
+        self.auto_quality_tags.setChecked(self.config.auto_quality_tags)
         profile_layout.addRow(self.tr("profile.category"), self.profile_category)
         profile_layout.addRow(self.tr("profile.model"), self.profile_model)
         profile_layout.addRow(self.tr("profile.variant"), self.profile_variant)
@@ -269,6 +273,7 @@ class MainWindow(QMainWindow):
         profile_layout.addRow(self.tr("profile.task"), self.mode)
         profile_layout.addRow(self.tr("profile.style"), self.processing)
         profile_layout.addRow("", self.prompt_style_help)
+        profile_layout.addRow("", self.auto_quality_tags)
         root.addWidget(profile_group)
 
         self.legacy_video_settings_group = QGroupBox(self.tr("video.settings"))
@@ -416,6 +421,7 @@ class MainWindow(QMainWindow):
         self.profile_variant.currentIndexChanged.connect(self._profile_variant_changed)
         self.mode.currentTextChanged.connect(self._update_mode_fields)
         self.processing.currentTextChanged.connect(self._update_prompt_style_help)
+        self.auto_quality_tags.toggled.connect(self._persist_auto_quality_tags)
         self._populate_profile_selectors()
         self._update_send_button_state()
         self._update_mode_fields(self.mode.currentText())
@@ -607,6 +613,19 @@ class MainWindow(QMainWindow):
                 PORTABLE_WRITE_ERROR,
             )
 
+    def _persist_auto_quality_tags(self, enabled: bool) -> None:
+        config = self.config_manager.load()
+        config.auto_quality_tags = enabled
+        try:
+            self.config_manager.save(config)
+            self.config = config
+        except OSError:
+            QMessageBox.warning(
+                self,
+                self.tr("settings.title"),
+                PORTABLE_WRITE_ERROR,
+            )
+
     def _update_mode_fields(self, mode: str) -> None:
         legacy_controls = bool(
             self.profile
@@ -672,6 +691,7 @@ class MainWindow(QMainWindow):
             start_frame_note=self.start_note.toPlainText(),
             end_frame_note=self.end_note.toPlainText(),
             references=refs,
+            auto_quality_tags=self.auto_quality_tags.isChecked(),
         )
 
     def _update_send_button_state(self) -> None:
@@ -858,6 +878,7 @@ class MainWindow(QMainWindow):
             self.profile_model,
             self.profile_variant,
             self.mode,
+            self.auto_quality_tags,
         ):
             selector.setEnabled(False)
         self.generate_button.setEnabled(False)
@@ -909,6 +930,8 @@ class MainWindow(QMainWindow):
             message = self.tr("error.danbooru_output_invalid")
         elif message == ANIMA_HYBRID_OUTPUT_INVALID:
             message = self.tr("error.anima_hybrid_output_invalid")
+        elif message == UNREQUESTED_SEMANTIC_TAG:
+            message = self.tr("error.unrequested_semantic_tag")
         QMessageBox.warning(self, self.tr("error.generation_title"), message)
 
     def _set_generation_status(self, status: str) -> None:
@@ -926,6 +949,7 @@ class MainWindow(QMainWindow):
             self.profile_model,
             self.profile_variant,
             self.mode,
+            self.auto_quality_tags,
         ):
             selector.setEnabled(True)
         self.generate_button.setEnabled(True)

@@ -18,6 +18,7 @@ from core.renderers import (
     RendererContext,
     RendererRegistry,
     TransformationError,
+    UNREQUESTED_SEMANTIC_TAG,
     Wan22Renderer,
 )
 from core.skill_manager import SkillManager
@@ -70,6 +71,113 @@ def test_four_single_positive_renderers_never_create_negative(
     )
     assert result.positive == generated
     assert result.negative is None
+
+
+@pytest.mark.parametrize(
+    ("profile_id", "task"),
+    [
+        ("minimax_h3", "T2VA"),
+        ("wan_2_2", "T2V"),
+        ("ltx_2_3", "T2V"),
+        ("krea_2", "T2I"),
+        ("anima", "T2I"),
+    ],
+)
+def test_prompt_engine_passes_auto_quality_flag_to_every_renderer(
+    profile_id: str,
+    task: str,
+):
+    system = _engine(profile_id).request_payload(
+        "A simple scene.",
+        PromptSettings(mode=task, auto_quality_tags=False),
+    )["messages"][0]["content"]
+
+    assert "AUTOMATIC QUALITY TAGS: OFF" in system
+
+
+def test_anima_quality_toggle_preserves_explicit_tags_and_deduplicates():
+    request = "masterpiece, best quality, 1girl, low quality"
+    generated = json.dumps(
+        {
+            "quality_meta_year_safety": ["masterpiece", "best quality"],
+            "subject_count": ["1girl"],
+            "negative": ["low quality"],
+        }
+    )
+    engine = _engine("anima", "turbo_v1_0")
+
+    enabled = engine.finalize_output(
+        request,
+        PromptSettings(mode="T2I", auto_quality_tags=True),
+        generated,
+    )
+    disabled = engine.finalize_output(
+        request,
+        PromptSettings(mode="T2I", auto_quality_tags=False),
+        generated,
+    )
+
+    assert enabled.positive.split(", ").count("masterpiece") == 1
+    assert enabled.positive.split(", ").count("best quality") == 1
+    assert enabled.negative.split(", ").count("low quality") == 1
+    assert "worst quality" in enabled.negative.split(", ")
+    assert disabled.positive == "masterpiece, best quality, 1girl"
+    assert disabled.negative == "low quality"
+
+
+def test_anima_natural_quality_toggle_adds_only_when_enabled():
+    request = "A portrait beside a café window."
+    generated = json.dumps(
+        {
+            "positive": "A portrait beside a café window.",
+            "negative": "",
+        }
+    )
+    engine = _engine("anima", "base_v1_0")
+
+    enabled = engine.finalize_output(
+        request,
+        PromptSettings(mode="T2I", auto_quality_tags=True),
+        generated,
+    )
+    disabled = engine.finalize_output(
+        request,
+        PromptSettings(mode="T2I", auto_quality_tags=False),
+        generated,
+    )
+
+    assert enabled.positive.startswith("masterpiece, best quality.")
+    assert "worst quality" in (enabled.negative or "")
+    assert disabled.positive == "A portrait beside a café window."
+    assert disabled.negative is None
+
+
+def test_anima_hybrid_quality_toggle_preserves_explicit_quality_without_duplicates():
+    request = "masterpiece, ginntuinn. A woman stands beside a café window."
+    generated = (
+        "ANIMA_NATURAL:\n"
+        "A woman stands beside a café window.\n"
+        "ANIMA_NEGATIVE:\n"
+    )
+    engine = _engine("anima", "turbo_v1_0")
+
+    enabled = engine.finalize_output(
+        request,
+        PromptSettings(mode="T2I", auto_quality_tags=True),
+        generated,
+    )
+    disabled = engine.finalize_output(
+        request,
+        PromptSettings(mode="T2I", auto_quality_tags=False),
+        generated,
+    )
+
+    assert enabled.positive.casefold().count("masterpiece") == 1
+    assert "best quality" in enabled.positive
+    assert "worst quality" in (enabled.negative or "")
+    assert disabled.positive.startswith("masterpiece, ginntuinn.")
+    assert "best quality" not in disabled.positive
+    assert disabled.negative is None
 
 
 def test_krea_renderer_stays_natural_language_for_all_processing_modes():
@@ -148,9 +256,10 @@ def test_anima_tag_output_preserves_tag_structure_and_variant_rules():
             }
         ),
     )
-    assert "score_7" in result.positive
+    assert result.positive.startswith("masterpiece, best quality")
     assert "silver hair" in result.positive
     assert "explicit" in result.positive
+    assert "score_" not in result.positive
     assert "safe" not in result.positive.split(", ")
     assert "extra people" in (result.negative or "")
 
@@ -177,7 +286,7 @@ def test_anima_hybrid_output_preserves_trigger_tags_and_natural_prose():
         ),
     )
     assert result.positive.startswith(
-        "masterpiece, best quality, score_7, safe, ginntuinn, 1girl, silver hair."
+        "masterpiece, best quality, ginntuinn, 1girl, silver hair."
     )
     assert result.positive.endswith(
         "A young woman is sitting beside a café window, wearing a white dress and "
@@ -185,8 +294,7 @@ def test_anima_hybrid_output_preserves_trigger_tags_and_natural_prose():
     )
     assert result.positive.count("ginntuinn") == 1
     assert result.negative == (
-        "worst quality, low quality, score_1, score_2, score_3, artist name, "
-        "blurry, jpeg artifacts, chromatic aberration"
+        "worst quality, low quality, blurry, jpeg artifacts, chromatic aberration"
     )
 
 
@@ -252,7 +360,7 @@ def test_mixed_explicit_speech_text_and_protected_terms_are_exact_and_markers_re
     request = (
         "[speech:ja]こんにちは[/speech]\n"
         "[text:ja]月夜珈琲[/text]\n"
-        "Show Brand_X."
+        "A woman says the supplied speech beside the supplied sign; show Brand_X."
     )
     settings = PromptSettings(mode="T2V", protected_terms=("Brand_X",))
     generated = (
@@ -287,6 +395,120 @@ def test_each_renderer_owns_all_processing_mode_rules(renderer, task: str, proce
     )
     assert f"Prompt Processing: {processing}" in system
     assert "Processing rule:" in system
+    assert "Never add unrequested rating/safety" in system
+
+
+@pytest.mark.parametrize(
+    ("profile_id", "task"),
+    [
+        ("minimax_h3", "T2VA"),
+        ("wan_2_2", "T2V"),
+        ("ltx_2_3", "T2V"),
+        ("krea_2", "T2I"),
+        ("anima", "T2I"),
+    ],
+)
+@pytest.mark.parametrize(
+    "unrequested",
+    [
+        "safe",
+        "sensitive",
+        "nsfw",
+        "explicit",
+        "score_9",
+        "artist:Unasked Artist",
+        "by Unasked Artist",
+        "1girl",
+        "character:Unasked Character",
+        "copyright:Unasked Series",
+        "1990s",
+        "vintage",
+    ],
+)
+def test_all_renderers_reject_unrequested_non_quality_semantic_tags(
+    profile_id: str,
+    task: str,
+    unrequested: str,
+):
+    engine = _engine(profile_id)
+    request = "A red fox crosses a snowy field."
+    generated_text = f"A red fox crosses a snowy field, {unrequested}."
+    generated = (
+        json.dumps({"positive": generated_text, "negative": ""})
+        if profile_id == "anima"
+        else generated_text
+    )
+
+    with pytest.raises(TransformationError) as exc:
+        engine.finalize_output(request, PromptSettings(mode=task), generated)
+
+    assert exc.value.code == UNREQUESTED_SEMANTIC_TAG
+
+
+@pytest.mark.parametrize(
+    ("profile_id", "task"),
+    [
+        ("minimax_h3", "T2VA"),
+        ("wan_2_2", "T2V"),
+        ("ltx_2_3", "T2V"),
+        ("krea_2", "T2I"),
+    ],
+)
+def test_natural_language_renderers_preserve_explicit_semantic_tags(
+    profile_id: str,
+    task: str,
+):
+    request = "A safe, explicit 1990s scene with a red fox."
+    result = _engine(profile_id).finalize_output(
+        request,
+        PromptSettings(mode=task),
+        request,
+    )
+
+    assert "safe" in result.positive
+    assert "explicit" in result.positive
+    assert "1990s" in result.positive
+
+
+def test_anima_preserves_explicit_safe_explicit_and_era_tags():
+    request = "safe, explicit, 1990s, red_fox"
+    result = _engine("anima", "turbo_v1_0").finalize_output(
+        request,
+        PromptSettings(mode="T2I"),
+        json.dumps(
+            {
+                "quality_meta_year_safety": ["safe", "explicit", "1990s"],
+                "general": ["red_fox"],
+                "negative": [],
+            }
+        ),
+    )
+
+    assert "safe" in result.positive.split(", ")
+    assert "explicit" in result.positive.split(", ")
+    assert "1990s" in result.positive.split(", ")
+
+
+def test_anima_hybrid_without_explicit_safety_or_score_adds_neither():
+    request = "ginntuinn, silver hair. A young woman by a café window."
+    renderer = AnimaRenderer()
+    assert renderer.input_mode(request) == "hybrid"
+
+    result = _engine("anima", "turbo_v1_0").finalize_output(
+        request,
+        PromptSettings(mode="T2I", protected_terms=("ginntuinn",)),
+        (
+            "ANIMA_NATURAL:\n"
+            "A young woman by a café window.\n"
+            "ANIMA_NEGATIVE:\n"
+        ),
+    )
+
+    assert "ginntuinn" in result.positive
+    assert "silver hair" in result.positive
+    assert "safe" not in result.positive.split(", ")
+    assert "score_" not in result.positive
+    assert "score_" not in (result.negative or "")
 
 
 def test_each_renderer_owns_model_specific_localized_prompt_style_descriptions():
