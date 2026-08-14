@@ -1,8 +1,8 @@
-# Local Prompt Studio v2.0.0-beta.1
+# Local Prompt Studio v2.0.0-beta.2
 
 **Windows x64 portable beta release candidate**
 
-Release date: 2026-08-13
+Release date: 2026-08-14
 
 Local Prompt Studioは、ローカルGGUFモデルを使うプロファイル駆動型Prompt変換ツールです。
 対応する動画モデルプロファイルはMiniMax H3、Wan 2.2、LTX-2.3です。
@@ -42,7 +42,7 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `Local-Prompt-Studio-v2.0.0-beta.1-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+1. `Local-Prompt-Studio-v2.0.0-beta.2-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
 2. 展開したフォルダ内の`LocalPromptStudio/LocalPromptStudio.exe`を起動します。
 
 既存v1.xリリースは上書きせず、別フォルダへ展開してください。
@@ -65,7 +65,7 @@ MiniMax H3 Prompt SkillもZIPには含まれません。「取得」を押した
 リポジトリへ接続し、ポータブルフォルダ内の `data/skills` へ保存します。設定で外部の
 Skillフォルダを選んだ場合は読み取りに使用できますが、アプリ自身の取得先には使用しません。
 
-## beta.1の既知の制限
+## beta.2の既知の制限
 
 - GGUFモデルは同梱されません。ユーザーが互換GGUFを別途用意して選択する必要があります。
 - MMH3 Prompt BridgeによるComfyUI連携は任意機能で、ComfyUI側へBridgeを別途導入する必要があります。

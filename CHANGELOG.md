@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.0-beta.2 — 2026-08-14
+
+Community test pre-release for the self-contained renderer architecture and prompt guidance UI.
+
+### Added and changed
+
+- Migrated MiniMax H3, Wan 2.2, LTX-2.3, Krea 2, and Anima to one self-contained renderer per model, selected internally by Profile without a renderer-selection UI.
+- Added adaptive Anima Natural, Tag, and Hybrid handling with separate Positive/Negative output; Hybrid preserves its tag/trigger portion alongside natural-language content instead of forcing either format.
+- Kept Krea 2 output as natural-language image prompts for Faithful, Balanced, and Creative transformations.
+- Added paired `[speech:xx]...[/speech]` and `[text:xx]...[/text]` Literal Content syntax while retaining the existing line-start syntax for compatibility.
+- Added contextual recognition for Japanese and common multilingual quotation marks, distinguishing speech from visible text such as signs when context identifies it.
+- Invalidated stale Positive/Negative output when a new generation starts or fails so old results cannot be copied or sent as the current result.
+- Added localized Variant guidance and model-specific Prompt Transformation Style guidance directly below their selectors in the Japanese and English UI.
+
+### Known limitations
+
+- GGUF models and the MiniMax H3 Prompt Skill are not bundled; users provide a compatible GGUF and obtain the optional H3 Skill when needed.
+- MMH3 Prompt Bridge is optional and must be installed separately on the ComfyUI side.
+- Generated media quality depends on the selected target model and workflow settings.
+- Literal Content guarantees prompt-text preservation, not successful target-model rendering or pronunciation.
+- Automatic model download, online Profile updates, cloud inference, automatic ComfyUI workflow editing, and automatic ComfyUI queueing are not included.
+
 ## 2.0.0-beta.1 — 2026-08-13
 
 Community test beta release candidate for Local Prompt Studio.
