@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.0-beta.3 — 2026-08-15
+
+Emergency community test pre-release for prompt metadata controls and optional automatic quality tags.
+
+### Fixed and changed
+
+- Prevented all five self-contained renderers from accepting automatically introduced rating/safety tags, `score_*` ranking tags, artist/byline tags, age/demographic tags, copyright/character tags, and year/era tags such as `retro` or `vintage` when the user did not request them.
+- Removed fixed `safe`, `score_*`, and artist components from the Anima Base, Aesthetic, and Turbo profiles while preserving explicitly requested tags.
+- Added the localized **Automatically add quality tags** option for MiniMax H3, Wan 2.2, LTX-2.3, Krea 2, and Anima; it is enabled by default and saved in portable Config schema v6.
+- When automatic quality tags are disabled, renderer-defined quality components are not added; quality terms explicitly supplied by the user remain preserved.
+- Deduplicated renderer-defined quality components against user-supplied quality terms.
+- Kept the existing MMH3 Prompt Bridge protocol and ComfyUI behavior unchanged.
+
+### Known limitations
+
+- GGUF models and the MiniMax H3 Prompt Skill are not bundled; users provide a compatible GGUF and obtain the optional H3 Skill when needed.
+- MMH3 Prompt Bridge is optional and must be installed separately on the ComfyUI side.
+- Generated media quality depends on the selected target model and workflow settings.
+- Literal Content guarantees prompt-text preservation, not successful target-model rendering or pronunciation.
+- Automatic model download, online Profile updates, cloud inference, automatic ComfyUI workflow editing, and automatic ComfyUI queueing are not included.
+
 ## 2.0.0-beta.2 — 2026-08-14
 
 Community test pre-release for the self-contained renderer architecture and prompt guidance UI.

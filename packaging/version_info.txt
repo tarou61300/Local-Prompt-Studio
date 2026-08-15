@@ -21,7 +21,7 @@ VSVersionInfo(
           StringStruct(u'LegalCopyright', u'Copyright (c) 2026 Local Prompt Studio contributors'),
           StringStruct(u'OriginalFilename', u'LocalPromptStudio.exe'),
           StringStruct(u'ProductName', u'Local Prompt Studio'),
-          StringStruct(u'ProductVersion', u'2.0.0-beta.2')
+          StringStruct(u'ProductVersion', u'2.0.0-beta.3')
         ]
       )
     ]),
