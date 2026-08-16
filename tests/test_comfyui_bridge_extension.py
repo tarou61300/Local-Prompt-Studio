@@ -1859,6 +1859,8 @@ def test_frontend_acknowledges_missing_ephemeral_target_as_stale():
 
 def test_frontend_has_no_manual_token_actions():
     source = BRIDGE_JS.read_text(encoding="utf-8")
+    assert "Pair with Local Prompt Studio" in source
+    assert "Pair with MMH3 Prompt Builder" not in source
     assert "Set Pairing Token" not in source
     assert "Replace Pairing Token" not in source
     assert "Clear Pairing Token" not in source

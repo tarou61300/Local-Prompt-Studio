@@ -4,6 +4,8 @@
 
 Release date: 2026-08-16
 
+Repository: [https://github.com/tarou61300/Local-Prompt-Studio](https://github.com/tarou61300/Local-Prompt-Studio)
+
 Local Prompt Studioは、ローカルGGUFモデルを使うプロファイル駆動型Prompt変換ツールです。
 対応する動画モデルプロファイルはMiniMax H3、Wan 2.2、LTX-2.3です。
 画像モデルプロファイルはKrea 2 Raw/TurboとAnima Base/Aesthetic/Turboに対応します。Animaでは入力をNatural / Tag / Hybridとして内部判定し、「品質タグを自動追加」がONの場合だけ、モデル推奨の品質系Positive/NegativeをProfileから決定的に組み立てます。

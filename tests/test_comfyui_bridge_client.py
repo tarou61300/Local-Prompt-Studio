@@ -394,16 +394,14 @@ def test_pair_start_uses_exact_verifier_challenge_encoding(monkeypatch):
             },
         )
     )
-    session = ComfyUIBridgeClient(BASE_URL, transport=transport).start_pairing(
-        client_name="MMH3 Prompt Builder"
-    )
+    session = ComfyUIBridgeClient(BASE_URL, transport=transport).start_pairing()
     sent = transport.calls[0]["payload"]
     expected_challenge = base64.urlsafe_b64encode(
         hashlib.sha256(verifier).digest()
     ).rstrip(b"=").decode("ascii")
     assert sent == {
         "challenge": expected_challenge,
-        "client_name": "MMH3 Prompt Builder",
+        "client_name": "Local Prompt Studio",
     }
     assert "=" not in sent["challenge"]
     assert session.verifier == verifier

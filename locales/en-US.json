@@ -67,7 +67,7 @@
   "settings.history_enabled": "Save local history (default: off)",
   "setup.h3_skill_optional": "Optional: MiniMax H3 requires this Skill, while other profiles do not. Files are downloaded from the official MiniMax GitHub only when you press the button.",
   "about.title": "About Local Prompt Studio",
-  "about.body": "{product} {version}\nRelease date: {date}\n\nLocal prompt transformation with MiniMax H3, Wan 2.2, LTX-2.3, Krea 2, and Anima profiles.\nWindows x64 portable / CPU + Vulkan GPU\nllama.cpp b9637\n\nThe MMH3 Prompt Bridge integration remains optional and backward compatible.",
+  "about.body": "{product} {version}\nRelease date: {date}\nRepository: {repository}\n\nLocal prompt transformation with MiniMax H3, Wan 2.2, LTX-2.3, Krea 2, and Anima profiles.\nWindows x64 portable / CPU + Vulkan GPU\nllama.cpp b9637\n\nThe MMH3 Prompt Bridge integration remains optional and backward compatible.",
   "error.profile_invalid": "The selected profile could not be loaded.",
   "error.h3_skill_required": "MiniMax H3 requires its Prompt Skill. Install it from first-run setup or Settings before generating.",
   "error.literal_not_preserved": "Literal Content was not preserved exactly. The output was rejected.",

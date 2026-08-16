@@ -383,7 +383,7 @@ function showNextPairDialog() {
 
     const title = createTextElement(
         "h2",
-        "Pair with MMH3 Prompt Builder",
+        "Pair with Local Prompt Studio",
     );
     title.style.marginTop = "0";
     dialog.append(title);

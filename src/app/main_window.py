@@ -61,7 +61,12 @@ from core.system_memory import (
     format_memory_status,
     get_system_memory,
 )
-from core.version import APP_DISPLAY_VERSION, APP_RELEASE_DATE, PRODUCT_NAME
+from core.version import (
+    APP_DISPLAY_VERSION,
+    APP_RELEASE_DATE,
+    PRODUCT_NAME,
+    REPOSITORY_URL,
+)
 
 from .settings_dialog import SettingsDialog
 from .workers import ComfyUISendThread, GenerationThread
@@ -1430,6 +1435,7 @@ class MainWindow(QMainWindow):
                 product=PRODUCT_NAME,
                 version=APP_DISPLAY_VERSION,
                 date=APP_RELEASE_DATE,
+                repository=REPOSITORY_URL,
             ),
         )
 

@@ -101,7 +101,7 @@ class WindowsDpapiProtector:
         output_blob = _DataBlob()
         result = self._crypt32.CryptProtectData(
             ctypes.byref(input_blob),
-            "MMH3 Prompt Builder ComfyUI credential",
+            "Local Prompt Studio ComfyUI credential",
             None,
             None,
             None,

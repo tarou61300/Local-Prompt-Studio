@@ -12,6 +12,7 @@ Community test pre-release for the compact two-column workspace and explicit mod
 - Changed Duration, Motion, Camera, and Shot to full-width one-item-per-row controls in the video settings area.
 - Moved the task-specific mode supplement above Request in the right workspace and kept it collapsed by default.
 - Added **Unload model**, which stops only the application-managed llama-server process to release model RAM/GPU memory; the normal generation flow reloads it when next needed.
+- Updated the current repository identity and user-facing source links to `https://github.com/tarou61300/Local-Prompt-Studio` while preserving the MMH3 Prompt Bridge name and protocol compatibility.
 
 ### Fixed
 

@@ -1,6 +1,7 @@
 Local Prompt Studio Release Manifest
 
 Product: Local Prompt Studio
+Repository: {{REPOSITORY_URL}}
 Version: {{APP_VERSION}}
 Release date: {{RELEASE_DATE}}
 Release kind: {{RELEASE_KIND}}

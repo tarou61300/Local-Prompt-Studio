@@ -1,9 +1,9 @@
-# MMH3 Prompt Builder v1.1.0-beta.1 Community Test Checklist
+# Local Prompt Studio Community Test Checklist
 
 Thank you for testing this pre-release. It is intended to validate the optional
-ComfyUI integration across real Windows ComfyUI installations before final v1.1.0.
+ComfyUI integration across real Windows ComfyUI installations.
 
-MMH3 Prompt Builder continues to work without ComfyUI. Sending text does not queue
+Local Prompt Studio continues to work without ComfyUI. Sending text does not queue
 or start a ComfyUI workflow.
 
 ## Environment to report
@@ -13,7 +13,7 @@ or start a ComfyUI workflow.
 - ComfyUI version, if known
 - Browser and version, if known
 - Local or remote ComfyUI
-- MMH3 backend used: CPU or Vulkan
+- Local Prompt Studio backend used: CPU or Vulkan
 
 ## Tests
 
@@ -21,13 +21,13 @@ or start a ComfyUI workflow.
 - [ ] Test Connection detects MMH3 Prompt Bridge v1.2.
 - [ ] Pair with ComfyUI shows a six-digit code in both applications.
 - [ ] The codes match and Allow succeeds.
-- [ ] MMH3 shows Paired.
+- [ ] Local Prompt Studio shows Paired.
 - [ ] The MMH3 Prompt Bridge target menu appears on a STRING/multiline STRING node.
 - [ ] A target widget can be selected.
 - [ ] Send to ComfyUI changes only the selected target text.
-- [ ] Manually edited MMH3 output is sent exactly as edited.
+- [ ] Manually edited Local Prompt Studio output is sent exactly as edited.
 - [ ] No ComfyUI generation starts automatically and no workflow is queued.
-- [ ] Restarting MMH3 retains pairing.
+- [ ] Restarting Local Prompt Studio retains pairing.
 - [ ] Browser reload or ComfyUI restart behavior is recorded, including whether target reselection is needed.
 - [ ] Any displayed error message is recorded without private prompt content.
 
@@ -35,7 +35,7 @@ or start a ComfyUI workflow.
 
 - Client credentials or tokens
 - Authorization headers
-- The contents of `MMH3PromptBuilder/data/comfyui_credentials.dat`
+- The contents of `LocalPromptStudio/data/comfyui_credentials.dat`
 - The contents of `ComfyUI/custom_nodes/MMH3PromptBridge/data/bridge.json`
 
 Ordinary application logs may be shared only after checking that they contain no

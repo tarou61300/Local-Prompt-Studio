@@ -28,16 +28,17 @@ if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$') {
 $IsPrerelease = $Version.Contains("-")
 $VersionValues = @(
     & $Python -c `
-        "import sys; sys.path.insert(0, sys.argv[1]); from core.version import APP_VERSION, APP_RELEASE_DATE; print(APP_VERSION); print(APP_RELEASE_DATE)" `
+        "import sys; sys.path.insert(0, sys.argv[1]); from core.version import APP_VERSION, APP_RELEASE_DATE, REPOSITORY_URL; print(APP_VERSION); print(APP_RELEASE_DATE); print(REPOSITORY_URL)" `
         (Join-Path $ProjectRoot "src")
 )
-if ($LASTEXITCODE -ne 0 -or $VersionValues.Count -ne 2) {
+if ($LASTEXITCODE -ne 0 -or $VersionValues.Count -ne 3) {
     throw "Application version metadata could not be read."
 }
 if ($VersionValues[0].Trim() -ne $Version) {
     throw "VERSION and src\core\version.py are inconsistent."
 }
 $ReleaseDate = $VersionValues[1].Trim()
+$RepositoryUrl = $VersionValues[2].Trim()
 $VersionCore = ($Version -split '-', 2)[0].Split('.')
 $ExpectedNumericVersion = "$($VersionCore[0]).$($VersionCore[1]).$($VersionCore[2]).0"
 $ExpectedVersionTuple = "($($VersionCore[0]), $($VersionCore[1]), $($VersionCore[2]), 0)"
@@ -46,6 +47,9 @@ $ChangelogText = Get-Content -LiteralPath (Join-Path $ProjectRoot "CHANGELOG.md"
 $WindowsVersionText = Get-Content -LiteralPath (Join-Path $ProjectRoot "packaging\version_info.txt") -Raw
 if (-not $ReadmeText.StartsWith("# Local Prompt Studio v$Version")) {
     throw "README version is inconsistent with VERSION."
+}
+if (-not $ReadmeText.Contains($RepositoryUrl)) {
+    throw "README repository URL is inconsistent with application metadata."
 }
 if (-not $ChangelogText.Contains("## $Version") -or -not $ChangelogText.Contains($ReleaseDate)) {
     throw "CHANGELOG version or release date is inconsistent."
@@ -238,6 +242,7 @@ else {
 }
 $Manifest = Get-Content -LiteralPath $ManifestTemplatePath -Raw
 $Manifest = $Manifest.Replace("{{APP_VERSION}}", $Version)
+$Manifest = $Manifest.Replace("{{REPOSITORY_URL}}", $RepositoryUrl)
 $Manifest = $Manifest.Replace("{{ZIP_FILENAME}}", (Split-Path $ZipPath -Leaf))
 $Manifest = $Manifest.Replace("{{RELEASE_DATE}}", $ReleaseDate)
 $Manifest = $Manifest.Replace("{{RELEASE_KIND}}", $ReleaseKind)

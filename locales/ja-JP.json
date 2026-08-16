@@ -67,7 +67,7 @@
   "settings.history_enabled": "ローカル履歴を保存する（デフォルトOFF）",
   "setup.h3_skill_optional": "任意項目です。MiniMax H3にはこのSkillが必要ですが、ほかのプロファイルには不要です。ボタンを押した場合だけMiniMax公式GitHubから取得します。",
   "about.title": "Local Prompt Studioについて",
-  "about.body": "{product} {version}\nRelease date: {date}\n\nMiniMax H3、Wan 2.2、LTX-2.3、Krea 2、Animaプロファイル対応のローカルPrompt変換スタジオです。\nWindows x64 Portable / CPU + Vulkan GPU\nllama.cpp b9637\n\nMMH3 Prompt Bridge連携は任意で、後方互換性を維持しています。",
+  "about.body": "{product} {version}\nRelease date: {date}\nRepository: {repository}\n\nMiniMax H3、Wan 2.2、LTX-2.3、Krea 2、Animaプロファイル対応のローカルPrompt変換スタジオです。\nWindows x64 Portable / CPU + Vulkan GPU\nllama.cpp b9637\n\nMMH3 Prompt Bridge連携は任意で、後方互換性を維持しています。",
   "error.profile_invalid": "選択したプロファイルを読み込めませんでした。",
   "error.h3_skill_required": "MiniMax H3にはPrompt Skillが必要です。生成前に初回セットアップまたは設定から導入してください。",
   "error.literal_not_preserved": "Literal Contentが正確に保持されなかったため、出力を受理しませんでした。",
