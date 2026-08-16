@@ -168,10 +168,23 @@ def test_cancel_terminates_owned_server_and_clears_connection(tmp_path):
     owned = FakeOwnedProcess()
     manager.process = owned
     manager.base_url = "http://127.0.0.1:8080"
+    assert manager.is_owned_server_running is True
     manager.cancel()
     assert owned.running is False
     assert manager.process is None
     assert manager.base_url is None
+    assert manager.is_owned_server_running is False
+
+
+def test_unowned_local_server_is_never_reported_as_owned(tmp_path):
+    manager = LlamaServerManager(
+        tmp_path,
+        base_url="http://127.0.0.1:8080",
+    )
+    assert manager.is_mock_or_external_local is True
+    assert manager.is_owned_server_running is False
+    manager.stop()
+    assert manager.base_url == "http://127.0.0.1:8080"
 
 
 def test_server_start_uses_8192_context_and_loopback(monkeypatch, tmp_path):

@@ -259,6 +259,12 @@ class LlamaServerManager:
     def is_mock_or_external_local(self) -> bool:
         return self.base_url is not None and self.process is None
 
+    @property
+    def is_owned_server_running(self) -> bool:
+        """Return whether this manager currently owns a live llama-server."""
+        process = self.process
+        return process is not None and process.poll() is None
+
     @staticmethod
     def _validated_backend_id(value: str) -> str:
         lowered = str(value).strip().lower()

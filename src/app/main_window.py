@@ -21,11 +21,14 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -223,24 +226,94 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         central = QWidget()
+        central.setObjectName("main_window_central")
         root = QVBoxLayout(central)
+
+        self.header_widget = QWidget()
+        self.header_widget.setObjectName("main_header")
+        header_layout = QVBoxLayout(self.header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(3)
         title = QLabel(self.tr("app.title"))
         title.setObjectName("product_title")
         title.setStyleSheet("font-size: 24px; font-weight: 600;")
-        root.addWidget(title)
+        header_layout.addWidget(title)
         subtitle = QLabel(self.tr("app.subtitle"))
         subtitle.setStyleSheet("color: palette(mid);")
-        root.addWidget(subtitle)
+        header_layout.addWidget(subtitle)
+
+        system_summary_row = QHBoxLayout()
+        self.system_summary = QLabel()
+        self.system_summary.setObjectName("system_summary")
+        self.system_summary.setWordWrap(True)
+        self.system_summary.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Minimum,
+        )
+        system_summary_row.addWidget(self.system_summary, 1)
+        self.unload_model_button = QPushButton(self.tr("model.unload"))
+        self.unload_model_button.setObjectName("unload_model_button")
+        self.unload_model_button.setToolTip(self.tr("model.unload_tooltip"))
+        self.unload_model_button.setEnabled(False)
+        self.unload_model_button.clicked.connect(self._unload_model)
+        system_summary_row.addWidget(self.unload_model_button)
+        self.system_details_toggle = QToolButton()
+        self.system_details_toggle.setObjectName("system_details_toggle")
+        self.system_details_toggle.setText(self.tr("system.details"))
+        self.system_details_toggle.setCheckable(True)
+        self.system_details_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self.system_details_toggle.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.system_details_toggle.toggled.connect(self._toggle_system_details)
+        system_summary_row.addWidget(self.system_details_toggle)
+        header_layout.addLayout(system_summary_row)
+
+        self.system_details_group = QGroupBox(self.tr("system.details_title"))
+        self.system_details_group.setObjectName("system_details_group")
+        system_details_layout = QVBoxLayout(self.system_details_group)
         self.readiness = QLabel()
         self.readiness.setWordWrap(True)
-        root.addWidget(self.readiness)
+        system_details_layout.addWidget(self.readiness)
         self.memory_status = QLabel()
         self.memory_status.setWordWrap(True)
-        root.addWidget(self.memory_status)
+        system_details_layout.addWidget(self.memory_status)
+        self.system_details_group.setVisible(False)
+        header_layout.addWidget(self.system_details_group)
+        root.addWidget(self.header_widget)
+
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setObjectName("main_columns_splitter")
+        self.main_splitter.setChildrenCollapsible(False)
+
+        self.left_settings_scroll = QScrollArea()
+        self.left_settings_scroll.setObjectName("left_settings_scroll")
+        self.left_settings_scroll.setWidgetResizable(True)
+        self.left_settings_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.left_settings_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.left_settings_scroll.setMinimumWidth(270)
+        self.left_settings_scroll.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.left_settings_widget = QWidget()
+        self.left_settings_widget.setObjectName("left_settings")
+        left_layout = QVBoxLayout(self.left_settings_widget)
+        left_layout.setContentsMargins(8, 8, 8, 8)
+        left_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         profile_group = QGroupBox(self.tr("target.title"))
         profile_group.setObjectName("profile_group")
         profile_layout = QFormLayout(profile_group)
+        profile_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        profile_layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        profile_layout.setVerticalSpacing(5)
         self.profile_category = QComboBox()
         self.profile_category.setObjectName("profile_category")
         self.profile_model = QComboBox()
@@ -266,15 +339,28 @@ class MainWindow(QMainWindow):
         self.auto_quality_tags = QCheckBox(self.tr("profile.auto_quality_tags"))
         self.auto_quality_tags.setObjectName("auto_quality_tags")
         self.auto_quality_tags.setChecked(self.config.auto_quality_tags)
+        for combo in (
+            self.profile_category,
+            self.profile_model,
+            self.profile_variant,
+            self.mode,
+            self.processing,
+        ):
+            self._stabilize_combo(combo)
+        for help_label in (self.profile_variant_help, self.prompt_style_help):
+            help_label.setSizePolicy(
+                QSizePolicy.Policy.Preferred,
+                QSizePolicy.Policy.Minimum,
+            )
         profile_layout.addRow(self.tr("profile.category"), self.profile_category)
         profile_layout.addRow(self.tr("profile.model"), self.profile_model)
         profile_layout.addRow(self.tr("profile.variant"), self.profile_variant)
-        profile_layout.addRow("", self.profile_variant_help)
+        profile_layout.addRow(self.profile_variant_help)
         profile_layout.addRow(self.tr("profile.task"), self.mode)
         profile_layout.addRow(self.tr("profile.style"), self.processing)
-        profile_layout.addRow("", self.prompt_style_help)
-        profile_layout.addRow("", self.auto_quality_tags)
-        root.addWidget(profile_group)
+        profile_layout.addRow(self.prompt_style_help)
+        profile_layout.addRow(self.auto_quality_tags)
+        left_layout.addWidget(profile_group)
 
         self.legacy_video_settings_group = QGroupBox(self.tr("video.settings"))
         self.legacy_video_settings_group.setObjectName("video_settings_group")
@@ -283,46 +369,84 @@ class MainWindow(QMainWindow):
         self.duration.setRange(4, 15)
         self.duration.setValue(10)
         self.duration.setSuffix(self.tr("unit.seconds_suffix"))
+        self.duration.setMinimumHeight(30)
+        self.duration.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
         self.camera = self._combo(CAMERAS)
         self.shot = self._combo(SHOTS)
         self.motion = self._combo(MOTIONS)
         entries = (
             ("Duration", self.duration),
+            ("Motion", self.motion),
             ("Camera", self.camera),
             ("Shot", self.shot),
-            ("Motion", self.motion),
         )
         for index, (label, widget) in enumerate(entries):
-            row, column = divmod(index, 3)
-            grid.addWidget(QLabel(label), row * 2, column)
-            grid.addWidget(widget, row * 2 + 1, column)
-        audio_row = QHBoxLayout()
+            grid.addWidget(QLabel(label), index * 2, 0)
+            grid.addWidget(widget, index * 2 + 1, 0)
+            widget.setMinimumWidth(180)
+        audio_column = QVBoxLayout()
         self.environment_audio = QCheckBox("Environmental / scene audio")
         self.environment_audio.setChecked(True)
         self.dialogue_audio = QCheckBox("Dialogue")
         self.dialogue_audio.setChecked(True)
         self.music_audio = QCheckBox("Background music")
-        audio_row.addWidget(self.environment_audio)
-        audio_row.addWidget(self.dialogue_audio)
-        audio_row.addWidget(self.music_audio)
-        audio_row.addStretch()
-        grid.addWidget(QLabel("Audio"), 4, 0)
-        grid.addLayout(audio_row, 5, 0, 1, 3)
-        root.addWidget(self.legacy_video_settings_group)
+        for audio_option in (
+            self.environment_audio,
+            self.dialogue_audio,
+            self.music_audio,
+        ):
+            audio_option.setSizePolicy(
+                QSizePolicy.Policy.Ignored,
+                QSizePolicy.Policy.Fixed,
+            )
+        audio_column.addWidget(self.environment_audio)
+        audio_column.addWidget(self.dialogue_audio)
+        audio_column.addWidget(self.music_audio)
+        grid.addWidget(QLabel("Audio"), 8, 0)
+        grid.addLayout(audio_column, 9, 0)
+        grid.setColumnStretch(0, 1)
+        left_layout.addWidget(self.legacy_video_settings_group)
 
+        self.mode_section = QWidget()
+        self.mode_section.setObjectName("mode_supplement_section")
+        self.mode_section.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Maximum,
+        )
+        mode_section_layout = QVBoxLayout(self.mode_section)
+        mode_section_layout.setContentsMargins(0, 0, 0, 0)
+        self.mode_supplement_toggle = QToolButton()
+        self.mode_supplement_toggle.setObjectName("mode_supplement_toggle")
+        self.mode_supplement_toggle.setText(self.tr("mode.supplement"))
+        self.mode_supplement_toggle.setCheckable(True)
+        self.mode_supplement_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self.mode_supplement_toggle.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.mode_supplement_toggle.toggled.connect(
+            self._toggle_mode_supplement
+        )
+        mode_section_layout.addWidget(self.mode_supplement_toggle)
         self.mode_group = QGroupBox(self.tr("mode.notes"))
         mode_layout = QVBoxLayout(self.mode_group)
         self.start_note_label = QLabel(self.tr("mode.start_note"))
         self.start_note = QPlainTextEdit()
-        self.start_note.setMaximumHeight(70)
+        self.start_note.setMinimumHeight(45)
+        self.start_note.setMaximumHeight(55)
         self.end_note_label = QLabel(self.tr("mode.end_note"))
         self.end_note = QPlainTextEdit()
-        self.end_note.setMaximumHeight(70)
+        self.end_note.setMinimumHeight(45)
+        self.end_note.setMaximumHeight(55)
         mode_layout.addWidget(self.start_note_label)
         mode_layout.addWidget(self.start_note)
         mode_layout.addWidget(self.end_note_label)
         mode_layout.addWidget(self.end_note)
         self.references = QTableWidget(0, 3)
+        self.references.setMinimumHeight(110)
+        self.references.setMaximumHeight(150)
         self.references.setHorizontalHeaderLabels(["Reference type", "Number", "Description"])
         self.references.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         mode_layout.addWidget(self.references)
@@ -335,39 +459,88 @@ class MainWindow(QMainWindow):
         ref_actions.addWidget(remove_ref)
         ref_actions.addStretch()
         mode_layout.addLayout(ref_actions)
-        root.addWidget(self.mode_group)
+        self.mode_group.setVisible(False)
+        mode_section_layout.addWidget(self.mode_group)
+        left_layout.addStretch()
+        self.left_settings_scroll.setWidget(self.left_settings_widget)
+        self.main_splitter.addWidget(self.left_settings_scroll)
 
-        splitter = QSplitter(Qt.Vertical)
+        self.right_workspace = QWidget()
+        self.right_workspace.setObjectName("right_workspace")
+        right_layout = QVBoxLayout(self.right_workspace)
+        right_layout.setContentsMargins(8, 8, 8, 8)
+        right_layout.addWidget(self.mode_section, 0)
+        self.workspace_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.workspace_splitter.setObjectName("workspace_splitter")
+        self.workspace_splitter.setChildrenCollapsible(False)
         request_group = QGroupBox(self.tr("input.request"))
+        request_group.setObjectName("request_group")
+        request_group.setMinimumHeight(185)
         request_layout = QVBoxLayout(request_group)
+        request_layout.setContentsMargins(9, 12, 9, 9)
+        request_layout.setSpacing(6)
         self.request_text = QPlainTextEdit()
+        self.request_text.setMinimumHeight(105)
         self.request_text.setPlaceholderText(self.tr("input.placeholder"))
         self.request_text.setToolTip(self.tr("input.literal_hint"))
-        request_layout.addWidget(self.request_text)
+        request_layout.addWidget(self.request_text, 1)
         self.literal_hint = QLabel(self.tr("input.literal_hint"))
         self.literal_hint.setObjectName("literal_syntax_hint")
+        self.literal_hint.setWordWrap(True)
+        literal_hint_height = self.literal_hint.fontMetrics().lineSpacing() * 2 + 4
+        self.literal_hint.setMinimumHeight(literal_hint_height)
+        self.literal_hint.setMaximumHeight(literal_hint_height)
+        self.literal_hint.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        self.literal_hint.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
         self.literal_hint.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.literal_hint.setToolTip(self.tr("input.literal_hint"))
         request_layout.addWidget(self.literal_hint)
-        splitter.addWidget(request_group)
+        self.workspace_splitter.addWidget(request_group)
 
+        self.prompt_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.prompt_splitter.setObjectName("prompt_splitter")
+        self.prompt_splitter.setChildrenCollapsible(False)
+        self.prompt_splitter.setMinimumHeight(170)
         self.output_group = QGroupBox(self.tr("output.prompt"))
+        self.output_group.setMinimumHeight(150)
         output_layout = QVBoxLayout(self.output_group)
         self.output_text = QPlainTextEdit()
+        self.output_text.setMinimumHeight(105)
         output_layout.addWidget(self.output_text)
-        splitter.addWidget(self.output_group)
+        self.prompt_splitter.addWidget(self.output_group)
 
         self.negative_output_group = QGroupBox(self.tr("output.negative"))
+        self.negative_output_group.setMinimumHeight(120)
         negative_output_layout = QVBoxLayout(self.negative_output_group)
         self.negative_output_text = QPlainTextEdit()
         self.negative_output_text.setObjectName("negative_output_text")
+        self.negative_output_text.setMinimumHeight(75)
         negative_output_layout.addWidget(self.negative_output_text)
-        splitter.addWidget(self.negative_output_group)
+        self.prompt_splitter.addWidget(self.negative_output_group)
 
-        splitter.setSizes([250, 250, 160])
-        root.addWidget(splitter, 1)
+        self.prompt_splitter.setStretchFactor(0, 3)
+        self.prompt_splitter.setStretchFactor(1, 2)
+        self.prompt_splitter.setSizes([210, 140])
+        self.workspace_splitter.addWidget(self.prompt_splitter)
+        self.workspace_splitter.setStretchFactor(0, 2)
+        self.workspace_splitter.setStretchFactor(1, 3)
+        self.workspace_splitter.setSizes([240, 360])
+        right_layout.addWidget(self.workspace_splitter, 1)
+        self.main_splitter.addWidget(self.right_workspace)
+        self.main_splitter.setStretchFactor(0, 0)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setSizes([290, 750])
+        root.addWidget(self.main_splitter, 1)
 
-        buttons = QHBoxLayout()
+        self.action_bar = QWidget()
+        self.action_bar.setObjectName("bottom_action_bar")
+        buttons = QHBoxLayout(self.action_bar)
+        buttons.setContentsMargins(0, 0, 0, 0)
         self.generate_button = QPushButton(self.tr("common.generate"))
         self.generate_button.setObjectName("generate_button")
         self.generate_button.clicked.connect(self.generate)
@@ -409,7 +582,7 @@ class MainWindow(QMainWindow):
             clear,
         ):
             buttons.addWidget(button)
-        root.addLayout(buttons)
+        root.addWidget(self.action_bar)
         self.status_label = QLabel(self.tr("common.ready"))
         self.status_label.setWordWrap(True)
         root.addWidget(self.status_label)
@@ -424,13 +597,49 @@ class MainWindow(QMainWindow):
         self.auto_quality_tags.toggled.connect(self._persist_auto_quality_tags)
         self._populate_profile_selectors()
         self._update_send_button_state()
+        self._update_unload_button_state()
         self._update_mode_fields(self.mode.currentText())
 
     @staticmethod
     def _combo(values: tuple[str, ...]) -> QComboBox:
         combo = QComboBox()
         combo.addItems(values)
+        MainWindow._stabilize_combo(combo)
         return combo
+
+    @staticmethod
+    def _stabilize_combo(combo: QComboBox) -> None:
+        combo.setMinimumHeight(30)
+        combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        combo.setMinimumContentsLength(12)
+        combo.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Fixed,
+        )
+
+    def _toggle_system_details(self, expanded: bool) -> None:
+        self.system_details_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        self.system_details_group.setVisible(expanded)
+
+    def _toggle_mode_supplement(self, expanded: bool) -> None:
+        self.mode_supplement_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        self.mode_group.setVisible(
+            expanded and bool(getattr(self, "_mode_supplement_available", False))
+        )
+        self._sync_mode_section_height()
+
+    def _sync_mode_section_height(self) -> None:
+        layout = self.mode_section.layout()
+        if layout is not None:
+            layout.activate()
+        self.mode_section.setMaximumHeight(self.mode_section.sizeHint().height())
+        self.mode_section.updateGeometry()
 
     def _available_profiles(self) -> tuple[LoadedProfile, ...]:
         profiles = (
@@ -633,7 +842,10 @@ class MainWindow(QMainWindow):
         )
         self.legacy_video_settings_group.setVisible(legacy_controls)
         if not legacy_controls:
+            self._mode_supplement_available = False
+            self.mode_section.setVisible(False)
             self.mode_group.setVisible(False)
+            self._sync_mode_section_height()
             return
         start_visible = mode in {"I2VA", "FL2VA"}
         end_visible = mode in {"FL2VA", "L2VA"}
@@ -650,7 +862,15 @@ class MainWindow(QMainWindow):
                     widget = item.layout().itemAt(child_index).widget()
                     if widget:
                         widget.setVisible(refs_visible)
-        self.mode_group.setVisible(start_visible or end_visible or refs_visible)
+        self._mode_supplement_available = (
+            start_visible or end_visible or refs_visible
+        )
+        self.mode_section.setVisible(self._mode_supplement_available)
+        self.mode_group.setVisible(
+            self._mode_supplement_available
+            and self.mode_supplement_toggle.isChecked()
+        )
+        self._sync_mode_section_height()
 
     def _add_reference(self) -> None:
         row = self.references.rowCount()
@@ -708,6 +928,30 @@ class MainWindow(QMainWindow):
             and generation_idle
             and not self._send_close_requested
         )
+
+    def _update_unload_button_state(self) -> None:
+        self.unload_model_button.setEnabled(
+            not self._generation_active
+            and self.server.is_owned_server_running
+        )
+
+    def _unload_model(self) -> None:
+        if self._generation_active or not self.server.is_owned_server_running:
+            self._update_unload_button_state()
+            return
+        try:
+            self.server.stop()
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                self.tr("model.unload_error_title"),
+                self.tr("model.unload_failed", error=str(exc)),
+            )
+        else:
+            self.status_label.setText(self.tr("model.unloaded"))
+        finally:
+            self._update_unload_button_state()
+            self._refresh_memory_display()
 
     def _invalidate_generation_output(self) -> None:
         self.output_text.clear()
@@ -872,6 +1116,7 @@ class MainWindow(QMainWindow):
         self.worker.error_occurred.connect(self._generation_error)
         self.worker.finished.connect(self._generation_finished)
         self._generation_active = True
+        self._update_unload_button_state()
         self._invalidate_generation_output()
         for selector in (
             self.profile_category,
@@ -956,9 +1201,11 @@ class MainWindow(QMainWindow):
         self.regenerate_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self._update_send_button_state()
+        self._update_unload_button_state()
         self._refresh_memory_display()
 
     def _refresh_readiness(self) -> None:
+        readiness_warning = False
         if self.config.model_path:
             info = inspect_model(self.config.model_path)
             model = (
@@ -966,8 +1213,15 @@ class MainWindow(QMainWindow):
                 if info.exists
                 else self.tr("readiness.not_found", filename=info.filename)
             )
+            summary_model = (
+                info.display_name
+                if info.exists
+                else self.tr("readiness.not_found", filename=info.filename)
+            )
+            readiness_warning = not info.exists
         else:
             model = self.tr("readiness.not_set")
+            summary_model = model
         mock = " / Mock server" if self.mock_mode else ""
         backend = backend_spec(self.config.inference_backend)
         runtime = (
@@ -975,6 +1229,7 @@ class MainWindow(QMainWindow):
             if self.mock_mode
             else ("Ready" if self.server.runtime_available(backend.backend_id) else "Missing")
         )
+        readiness_warning = readiness_warning or runtime == "Missing"
         device_text = ""
         if backend.backend_id == BACKEND_VULKAN:
             devices = self.server.detect_vulkan_devices()
@@ -992,14 +1247,17 @@ class MainWindow(QMainWindow):
                 if selected is not None
                 else f" / {self.tr('readiness.device')}: {self.tr('readiness.not_detected')}"
             )
+            readiness_warning = readiness_warning or selected is None
         segments = [f"{self.tr('readiness.model')}: {model}"]
         if self.profile and self.profile.requires_dependency("prompt_skill"):
+            skill_valid = self.skill_manager.status().valid
             skill = (
                 self.tr("readiness.installed")
-                if self.skill_manager.status().valid
+                if skill_valid
                 else self.tr("readiness.not_installed")
             )
             segments.append(f"{self.tr('readiness.skill')}: {skill}")
+            readiness_warning = readiness_warning or not skill_valid
         segments.extend(
             (
                 f"{self.tr('readiness.backend')}: {backend.display_name}{device_text}",
@@ -1009,6 +1267,10 @@ class MainWindow(QMainWindow):
         )
         self.readiness.setText(" / ".join(segments))
         self.readiness.setStyleSheet("")
+        self._system_summary_model = summary_model
+        self._system_summary_backend = backend.display_name
+        self._system_readiness_warning = readiness_warning
+        self._update_system_summary()
 
     def _memory_assessment(self, memory: MemoryInfo | None) -> MemoryAssessment | None:
         if not self.config.model_path:
@@ -1053,6 +1315,9 @@ class MainWindow(QMainWindow):
         if assessment is None:
             self.memory_status.setText(format_memory_status(memory))
             self.memory_status.setStyleSheet("")
+            self._system_memory_warning = False
+            self._update_system_summary()
+            self._update_unload_button_state()
             return
         text = (
             format_memory_status(memory)
@@ -1070,6 +1335,38 @@ class MainWindow(QMainWindow):
         else:
             self.memory_status.setStyleSheet("")
         self.memory_status.setText(text)
+        self._system_memory_warning = bool(assessment.warnings)
+        self._update_system_summary()
+        self._update_unload_button_state()
+
+    def _update_system_summary(self) -> None:
+        if not hasattr(self, "system_summary"):
+            return
+        memory = self._last_memory_info
+        if memory is None:
+            ram = self.tr("system.ram_unknown")
+        else:
+            ram = f"{memory.available_gib:.1f} / {memory.total_gib:.1f} GB"
+        summary = self.tr(
+            "system.summary",
+            model=getattr(
+                self,
+                "_system_summary_model",
+                self.tr("readiness.not_set"),
+            ),
+            backend=getattr(self, "_system_summary_backend", ""),
+            context=self.config.context_size,
+            ram=ram,
+        )
+        if bool(getattr(self, "_system_memory_warning", False)):
+            summary += f"   ⚠ {self.tr('system.ram_warning')}"
+            self.system_summary.setStyleSheet("color: #d68a00;")
+        elif bool(getattr(self, "_system_readiness_warning", False)):
+            summary += f"   ⚠ {self.tr('system.check_details')}"
+            self.system_summary.setStyleSheet("color: #d68a00;")
+        else:
+            self.system_summary.setStyleSheet("")
+        self.system_summary.setText(summary)
 
     def _open_settings(self) -> None:
         if SettingsDialog(

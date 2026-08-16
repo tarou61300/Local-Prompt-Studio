@@ -7,7 +7,14 @@ import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QComboBox, QFileDialog, QMessageBox
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QFileDialog,
+    QMessageBox,
+    QScrollArea,
+)
 
 from app.main_window import MainWindow
 from app.setup_dialog import SetupDialog
@@ -64,6 +71,424 @@ def test_main_window_constructs_without_model(tmp_path):
             for widget in window.findChildren(QComboBox)
         )
         assert "未設定" in window.readiness.text()
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_main_window_uses_two_columns_scrollable_settings_and_fixed_actions(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=ConfigManager(tmp_path),
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        window.resize(1118, 846)
+        window.show()
+        app.processEvents()
+
+        assert window.main_splitter.orientation() == Qt.Orientation.Horizontal
+        assert isinstance(window.left_settings_scroll, QScrollArea)
+        assert window.left_settings_scroll.widgetResizable() is True
+        assert (
+            window.left_settings_scroll.horizontalScrollBarPolicy()
+            == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        assert window.left_settings_scroll.horizontalScrollBar().maximum() == 0
+        assert 270 <= window.left_settings_scroll.minimumWidth() <= 290
+
+        profile_group = window.findChild(type(window.output_group), "profile_group")
+        video_group = window.findChild(type(window.output_group), "video_settings_group")
+        request_group = window.findChild(type(window.output_group), "request_group")
+        assert window.left_settings_scroll.isAncestorOf(profile_group)
+        assert window.left_settings_scroll.isAncestorOf(video_group)
+        assert not window.left_settings_scroll.isAncestorOf(window.mode_section)
+        assert window.right_workspace.isAncestorOf(window.mode_section)
+        assert window.right_workspace.isAncestorOf(request_group)
+        assert window.right_workspace.isAncestorOf(window.output_group)
+        assert not window.left_settings_scroll.isAncestorOf(window.action_bar)
+
+        video_positions = [
+            widget.geometry().top()
+            for widget in (
+                window.duration,
+                window.motion,
+                window.camera,
+                window.shot,
+            )
+        ]
+        assert video_positions == sorted(video_positions)
+        assert len(set(video_positions)) == 4
+        assert all(
+            widget.width() >= 220
+            for widget in (
+                window.duration,
+                window.motion,
+                window.camera,
+                window.shot,
+            )
+        )
+        assert window.motion.width() >= (
+            window.motion.fontMetrics().horizontalAdvance(window.motion.currentText())
+            + 40
+        )
+
+        assert all(
+            combo.height() >= 30
+            for combo in (
+                window.profile_category,
+                window.profile_model,
+                window.profile_variant,
+                window.mode,
+                window.processing,
+            )
+        )
+        assert window.request_text.minimumHeight() >= 100
+        assert window.output_text.minimumHeight() >= 100
+        assert window.action_bar.isVisible()
+        assert window.action_bar.geometry().bottom() < window.status_label.geometry().top()
+
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_system_details_start_collapsed_and_toggle_without_hiding_summary(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=ConfigManager(tmp_path),
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        window.show()
+        app.processEvents()
+
+        assert window.system_summary.text()
+        assert window.system_summary.isVisible()
+        assert window.system_details_toggle.isChecked() is False
+        assert window.system_details_group.isHidden() is True
+        assert window.system_details_toggle.arrowType() == Qt.ArrowType.RightArrow
+
+        window.system_details_toggle.click()
+        app.processEvents()
+        assert window.system_details_group.isVisible()
+        assert window.system_details_toggle.arrowType() == Qt.ArrowType.DownArrow
+        assert window.system_summary.isVisible()
+
+        window.system_details_toggle.click()
+        app.processEvents()
+        assert window.system_details_group.isHidden()
+        assert window.system_details_toggle.arrowType() == Qt.ArrowType.RightArrow
+
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_compact_system_summary_keeps_memory_warning_visible(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    model = tmp_path / "qwen3-4b-q4_k_m.gguf"
+    model.write_bytes(b"GGUF-test")
+    manager = ConfigManager(tmp_path / "data")
+    manager.save(AppConfig(model_path=str(model), context_size=4096))
+    monkeypatch.setattr(
+        "app.main_window.get_system_memory",
+        lambda: MemoryInfo(total_bytes=int(12.7 * GIB), available_bytes=int(5.3 * GIB)),
+    )
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        window.show()
+        app.processEvents()
+
+        assert window.system_details_group.isHidden()
+        assert "Qwen3-4B Q4_K_M" in window.system_summary.text()
+        assert "RAM: 5.3 / 12.7 GB" in window.system_summary.text()
+        assert "⚠" in window.system_summary.text()
+        assert "メモリ警告" in window.system_summary.text()
+        assert "4096" in window.memory_status.text()
+
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_mode_supplement_starts_collapsed_and_preserves_entered_text(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=ConfigManager(tmp_path),
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        window.mode.setCurrentText("I2VA")
+        window.show()
+        app.processEvents()
+        assert window.mode_section.isVisible()
+        assert window.right_workspace.isAncestorOf(window.mode_section)
+        assert not window.left_settings_scroll.isAncestorOf(window.mode_section)
+        assert (
+            window.mode_section.geometry().bottom()
+            < window.workspace_splitter.geometry().top()
+        )
+        assert window.mode_supplement_toggle.isChecked() is False
+        assert window.mode_group.isHidden()
+        assert window.mode_section.height() <= (
+            window.mode_supplement_toggle.sizeHint().height() + 8
+        )
+
+        window.start_note.setPlainText("keep this start-frame note")
+        window.mode_supplement_toggle.click()
+        app.processEvents()
+        assert window.mode_group.isVisible()
+        assert window.start_note.isVisible()
+        assert window.request_text.height() >= window.request_text.minimumHeight()
+        assert window.output_text.height() >= window.output_text.minimumHeight()
+        assert window.start_note.toPlainText() == "keep this start-frame note"
+
+        window.mode_supplement_toggle.click()
+        app.processEvents()
+        assert window.mode_group.isHidden()
+        assert window.start_note.toPlainText() == "keep this start-frame note"
+        assert window._collect_settings().start_frame_note == "keep this start-frame note"
+
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_target_window_sizes_keep_workspace_and_mode_supplement_usable(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=ConfigManager(tmp_path),
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        window.mode.setCurrentText("FL2VA")
+        window.show()
+
+        request_group = window.findChild(type(window.output_group), "request_group")
+
+        def assert_request_helper_geometry() -> None:
+            request_layout = request_group.layout()
+            assert request_layout.indexOf(window.request_text) >= 0
+            assert request_layout.indexOf(window.literal_hint) >= 0
+            assert window.literal_hint.height() >= window.literal_hint.minimumHeight()
+            assert (
+                window.request_text.geometry().bottom() + request_layout.spacing()
+                < window.literal_hint.geometry().top()
+            )
+            assert window.literal_hint.geometry().bottom() <= (
+                request_group.height() - request_layout.contentsMargins().bottom()
+            )
+
+        for width, height in ((1366, 768), (1118, 846), (1920, 1080)):
+            window.resize(width, height)
+            app.processEvents()
+            assert window.size().width() == width
+            assert window.size().height() == height
+            assert 270 <= window.main_splitter.sizes()[0] <= 310
+            assert window.motion.width() >= 220
+            assert window.motion.height() >= 30
+            assert window.request_text.height() >= window.request_text.minimumHeight()
+            assert window.output_text.height() >= window.output_text.minimumHeight()
+            assert window.action_bar.isVisible()
+            assert window.mode_group.isHidden()
+            assert_request_helper_geometry()
+
+            window.mode_supplement_toggle.setChecked(True)
+            app.processEvents()
+            assert window.mode_group.isVisible()
+            assert window.request_text.height() >= window.request_text.minimumHeight()
+            assert window.output_text.height() >= window.output_text.minimumHeight()
+            assert_request_helper_geometry()
+            window.mode_supplement_toggle.setChecked(False)
+            app.processEvents()
+
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_unload_model_button_stops_only_owned_server_and_preserves_text(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    mock, url = start_mock_server()
+
+    class FakeOwnedProcess:
+        def __init__(self):
+            self.running = True
+            self.terminated = False
+
+        def poll(self):
+            return None if self.running else 0
+
+        def terminate(self):
+            self.terminated = True
+            self.running = False
+
+        def wait(self, timeout):
+            return 0
+
+        def kill(self):
+            self.running = False
+
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=ConfigManager(tmp_path),
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        assert window.unload_model_button.isEnabled() is False
+
+        owned = FakeOwnedProcess()
+        window.server.process = owned
+        window.server.base_url = "http://127.0.0.1:12345"
+        window.request_text.setPlainText("request must remain")
+        window.output_text.setPlainText("prompt must remain")
+        window._update_unload_button_state()
+        assert window.unload_model_button.isEnabled()
+
+        window._generation_active = True
+        window._update_unload_button_state()
+        assert window.unload_model_button.isEnabled() is False
+        window._generation_active = False
+        window._update_unload_button_state()
+        assert window.unload_model_button.isEnabled()
+
+        window.unload_model_button.click()
+        assert owned.terminated is True
+        assert window.server.process is None
+        assert window.server.base_url is None
+        assert window.unload_model_button.isEnabled() is False
+        assert window.request_text.toPlainText() == "request must remain"
+        assert window.output_text.toPlainText() == "prompt must remain"
+        assert window.status_label.text() == window.tr("model.unloaded")
+
+        window.server.base_url = "http://127.0.0.1:54321"
+        window._update_unload_button_state()
+        assert window.unload_model_button.isEnabled() is False
+        window._unload_model()
+        assert window.server.base_url == "http://127.0.0.1:54321"
+
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_generate_reloads_model_after_unload(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    model = tmp_path / "qwen3-4b-q4_k_m.gguf"
+    model.write_bytes(b"GGUF-test")
+    manager = ConfigManager(tmp_path / "data")
+    manager.save(AppConfig(model_path=str(model), setup_completed=True))
+    mock, url = start_mock_server()
+
+    class FakeManagedServer:
+        def __init__(self):
+            self.running = True
+            self.base_url = "http://127.0.0.1:12345"
+            self.stop_calls = 0
+            self.start_calls = 0
+
+        @property
+        def is_owned_server_running(self):
+            return self.running
+
+        def runtime_available(self, backend):
+            return True
+
+        def start(self, model_path, **settings):
+            self.start_calls += 1
+            self.running = True
+            self.base_url = "http://127.0.0.1:12345"
+            return self.base_url
+
+        def preflight_context(self, payload, context_size):
+            return 10, int(payload["max_tokens"])
+
+        def generate(self, payload, timeout):
+            time.sleep(0.05)
+            return "A cinematic shot of a woman walking through rain."
+
+        def stop(self):
+            self.stop_calls += 1
+            self.running = False
+            self.base_url = None
+
+        def cancel(self):
+            self.stop()
+
+    fake_server = FakeManagedServer()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        window.mock_mode = False
+        window.server = fake_server
+        monkeypatch.setattr(window, "_memory_warnings", lambda assessment=None: [])
+        window.request_text.setPlainText("A woman walks through rain.")
+        window.output_text.setPlainText("existing editable prompt")
+        window._update_unload_button_state()
+
+        window.unload_model_button.click()
+        assert fake_server.stop_calls == 1
+        assert fake_server.running is False
+        assert window.request_text.toPlainText() == "A woman walks through rain."
+        assert window.output_text.toPlainText() == "existing editable prompt"
+        assert manager.load().config_version == 6
+
+        window.generate()
+        assert window._generation_active is True
+        assert window.unload_model_button.isEnabled() is False
+        assert window.worker is not None
+        deadline = time.monotonic() + 5
+        while window.worker.isRunning() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        app.processEvents()
+
+        assert window.worker.isRunning() is False
+        assert fake_server.start_calls == 1
+        assert fake_server.running is True
+        assert window.unload_model_button.isEnabled()
+        assert window.request_text.toPlainText() == "A woman walks through rain."
+        assert window.output_text.toPlainText()
+        assert manager.load().config_version == 6
+
         window.close()
         app.processEvents()
     finally:
@@ -475,6 +900,11 @@ def test_main_window_uses_persisted_english_and_japanese_locales(tmp_path):
         )
         assert english_style_label.text() == "Prompt Transformation Style"
         assert english.auto_quality_tags.text() == "Automatically add quality tags"
+        assert english.system_details_toggle.text() == "Details"
+        assert english.system_details_group.title() == "System details"
+        assert english.unload_model_button.text() == "Unload model"
+        assert "RAM/GPU memory" in english.unload_model_button.toolTip()
+        assert english.mode_supplement_toggle.text() == "Mode supplement"
         assert english.profile_variant_help.text()
         assert english.prompt_style_help.text()
         english.close()
@@ -498,6 +928,11 @@ def test_main_window_uses_persisted_english_and_japanese_locales(tmp_path):
         )
         assert japanese_style_label.text() == "Prompt変換スタイル"
         assert japanese.auto_quality_tags.text() == "品質タグを自動追加"
+        assert japanese.system_details_toggle.text() == "詳細"
+        assert japanese.system_details_group.title() == "システム詳細"
+        assert japanese.unload_model_button.text() == "モデルをアンロード"
+        assert "RAM/GPUメモリ" in japanese.unload_model_button.toolTip()
+        assert japanese.mode_supplement_toggle.text() == "モード補足"
         assert "標準Prompt規則" in japanese.profile_variant_help.text()
         assert japanese.prompt_style_help.text()
         japanese.close()
