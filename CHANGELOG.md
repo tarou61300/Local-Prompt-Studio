@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.0.0-beta.4 — 2026-08-16
+
+Community test pre-release for the compact two-column workspace and explicit model unloading.
+
+### Added and changed
+
+- Reorganized the main window into a two-column layout with scrollable compact settings on the left and a wider Request/Prompt workspace on the right.
+- Made the system status compact while retaining its collapsible details view.
+- Rebalanced Request and Prompt sizing, with Prompt receiving the larger initial share of the editable workspace.
+- Changed Duration, Motion, Camera, and Shot to full-width one-item-per-row controls in the video settings area.
+- Moved the task-specific mode supplement above Request in the right workspace and kept it collapsed by default.
+- Added **Unload model**, which stops only the application-managed llama-server process to release model RAM/GPU memory; the normal generation flow reloads it when next needed.
+
+### Fixed
+
+- Prevented settings and workspace controls from being crushed or overlapping at supported compact window sizes.
+- Prevented the Motion selector from becoming too narrow to read.
+- Prevented the Request Literal Content helper from overlapping the group frame when the mode supplement is expanded.
+- Improved resizing behavior at 1366×768 while preserving manual splitter resizing and the scrollable settings column.
+- Kept the existing MMH3 Prompt Bridge protocol and ComfyUI behavior unchanged.
+
+### Known limitations
+
+- GGUF models and the MiniMax H3 Prompt Skill are not bundled; users provide a compatible GGUF and obtain the optional H3 Skill when needed.
+- MMH3 Prompt Bridge is optional and must be installed separately on the ComfyUI side.
+- Generated media quality depends on the selected target model and workflow settings.
+- Literal Content guarantees prompt-text preservation, not successful target-model rendering or pronunciation.
+- Automatic model download, online Profile updates, cloud inference, automatic ComfyUI workflow editing, and automatic ComfyUI queueing are not included.
+
 ## 2.0.0-beta.3 — 2026-08-15
 
 Emergency community test pre-release for prompt metadata controls and optional automatic quality tags.
