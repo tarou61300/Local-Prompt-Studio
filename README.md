@@ -1,8 +1,8 @@
-# Local Prompt Studio v2.0.0-beta.4
+# Local Prompt Studio v2.0.0-beta.5
 
 **Windows x64 portable beta release candidate**
 
-Release date: 2026-08-16
+Release date: 2026-08-17
 
 Repository: [https://github.com/tarou61300/Local-Prompt-Studio](https://github.com/tarou61300/Local-Prompt-Studio)
 
@@ -14,10 +14,15 @@ UI言語はEnglishと日本語を選択でき、入力言語とは独立して�
 いない場合も、従来のローカルMiniMax H3 Prompt生成をそのまま利用できます。既存の
 MMH3 Prompt Bridge v1.2との後方互換性も維持します。
 
-beta.4ではメイン画面を2カラム化し、左側の設定をスクロール可能なコンパクト表示、右側を
-Request／Prompt中心のWorkspaceに整理しました。システム情報とモード補足は折りたたみ可能で、
-読み込み済みモデルは「モデルをアンロード」から停止してRAM／GPUメモリを解放できます。
-次回生成時は既存の通常処理でモデルを再読み込みします。
+beta.5では、従来のPrompt生成に加えてローカルLLMによるAI Chatを追加しました。Prompt生成と
+同じGGUFを共有するか、AI Chat専用GGUFを選択できます。アプリが常駐させるモデルは1つだけで、
+用途を切り替えると既存のllama-server管理機構が必要なモデルへ安全に切り替えます。読み込み済み
+モデルは「モデルをアンロード」から停止でき、次回のChatまたはPrompt生成時に再読み込みします。
+
+対応するmmprojをGGUFごとに任意設定すると、画像添付、Drag & Drop、thumbnail表示、通常解析、
+**Prompt Reference Analysis（Prompt参照用解析）**をローカルVLMで利用できます。参照用解析は
+モデル非依存の準構造化情報を生成し、編集プレビューからRequest、全体、開始画像、終了画像の補足へ
+追記できます。Requestと各補足の役割はPrompt生成LLMと選択Rendererまで分離して渡されます。
 
 ## Profile architecture
 
@@ -49,7 +54,7 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `Local-Prompt-Studio-v2.0.0-beta.4-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+1. `Local-Prompt-Studio-v2.0.0-beta.5-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
 2. 展開したフォルダ内の`LocalPromptStudio/LocalPromptStudio.exe`を起動します。
 
 既存v1.xリリースは上書きせず、別フォルダへ展開してください。
@@ -72,7 +77,17 @@ MiniMax H3 Prompt SkillもZIPには含まれません。「取得」を押した
 リポジトリへ接続し、ポータブルフォルダ内の `data/skills` へ保存します。設定で外部の
 Skillフォルダを選んだ場合は読み取りに使用できますが、アプリ自身の取得先には使用しません。
 
-## beta.4の既知の制限
+## AI Chatとローカル画像解析
+
+- AI Chatはセッション中の会話Contextを保持し、通常のPrompt生成とは独立して利用できます。
+- Prompt生成と同じGGUF、またはAI Chat専用GGUFを設定できます。GGUFはユーザーが選択し、配布物には含まれません。
+- 画像認識は対応するmmprojをモデルごとに設定した場合だけ有効です。mmprojも配布物には含まれません。
+- 画像は外部サービスへuploadせず、アプリが管理するlocalhostのllama-serverへだけ送信します。
+- 「通常解析」は自由なChat回答を生成し、「Prompt参照用解析」は後段のPrompt生成へ再利用しやすいモデル非依存情報を生成します。
+- AI回答の転送時は不要な挨拶等を整理し、転送内容をユーザーが編集してから各入力欄へ追記できます。
+- Chat本文、画像base64、Request、生成Promptは通常ログへ記録しません。
+
+## beta.5の既知の制限
 
 - GGUFモデルは同梱されません。ユーザーが互換GGUFを別途用意して選択する必要があります。
 - MMH3 Prompt BridgeによるComfyUI連携は任意機能で、ComfyUI側へBridgeを別途導入する必要があります。

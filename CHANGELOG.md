@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0-beta.5 — 2026-08-17
+
+Community test pre-release for local AI Chat, optional VLM image analysis, and reusable Prompt transfer.
+
+### Added and changed
+
+- Added a persistent-session AI Chat tab using the local llama-server, with either the Prompt-generation GGUF or a separately selected Chat GGUF and a one-model-resident switching policy.
+- Added model-specific optional mmproj settings, local image attachment, Drag & Drop, thumbnail preview, normal image analysis, and model-independent **Prompt Reference Analysis**.
+- Added editable transfer previews for AI responses and reference analyses, with append-only destinations for Request, Overall Supplement, Start Image Supplement, and End Image Supplement where supported by the selected task.
+- Added PromptTransferRenderer to remove conversational boilerplate without changing concrete transfer content; reference analysis results are already transfer-ready and are not transformed twice.
+- Preserved Request, Overall, Start, and End roles through Prompt generation, kept Request as the central intent, prevented Start/End role mixing, and kept Anima mode selection centered on Request.
+- Added explicit model unloading, responsive Settings scrolling, improved Chat composer and tab presentation, IME-aware placeholders, a clearer transfer Card, and scroll-safe FL2VA supplement editors for compact screens.
+- Kept image bytes and base64, Chat/Prompt text, credentials, and other private content out of normal application logs. Image analysis remains local to the application-managed localhost llama-server.
+
+### Known limitations
+
+- GGUF and mmproj files are not bundled; users provide compatible local files.
+- Image understanding requires a GGUF/mmproj combination supported by the bundled llama.cpp runtime.
+- MMH3 Prompt Bridge is optional and must be installed separately on the ComfyUI side.
+- Generated media quality depends on the selected target model and workflow settings.
+- Literal Content guarantees prompt-text preservation, not successful target-model rendering or pronunciation.
+- Automatic model download, online Profile updates, cloud inference, automatic ComfyUI workflow editing, and automatic ComfyUI queueing are not included.
+
 ## 2.0.0-beta.4 — 2026-08-16
 
 Community test pre-release for the compact two-column workspace and explicit model unloading.

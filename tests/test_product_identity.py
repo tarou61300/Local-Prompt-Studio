@@ -17,9 +17,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def test_local_prompt_studio_identity_and_version():
     assert PRODUCT_NAME == "Local Prompt Studio"
     assert INTERNAL_APPLICATION_ID == "local_prompt_studio"
-    assert APP_VERSION == "2.0.0-beta.4"
-    assert APP_DISPLAY_VERSION == "v2.0.0-beta.4"
-    assert APP_RELEASE_DATE == "2026-08-16"
+    assert APP_VERSION == "2.0.0-beta.5"
+    assert APP_DISPLAY_VERSION == "v2.0.0-beta.5"
+    assert APP_RELEASE_DATE == "2026-08-17"
     assert REPOSITORY_URL == "https://github.com/tarou61300/Local-Prompt-Studio"
 
 
