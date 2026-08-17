@@ -16,6 +16,7 @@ from core.llama_manager import (
     DEFAULT_GENERATION_TIMEOUT_SECONDS,
     LlamaConnectionError,
     LlamaContextError,
+    LlamaError,
     LlamaServerManager,
 )
 from core.model_manager import validate_model
@@ -154,6 +155,7 @@ class GenerationThread(QThread):
                     context_size=self.config.context_size,
                     cpu_threads=self.config.cpu_threads,
                     gpu_layers=self.config.gpu_layers,
+                    status_callback=self.status_changed.emit,
                 )
             if not self.mock_mode:
                 self.status_changed.emit("status.preflight")
@@ -205,15 +207,24 @@ class ChatThread(QThread):
             payload = self.engine.request_payload(self.conversation)
             if not self.mock_mode:
                 self.status_changed.emit("chat.status.preparing_model")
-                model = validate_model(self.config.model_path)
-                self.server.start(
-                    model.path,
-                    backend=self.config.inference_backend,
-                    backend_device=self.config.backend_device,
-                    context_size=self.config.context_size,
-                    cpu_threads=self.config.cpu_threads,
-                    gpu_layers=self.config.gpu_layers,
-                )
+                chat_model_path = self.config.effective_chat_model_path()
+                try:
+                    model = validate_model(chat_model_path)
+                    # Text chat intentionally starts without mmproj. A future image
+                    # request can request a multimodal model spec explicitly.
+                    self.server.start(
+                        model.path,
+                        backend=self.config.inference_backend,
+                        backend_device=self.config.backend_device,
+                        context_size=self.config.context_size,
+                        cpu_threads=self.config.cpu_threads,
+                        gpu_layers=self.config.gpu_layers,
+                        status_callback=self.status_changed.emit,
+                    )
+                except Exception as exc:
+                    if not self.config.use_prompt_model_for_chat:
+                        raise LlamaError("CHAT_MODEL_LOAD_FAILED") from exc
+                    raise
                 self.status_changed.emit("chat.status.preflight")
                 self.server.preflight_context(payload, self.config.context_size)
             self.status_changed.emit("chat.status.generating")

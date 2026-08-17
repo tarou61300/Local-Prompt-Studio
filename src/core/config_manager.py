@@ -14,7 +14,7 @@ PORTABLE_WRITE_ERROR = (
     "この場所には設定を書き込めません。Downloads、Documents、Desktop等の"
     "書き込み可能なフォルダへ解凍してください。"
 )
-CONFIG_VERSION = 6
+CONFIG_VERSION = 7
 DEFAULT_CONTEXT_SIZE = 8192
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
 CONTEXT_PRESETS = (
@@ -28,6 +28,22 @@ CONTEXT_PRESETS = (
 def default_user_data_dir() -> Path:
     """Return the project-local writable data directory used by source runs."""
     return Path(__file__).resolve().parents[2] / ".dev-data"
+
+
+def normalize_model_path_key(value: Path | str) -> str:
+    """Return a stable, filename-independent key for a configured model path."""
+    text = str(value).strip()
+    if not text:
+        return ""
+    resolved = Path(text).expanduser().resolve(strict=False)
+    return os.path.normcase(os.path.normpath(str(resolved)))
+
+
+def normalize_configured_path(value: Path | str) -> str:
+    text = str(value).strip()
+    if not text:
+        return ""
+    return str(Path(text).expanduser().resolve(strict=False))
 
 
 @dataclass(slots=True)
@@ -48,6 +64,9 @@ class AppConfig:
     selected_profile: str = "minimax_h3"
     selected_variant: str = "base"
     auto_quality_tags: bool = True
+    use_prompt_model_for_chat: bool = True
+    chat_model_path: str = ""
+    model_mmproj_paths: dict[str, str] = field(default_factory=dict)
 
     def normalized(self) -> "AppConfig":
         self.inference_backend = normalize_backend_id(self.inference_backend)
@@ -69,7 +88,36 @@ class AppConfig:
             self.selected_variant = "base"
         if not isinstance(self.auto_quality_tags, bool):
             self.auto_quality_tags = True
+        if not isinstance(self.use_prompt_model_for_chat, bool):
+            self.use_prompt_model_for_chat = True
+        self.chat_model_path = str(self.chat_model_path or "").strip()
+        normalized_mmproj: dict[str, str] = {}
+        if isinstance(self.model_mmproj_paths, dict):
+            for model_path, mmproj_path in self.model_mmproj_paths.items():
+                if not isinstance(model_path, str) or not isinstance(mmproj_path, str):
+                    continue
+                model_key = normalize_model_path_key(model_path)
+                normalized_path = normalize_configured_path(mmproj_path)
+                if model_key and normalized_path:
+                    normalized_mmproj[model_key] = normalized_path
+        self.model_mmproj_paths = normalized_mmproj
         return self
+
+    def effective_chat_model_path(self) -> str:
+        return self.model_path if self.use_prompt_model_for_chat else self.chat_model_path
+
+    def mmproj_for_model(self, model_path: Path | str) -> str:
+        return self.model_mmproj_paths.get(normalize_model_path_key(model_path), "")
+
+    def set_mmproj_for_model(self, model_path: Path | str, mmproj_path: Path | str) -> None:
+        key = normalize_model_path_key(model_path)
+        if not key:
+            return
+        value = normalize_configured_path(mmproj_path)
+        if value:
+            self.model_mmproj_paths[key] = value
+        else:
+            self.model_mmproj_paths.pop(key, None)
 
 
 class ConfigManager:
@@ -107,6 +155,10 @@ class ConfigManager:
                 raw.setdefault("selected_variant", "base")
             if stored_version < 6:
                 raw.setdefault("auto_quality_tags", True)
+            if stored_version < 7:
+                raw.setdefault("use_prompt_model_for_chat", True)
+                raw.setdefault("chat_model_path", "")
+                raw.setdefault("model_mmproj_paths", {})
             raw["config_version"] = CONFIG_VERSION
             allowed = {item.name for item in fields(AppConfig)}
             values = {key: value for key, value in raw.items() if key in allowed}

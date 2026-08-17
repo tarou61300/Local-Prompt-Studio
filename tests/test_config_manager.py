@@ -9,6 +9,7 @@ from core.config_manager import (
     CONFIG_VERSION,
     DEFAULT_COMFYUI_URL,
     DEFAULT_CONTEXT_SIZE,
+    normalize_model_path_key,
 )
 from core.inference_backends import BACKEND_CPU, BACKEND_VULKAN, GPU_LAYERS_AUTO
 
@@ -40,7 +41,7 @@ def test_settings_save_and_load(tmp_path):
 
 
 def test_default_context_is_8192():
-    assert CONFIG_VERSION == 6
+    assert CONFIG_VERSION == 7
     assert AppConfig().context_size == 8192
     assert DEFAULT_CONTEXT_SIZE == 8192
     assert AppConfig().comfyui_url == DEFAULT_COMFYUI_URL
@@ -50,6 +51,72 @@ def test_default_context_is_8192():
     assert AppConfig().selected_profile == "minimax_h3"
     assert AppConfig().selected_variant == "base"
     assert AppConfig().auto_quality_tags is True
+    assert AppConfig().use_prompt_model_for_chat is True
+    assert AppConfig().chat_model_path == ""
+    assert AppConfig().model_mmproj_paths == {}
+
+
+def test_v6_config_migrates_chat_model_defaults_without_losing_values(tmp_path):
+    manager = ConfigManager(tmp_path)
+    tmp_path.mkdir(exist_ok=True)
+    manager.path.write_text(
+        json.dumps(
+            {
+                "config_version": 6,
+                "model_path": r"D:\Models\Prompt.gguf",
+                "theme": "Dark",
+                "history_enabled": True,
+                "auto_quality_tags": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = manager.load()
+
+    assert loaded.config_version == 7
+    assert loaded.model_path == r"D:\Models\Prompt.gguf"
+    assert loaded.theme == "Dark"
+    assert loaded.history_enabled is True
+    assert loaded.auto_quality_tags is False
+    assert loaded.use_prompt_model_for_chat is True
+    assert loaded.chat_model_path == ""
+    assert loaded.model_mmproj_paths == {}
+
+
+def test_separate_chat_model_and_per_model_mmproj_round_trip(tmp_path):
+    model_a = tmp_path / "models-a" / "same-name.gguf"
+    model_b = tmp_path / "models-b" / "same-name.gguf"
+    mmproj_a = tmp_path / "vision" / "a-mmproj.gguf"
+    mmproj_b = tmp_path / "vision" / "b-mmproj.gguf"
+    config = AppConfig(
+        model_path=str(model_a),
+        use_prompt_model_for_chat=False,
+        chat_model_path=str(model_b),
+    )
+    config.set_mmproj_for_model(model_a, mmproj_a)
+    config.set_mmproj_for_model(model_b, mmproj_b)
+    manager = ConfigManager(tmp_path / "data")
+
+    manager.save(config)
+    loaded = manager.load()
+
+    assert loaded.use_prompt_model_for_chat is False
+    assert loaded.effective_chat_model_path() == str(model_b)
+    assert loaded.mmproj_for_model(model_a) == str(mmproj_a.resolve())
+    assert loaded.mmproj_for_model(model_b) == str(mmproj_b.resolve())
+    assert len(loaded.model_mmproj_paths) == 2
+    assert normalize_model_path_key(model_a) != normalize_model_path_key(model_b)
+
+
+def test_malformed_mmproj_mapping_is_safely_discarded(tmp_path):
+    manager = ConfigManager(tmp_path)
+    tmp_path.mkdir(exist_ok=True)
+    manager.path.write_text(
+        json.dumps({"config_version": 7, "model_mmproj_paths": ["not", "a", "map"]}),
+        encoding="utf-8",
+    )
+    assert manager.load().model_mmproj_paths == {}
 
 
 def test_v1_default_context_is_migrated(tmp_path):

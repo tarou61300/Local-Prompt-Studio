@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from collections import deque
+from pathlib import Path
+from types import SimpleNamespace
 
 from app.workers import (
     ComfyUIPairThread,
     ComfyUISendThread,
     ComfyUITestThread,
+    ChatThread,
     GenerationThread,
 )
+from core.chat_engine import ChatEngine
 from core.comfyui_bridge import (
     ComfyUIBridgeError,
     ComfyUIBridgeService,
@@ -271,3 +275,89 @@ def test_generation_length_warning_is_emitted_after_rendered_result():
         ),
         ("status", "PROMPT_LONGER_THAN_RECOMMENDED"),
     ]
+
+
+def test_chat_worker_uses_effective_shared_or_separate_model_without_mmproj(monkeypatch):
+    validated = []
+
+    def validate(path):
+        validated.append(path)
+        return SimpleNamespace(path=Path(path))
+
+    class FakeServer:
+        def __init__(self):
+            self.starts = []
+
+        def start(self, model_path, **settings):
+            self.starts.append((str(model_path), settings))
+
+        def preflight_context(self, payload, context_size):
+            return 4, 128
+
+        def generate(self, payload, timeout):
+            return "answer"
+
+    monkeypatch.setattr("app.workers.validate_model", validate)
+    prompt_model = r"C:\Models\prompt.gguf"
+    chat_model = r"C:\Models\chat.gguf"
+    server = FakeServer()
+
+    shared = ChatThread(
+        engine=ChatEngine(),
+        server=server,
+        config=AppConfig(model_path=prompt_model),
+        conversation=[{"role": "user", "content": "hello"}],
+        mock_mode=False,
+    )
+    shared.run()
+
+    separate_config = AppConfig(
+        model_path=prompt_model,
+        use_prompt_model_for_chat=False,
+        chat_model_path=chat_model,
+    )
+    separate_config.set_mmproj_for_model(chat_model, r"C:\Models\mmproj.gguf")
+    separate = ChatThread(
+        engine=ChatEngine(),
+        server=server,
+        config=separate_config,
+        conversation=[{"role": "user", "content": "hello again"}],
+        mock_mode=False,
+    )
+    separate.run()
+
+    assert validated == [prompt_model, chat_model]
+    assert [start[0] for start in server.starts] == [prompt_model, chat_model]
+    assert all("mmproj_path" not in settings for _path, settings in server.starts)
+
+
+def test_separate_chat_model_failure_never_falls_back_to_prompt_model(monkeypatch):
+    validated = []
+
+    def fail(path):
+        validated.append(path)
+        raise ValueError("missing")
+
+    class UnusedServer:
+        def start(self, *args, **kwargs):
+            raise AssertionError("start must not run")
+
+    monkeypatch.setattr("app.workers.validate_model", fail)
+    thread = ChatThread(
+        engine=ChatEngine(),
+        server=UnusedServer(),
+        config=AppConfig(
+            model_path="prompt.gguf",
+            use_prompt_model_for_chat=False,
+            chat_model_path="missing-chat.gguf",
+        ),
+        conversation=[{"role": "user", "content": "hello"}],
+        mock_mode=False,
+    )
+    errors = []
+    thread.error_occurred.connect(errors.append)
+
+    thread.run()
+
+    assert validated == ["missing-chat.gguf"]
+    assert errors == ["CHAT_MODEL_LOAD_FAILED"]

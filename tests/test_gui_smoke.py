@@ -469,7 +469,7 @@ def test_generate_reloads_model_after_unload(tmp_path, monkeypatch):
         assert fake_server.running is False
         assert window.request_text.toPlainText() == "A woman walks through rain."
         assert window.output_text.toPlainText() == "existing editable prompt"
-        assert manager.load().config_version == 6
+        assert manager.load().config_version == 7
 
         window.generate()
         assert window._generation_active is True
@@ -487,7 +487,7 @@ def test_generate_reloads_model_after_unload(tmp_path, monkeypatch):
         assert window.unload_model_button.isEnabled()
         assert window.request_text.toPlainText() == "A woman walks through rain."
         assert window.output_text.toPlainText()
-        assert manager.load().config_version == 6
+        assert manager.load().config_version == 7
 
         window.close()
         app.processEvents()

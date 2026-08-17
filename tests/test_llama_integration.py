@@ -607,3 +607,97 @@ def test_owned_server_restarts_when_context_changes(monkeypatch, tmp_path):
     assert len(commands) == 2
     assert commands[-1][commands[-1].index("--ctx-size") + 1] == "8192"
     manager.stop()
+
+
+def test_single_model_policy_switches_a_b_and_reuses_identical_specs(monkeypatch, tmp_path):
+    executable = tmp_path / "runtime" / "cpu" / "llama-server.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"placeholder")
+    model_a = tmp_path / "model-a.gguf"
+    model_b = tmp_path / "model-b.gguf"
+    processes = []
+    commands = []
+
+    class FakeProcess:
+        def __init__(self):
+            self.running = True
+
+        def poll(self):
+            return None if self.running else 0
+
+        def terminate(self):
+            self.running = False
+
+        def wait(self, timeout):
+            return 0
+
+        def kill(self):
+            self.running = False
+
+    class HealthyResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def popen(command, **kwargs):
+        process = FakeProcess()
+        processes.append(process)
+        commands.append(command)
+        return process
+
+    monkeypatch.setattr("subprocess.Popen", popen)
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: HealthyResponse())
+    manager = LlamaServerManager(tmp_path / "runtime")
+    statuses = []
+
+    manager.start(model_a, status_callback=statuses.append)
+    manager.start(model_a, status_callback=statuses.append)
+    assert len(commands) == 1
+    assert manager.active_model_spec is not None
+    assert manager.active_model_spec.model_path == str(model_a.resolve())
+
+    manager.start(model_b, status_callback=statuses.append)
+    assert len(commands) == 2
+    assert processes[0].running is False
+    assert processes[1].running is True
+    assert sum(process.running for process in processes) == 1
+    manager.start(model_b, status_callback=statuses.append)
+    assert len(commands) == 2
+
+    manager.start(model_a, status_callback=statuses.append)
+    assert len(commands) == 3
+    assert processes[1].running is False
+    assert processes[2].running is True
+    assert statuses.count("status.switching_model") == 2
+    assert statuses.count("status.unloading_model") == 2
+    assert statuses.count("status.loading_model") == 3
+    manager.stop()
+    assert manager.active_model_spec is None
+    manager.start(model_b)
+    assert len(commands) == 4
+    assert manager.active_model_spec is not None
+    assert manager.active_model_spec.model_path == str(model_b.resolve())
+    manager.stop()
+
+
+def test_text_model_spec_does_not_load_mmproj_and_future_spec_can_include_it(tmp_path):
+    manager = LlamaServerManager(tmp_path / "runtime")
+    text_command = manager.build_server_command(
+        tmp_path / "model.gguf",
+        backend=BACKEND_CPU,
+        port=1234,
+    )
+    multimodal_command = manager.build_server_command(
+        tmp_path / "model.gguf",
+        backend=BACKEND_CPU,
+        mmproj_path=tmp_path / "mmproj.gguf",
+        port=1235,
+    )
+    assert "--mmproj" not in text_command
+    assert multimodal_command[multimodal_command.index("--mmproj") + 1] == str(
+        (tmp_path / "mmproj.gguf").resolve()
+    )

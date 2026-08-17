@@ -63,6 +63,7 @@ class ChatPage(QWidget):
     target_task_requested = Signal(str)
     transfer_requested = Signal(str, str)
     open_prompt_requested = Signal(str)
+    unload_requested = Signal()
 
     def __init__(self, tr, parent=None) -> None:
         super().__init__(parent)
@@ -157,6 +158,29 @@ class ChatPage(QWidget):
         notification_layout.addWidget(open_button)
         self.notification.setVisible(False)
 
+        self.model_bar = QFrame()
+        self.model_bar.setObjectName("chat_model_bar")
+        model_layout = QHBoxLayout(self.model_bar)
+        model_layout.setContentsMargins(4, 0, 4, 0)
+        model_layout.setSpacing(10)
+        self.model_label = QLabel()
+        self.model_label.setObjectName("chat_model_label")
+        self.model_label.setMinimumWidth(0)
+        self.model_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Preferred,
+        )
+        self.image_state_label = QLabel()
+        self.image_state_label.setObjectName("chat_image_state_label")
+        model_layout.addWidget(self.model_label, 1)
+        model_layout.addWidget(self.image_state_label)
+        self.unload_button = QPushButton(self.tr("chat.unload"))
+        self.unload_button.setObjectName("chat_unload_button")
+        self.unload_button.setToolTip(self.tr("model.unload_tooltip"))
+        self.unload_button.setEnabled(False)
+        self.unload_button.clicked.connect(self.unload_requested)
+        model_layout.addWidget(self.unload_button)
+
         self.input_group = QGroupBox(self.tr("chat.input"))
         self.input_group.setObjectName("chat_input_group")
         self.input_group.setMinimumHeight(120)
@@ -200,6 +224,7 @@ class ChatPage(QWidget):
         root.addWidget(self.conversation_scroll, 1)
         root.addWidget(self.transfer_panel)
         root.addWidget(self.notification)
+        root.addWidget(self.model_bar)
         root.addWidget(self.input_group)
         root.addWidget(self.status_label)
         self.input_text.textChanged.connect(self._update_send_state)
@@ -248,6 +273,25 @@ class ChatPage(QWidget):
     def set_status(self, text: str, *, error: bool = False) -> None:
         self.status_label.setText(text)
         self.status_label.setStyleSheet("color: #b00020;" if error else "")
+
+    def set_model_status(
+        self,
+        *,
+        model_name: str,
+        model_path: str,
+        image_state: str,
+        mmproj_path: str = "",
+    ) -> None:
+        display_name = model_name or self.tr("chat.model.not_set")
+        self.model_label.setText(self.tr("chat.model", model=display_name))
+        self.model_label.setToolTip(model_path)
+        self.image_state_label.setText(
+            self.tr("chat.image_state", state=self.tr(f"chat.image_state.{image_state}"))
+        )
+        self.image_state_label.setToolTip(mmproj_path)
+
+    def set_unload_enabled(self, enabled: bool) -> None:
+        self.unload_button.setEnabled(enabled)
 
     def _emit_send(self) -> None:
         text = self.input_text.toPlainText().strip()

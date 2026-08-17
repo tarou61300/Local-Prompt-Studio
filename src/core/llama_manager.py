@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
 import socket
 import subprocess
@@ -12,6 +13,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +43,33 @@ GENERATION_TIMEOUT_MESSAGE = (
 )
 # Kept as an import alias for existing integrations; the text is backend-neutral.
 CPU_TIMEOUT_MESSAGE = GENERATION_TIMEOUT_MESSAGE
+
+
+@dataclass(frozen=True, slots=True)
+class LlamaModelSpec:
+    """Complete identity of the single runtime model owned by the application."""
+
+    model_path: str
+    backend: str
+    backend_device: str
+    context_size: int
+    cpu_threads: int
+    gpu_layers: int
+    mmproj_path: str | None = None
+
+    @property
+    def launch_signature(self) -> tuple[Any, ...]:
+        return (
+            os.path.normcase(os.path.normpath(self.model_path)),
+            self.backend,
+            self.backend_device,
+            self.context_size,
+            self.cpu_threads,
+            self.gpu_layers,
+            os.path.normcase(os.path.normpath(self.mmproj_path))
+            if self.mmproj_path
+            else None,
+        )
 
 
 def _windows_safe_subprocess_path(path: Path) -> str:
@@ -249,6 +279,7 @@ class LlamaServerManager:
         self._stdout_handle: Any | None = None
         self._stderr_handle: Any | None = None
         self._launch_signature: tuple[Any, ...] | None = None
+        self.active_model_spec: LlamaModelSpec | None = None
         self._cancelled = threading.Event()
         self.active_backend = BACKEND_CPU
         self.active_device = ""
@@ -323,6 +354,7 @@ class LlamaServerManager:
         context_size: int = DEFAULT_CONTEXT_SIZE,
         cpu_threads: int = 0,
         gpu_layers: int = GPU_LAYERS_AUTO,
+        mmproj_path: Path | str | None = None,
         port: int,
     ) -> list[str]:
         backend_id = self._validated_backend_id(backend)
@@ -357,6 +389,8 @@ class LlamaServerManager:
             command.extend(["--device", backend_device])
         if cpu_threads > 0:
             command.extend(["--threads", str(cpu_threads)])
+        if mmproj_path:
+            command.extend(["--mmproj", str(Path(mmproj_path).resolve())])
         return command
 
     def start(
@@ -368,7 +402,9 @@ class LlamaServerManager:
         context_size: int = DEFAULT_CONTEXT_SIZE,
         cpu_threads: int = 0,
         gpu_layers: int = GPU_LAYERS_AUTO,
+        mmproj_path: Path | str | None = None,
         startup_timeout: float = DEFAULT_STARTUP_TIMEOUT_SECONDS,
+        status_callback: Callable[[str], None] | None = None,
     ) -> str:
         backend_id = self._validated_backend_id(backend)
         if self.base_url and self.process is None:
@@ -386,18 +422,27 @@ class LlamaServerManager:
                 raise LlamaError(
                     f"選択されたVulkanデバイス「{selected_device}」を検出できません。設定を開き直してください。"
                 )
-        signature = (
-            str(Path(model_path).resolve()),
-            backend_id,
-            selected_device,
-            int(context_size),
-            int(cpu_threads),
-            int(gpu_layers),
+        requested_spec = LlamaModelSpec(
+            model_path=str(Path(model_path).resolve()),
+            backend=backend_id,
+            backend_device=selected_device,
+            context_size=int(context_size),
+            cpu_threads=int(cpu_threads),
+            gpu_layers=int(gpu_layers),
+            mmproj_path=(
+                str(Path(mmproj_path).resolve()) if mmproj_path else None
+            ),
         )
+        signature = requested_spec.launch_signature
         if self.base_url:
             if self._launch_signature == signature:
                 return self.base_url
+            if status_callback is not None:
+                status_callback("status.switching_model")
+                status_callback("status.unloading_model")
             self.stop()
+        if status_callback is not None:
+            status_callback("status.loading_model")
         executable = self.executable_for_backend(backend_id)
         runtime_dir = executable.parent
         if not executable.is_file():
@@ -415,6 +460,7 @@ class LlamaServerManager:
             context_size=context_size,
             cpu_threads=cpu_threads,
             gpu_layers=gpu_layers,
+            mmproj_path=mmproj_path,
             port=port,
         )
         command[0] = _windows_safe_subprocess_path(executable)
@@ -452,6 +498,7 @@ class LlamaServerManager:
                 with urllib.request.urlopen(f"{self.base_url}/health", timeout=1.0) as response:
                     if response.status == 200:
                         self._launch_signature = signature
+                        self.active_model_spec = requested_spec
                         self.active_backend = backend_id
                         self.active_device = selected_device
                         self.last_model_load_seconds = time.monotonic() - started_at
@@ -536,6 +583,7 @@ class LlamaServerManager:
                 process.wait(timeout=5)
         self.base_url = None
         self._launch_signature = None
+        self.active_model_spec = None
         self._close_log_handles()
 
     def _close_log_handles(self) -> None:

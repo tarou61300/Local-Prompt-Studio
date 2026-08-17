@@ -308,6 +308,7 @@ def test_chat_and_prompt_share_one_manager_and_exclusive_busy_state(tmp_path):
         assert window.chat_page.cancel_button.isEnabled()
         assert not window.generate_button.isEnabled()
         assert not window.unload_model_button.isEnabled()
+        assert not window.chat_page.unload_button.isEnabled()
         assert window.main_tabs.isEnabled()
         window.main_tabs.setCurrentIndex(0)
         assert window.main_tabs.currentWidget() is window.prompt_page

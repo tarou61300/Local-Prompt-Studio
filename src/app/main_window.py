@@ -684,7 +684,9 @@ class MainWindow(QMainWindow):
         self.chat_page.target_task_requested.connect(self._select_chat_target_task)
         self.chat_page.transfer_requested.connect(self._transfer_chat_response)
         self.chat_page.open_prompt_requested.connect(self._open_prompt_destination)
+        self.chat_page.unload_requested.connect(self._unload_model)
         self._sync_prompt_target_ui()
+        self._update_chat_model_status()
         self._update_send_button_state()
         self._update_unload_button_state()
         self._update_mode_fields(self.mode.currentText())
@@ -1131,6 +1133,7 @@ class MainWindow(QMainWindow):
         if not message:
             return
         self.config = self.config_manager.load()
+        self._update_chat_model_status()
         self.chat_messages.append({"role": "user", "content": message})
         self.chat_page.add_message("user", message)
         self.chat_page.input_text.clear()
@@ -1177,6 +1180,8 @@ class MainWindow(QMainWindow):
             message = self.tr("chat.error.context")
         elif error == "CHAT_CANCELLED":
             message = self.tr("chat.error.cancelled")
+        elif error == "CHAT_MODEL_LOAD_FAILED":
+            message = self.tr("chat.error.model_load")
         else:
             message = error or self.tr("chat.error.generic")
         self.chat_page.set_status(message, error=True)
@@ -1220,10 +1225,34 @@ class MainWindow(QMainWindow):
         )
 
     def _update_unload_button_state(self) -> None:
-        self.unload_model_button.setEnabled(
+        enabled = (
             not self._generation_active
             and not self._chat_active
             and self.server.is_owned_server_running
+        )
+        self.unload_model_button.setEnabled(enabled)
+        if hasattr(self, "chat_page"):
+            self.chat_page.set_unload_enabled(enabled)
+
+    def _update_chat_model_status(self) -> None:
+        if not hasattr(self, "chat_page"):
+            return
+        model_path = self.config.effective_chat_model_path().strip()
+        model_name = Path(model_path).name if model_path else ""
+        mmproj_path = self.config.mmproj_for_model(model_path) if model_path else ""
+        if not mmproj_path:
+            image_state = "unset"
+        elif Path(mmproj_path).is_file():
+            # Configuration is known, but this phase intentionally does not load
+            # mmproj for text-only chat, so availability remains unverified.
+            image_state = "configured"
+        else:
+            image_state = "load_error"
+        self.chat_page.set_model_status(
+            model_name=model_name,
+            model_path=model_path,
+            image_state=image_state,
+            mmproj_path=mmproj_path,
         )
 
     def _unload_model(self) -> None:
@@ -1244,6 +1273,7 @@ class MainWindow(QMainWindow):
             )
         else:
             self.status_label.setText(self.tr("model.unloaded"))
+            self.chat_page.set_status(self.tr("model.unloaded"))
         finally:
             self._update_unload_button_state()
             self._refresh_memory_display()
@@ -1682,6 +1712,7 @@ class MainWindow(QMainWindow):
             )
             self._refresh_readiness()
             self._refresh_memory_display()
+            self._update_chat_model_status()
 
     @staticmethod
     def _combined_output_text(positive: str, negative: str | None) -> str:

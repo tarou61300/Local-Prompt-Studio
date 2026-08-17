@@ -30,7 +30,13 @@ from core.comfyui_bridge import (
     ComfyUIBridgeService,
     normalize_comfyui_base_url,
 )
-from core.config_manager import AppConfig, ConfigManager, CONTEXT_PRESETS, PORTABLE_WRITE_ERROR
+from core.config_manager import (
+    AppConfig,
+    ConfigManager,
+    CONTEXT_PRESETS,
+    PORTABLE_WRITE_ERROR,
+    normalize_model_path_key,
+)
 from core.inference_backends import (
     BACKEND_CPU,
     BACKEND_VULKAN,
@@ -254,6 +260,54 @@ class SettingsDialog(QDialog):
         self.memory_info = QLabel()
         self.memory_info.setWordWrap(True)
         form.addRow(self.tr("settings.memory_estimate"), self.memory_info)
+
+        self._mmproj_mapping = dict(self.config.model_mmproj_paths)
+        self._current_mmproj_model_key = ""
+        chat_model_group = QGroupBox(self.tr("settings.chat_model.title"))
+        chat_model_group.setObjectName("chat_model_settings")
+        chat_model_form = QFormLayout(chat_model_group)
+        self.use_prompt_model_for_chat = QCheckBox(
+            self.tr("settings.chat_model.use_prompt")
+        )
+        self.use_prompt_model_for_chat.setObjectName("use_prompt_model_for_chat")
+        self.use_prompt_model_for_chat.setChecked(
+            self.config.use_prompt_model_for_chat
+        )
+        chat_model_form.addRow(self.use_prompt_model_for_chat)
+
+        self.chat_model_path = QLineEdit(self.config.chat_model_path)
+        self.chat_model_path.setObjectName("chat_model_path")
+        self.chat_model_browse = QPushButton(self.tr("settings.choose_gguf"))
+        self.chat_model_browse.setObjectName("chat_model_browse")
+        self.chat_model_browse.clicked.connect(self._choose_chat_model)
+        chat_model_row = QHBoxLayout()
+        chat_model_row.addWidget(self.chat_model_path, 1)
+        chat_model_row.addWidget(self.chat_model_browse)
+        chat_model_form.addRow(
+            self.tr("settings.chat_model.separate_model"), chat_model_row
+        )
+
+        self.mmproj_path = QLineEdit()
+        self.mmproj_path.setObjectName("chat_mmproj_path")
+        mmproj_tooltip = self.tr("settings.chat_model.mmproj_tooltip")
+        self.mmproj_path.setToolTip(mmproj_tooltip)
+        self.mmproj_browse = QPushButton(self.tr("settings.choose_gguf"))
+        self.mmproj_browse.setObjectName("chat_mmproj_browse")
+        self.mmproj_browse.setToolTip(mmproj_tooltip)
+        self.mmproj_browse.clicked.connect(self._choose_mmproj)
+        mmproj_row = QHBoxLayout()
+        mmproj_row.addWidget(self.mmproj_path, 1)
+        mmproj_row.addWidget(self.mmproj_browse)
+        chat_model_form.addRow(self.tr("settings.chat_model.mmproj"), mmproj_row)
+        layout.addWidget(chat_model_group)
+
+        self.use_prompt_model_for_chat.toggled.connect(
+            self._chat_model_mode_changed
+        )
+        self.model_path.editingFinished.connect(self._switch_mmproj_target)
+        self.chat_model_path.editingFinished.connect(self._switch_mmproj_target)
+        self._update_chat_model_controls()
+        self._switch_mmproj_target()
 
         default_skill = config_manager.data_dir / "skills" / "h3-prompt-writing"
         self.skill_location = QLineEdit(self.config.skill_location or str(default_skill))
@@ -536,6 +590,63 @@ class SettingsDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, "GGUFモデルを選択", "", "GGUF Model (*.gguf)")
         if path:
             self.model_path.setText(str(Path(path).resolve()))
+            self._switch_mmproj_target()
+
+    def _choose_chat_model(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("settings.chat_model.choose_model"),
+            "",
+            "GGUF Model (*.gguf)",
+        )
+        if path:
+            self.chat_model_path.setText(str(Path(path).resolve()))
+            self._switch_mmproj_target()
+
+    def _choose_mmproj(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("settings.chat_model.choose_mmproj"),
+            "",
+            "GGUF Model (*.gguf)",
+        )
+        if path:
+            self.mmproj_path.setText(str(Path(path).resolve()))
+
+    def _effective_chat_model_text(self) -> str:
+        if self.use_prompt_model_for_chat.isChecked():
+            return self.model_path.text().strip()
+        return self.chat_model_path.text().strip()
+
+    def _store_current_mmproj(self) -> None:
+        key = self._current_mmproj_model_key
+        if not key:
+            return
+        value = self.mmproj_path.text().strip()
+        if value:
+            self._mmproj_mapping[key] = str(Path(value).expanduser().resolve(strict=False))
+        else:
+            self._mmproj_mapping.pop(key, None)
+
+    def _switch_mmproj_target(self) -> None:
+        self._store_current_mmproj()
+        key = normalize_model_path_key(self._effective_chat_model_text())
+        self._current_mmproj_model_key = key
+        self.mmproj_path.blockSignals(True)
+        self.mmproj_path.setText(self._mmproj_mapping.get(key, ""))
+        self.mmproj_path.blockSignals(False)
+        enabled = bool(key)
+        self.mmproj_path.setEnabled(enabled)
+        self.mmproj_browse.setEnabled(enabled)
+
+    def _chat_model_mode_changed(self) -> None:
+        self._update_chat_model_controls()
+        self._switch_mmproj_target()
+
+    def _update_chat_model_controls(self) -> None:
+        separate = not self.use_prompt_model_for_chat.isChecked()
+        self.chat_model_path.setEnabled(separate)
+        self.chat_model_browse.setEnabled(separate)
 
     def _choose_skill_folder(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "h3-prompt-writingフォルダを選択")
@@ -666,6 +777,12 @@ class SettingsDialog(QDialog):
         self.theme.setCurrentText(default.theme)
         self.ui_locale.setCurrentIndex(self.ui_locale.findData(default.ui_locale))
         self.comfyui_url.setText(default.comfyui_url)
+        self.use_prompt_model_for_chat.setChecked(default.use_prompt_model_for_chat)
+        self.chat_model_path.setText(default.chat_model_path)
+        self._mmproj_mapping.clear()
+        self._current_mmproj_model_key = ""
+        self.mmproj_path.clear()
+        self._switch_mmproj_target()
         self._update_comfyui_paired_state()
 
     def accept(self) -> None:
@@ -691,6 +808,11 @@ class SettingsDialog(QDialog):
                 return
             self._paired_url = None
         config.model_path = self.model_path.text().strip()
+        self._switch_mmproj_target()
+        self._store_current_mmproj()
+        config.use_prompt_model_for_chat = self.use_prompt_model_for_chat.isChecked()
+        config.chat_model_path = self.chat_model_path.text().strip()
+        config.model_mmproj_paths = dict(self._mmproj_mapping)
         config.inference_backend = str(self.backend.currentData())
         config.backend_device = (
             str(self.backend_device.currentData() or "")
