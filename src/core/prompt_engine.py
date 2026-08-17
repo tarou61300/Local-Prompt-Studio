@@ -40,6 +40,7 @@ class PromptSettings:
     environmental_audio: bool = True
     dialogue: bool = True
     background_music: bool = False
+    common_supplement: str = ""
     start_frame_note: str = ""
     end_frame_note: str = ""
     references: list[H3Reference] = field(default_factory=list)
@@ -85,7 +86,8 @@ class PromptEngine:
             raise ValueError("Requestを入力してください。")
         self._validate(settings)
         renderer = self.renderer_registry.get(self.profile.manifest.renderer)
-        analysis = renderer.analyze_request(request)
+        effective_request = self._effective_request(request, settings)
+        analysis = renderer.analyze_request(effective_request)
         protected_terms = normalize_protected_terms(settings.protected_terms)
         external_materials = self._external_materials(settings)
         # Some embedded Jinja templates (including Qwen3.5 variants) accept a
@@ -104,7 +106,7 @@ class PromptEngine:
         )
         return [
             {"role": "system", "content": system_content},
-            {"role": "user", "content": request},
+            {"role": "user", "content": effective_request},
         ]
 
     def _external_materials(self, settings: PromptSettings) -> tuple[str, ...]:
@@ -126,7 +128,7 @@ class PromptEngine:
 
     def request_payload(self, request: str, settings: PromptSettings) -> dict[str, Any]:
         renderer = self.renderer_registry.get(self.profile.manifest.renderer)
-        analysis = renderer.analyze_request(request)
+        analysis = renderer.analyze_request(self._effective_request(request, settings))
         payload: dict[str, Any] = {
             "messages": self.build_messages(request, settings),
             "temperature": TEMPERATURES[settings.processing],
@@ -141,16 +143,24 @@ class PromptEngine:
         self, request: str, settings: PromptSettings, generated: str
     ) -> RenderResult:
         renderer = self.renderer_registry.get(self.profile.manifest.renderer)
-        analysis = renderer.analyze_request(request)
+        effective_request = self._effective_request(request, settings)
+        analysis = renderer.analyze_request(effective_request)
         return renderer.render(
             clean_model_output(generated),
             self.variant,
             analysis.literals,
             normalize_protected_terms(settings.protected_terms),
             input_mode=analysis.input_mode,
-            source_request=request,
+            source_request=effective_request,
             auto_quality_tags=settings.auto_quality_tags,
         )
+
+    @staticmethod
+    def _effective_request(request: str, settings: PromptSettings) -> str:
+        supplement = settings.common_supplement
+        if not supplement.strip():
+            return request
+        return f"{request}\n\n{supplement}"
 
     def _validate(self, settings: PromptSettings) -> None:
         if settings.mode not in self.profile.manifest.supported_tasks:

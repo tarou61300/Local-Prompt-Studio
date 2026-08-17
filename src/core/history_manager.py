@@ -22,6 +22,7 @@ class HistoryManager:
         renderer_id: str = "minimax_h3",
         processing_mode: str = "Faithful",
         profile_hash: str = "",
+        common_supplement: str = "",
     ) -> bool:
         if not enabled:
             return False
@@ -39,7 +40,8 @@ class HistoryManager:
                     variant_id TEXT NOT NULL DEFAULT 'base',
                     renderer_id TEXT NOT NULL DEFAULT 'minimax_h3',
                     processing_mode TEXT NOT NULL DEFAULT 'Faithful',
-                    profile_hash TEXT NOT NULL DEFAULT ''
+                    profile_hash TEXT NOT NULL DEFAULT '',
+                    common_supplement TEXT NOT NULL DEFAULT ''
                 )"""
             )
             existing_columns = {
@@ -52,6 +54,7 @@ class HistoryManager:
                 "renderer_id": "TEXT NOT NULL DEFAULT 'minimax_h3'",
                 "processing_mode": "TEXT NOT NULL DEFAULT 'Faithful'",
                 "profile_hash": "TEXT NOT NULL DEFAULT ''",
+                "common_supplement": "TEXT NOT NULL DEFAULT ''",
             }
             for column, declaration in migrations.items():
                 if column not in existing_columns:
@@ -61,8 +64,9 @@ class HistoryManager:
             connection.execute(
                 """INSERT INTO history(
                     created_at, mode, request, output, profile_id, profile_version,
-                    variant_id, renderer_id, processing_mode, profile_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    variant_id, renderer_id, processing_mode, profile_hash,
+                    common_supplement
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
                     mode,
@@ -74,6 +78,7 @@ class HistoryManager:
                     renderer_id,
                     processing_mode,
                     profile_hash,
+                    common_supplement,
                 ),
             )
         return True

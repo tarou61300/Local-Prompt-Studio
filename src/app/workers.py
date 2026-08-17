@@ -5,13 +5,19 @@ import threading
 
 from PySide6.QtCore import QThread, Signal
 
+from core.chat_engine import ChatEngine
 from core.comfyui_bridge import (
     BridgeStatus,
     ComfyUIBridgeError,
     ComfyUIBridgeService,
 )
 from core.config_manager import AppConfig
-from core.llama_manager import DEFAULT_GENERATION_TIMEOUT_SECONDS, LlamaServerManager
+from core.llama_manager import (
+    DEFAULT_GENERATION_TIMEOUT_SECONDS,
+    LlamaConnectionError,
+    LlamaContextError,
+    LlamaServerManager,
+)
 from core.model_manager import validate_model
 from core.prompt_engine import PromptEngine, PromptSettings
 
@@ -168,3 +174,66 @@ class GenerationThread(QThread):
                 self.error_occurred.emit("生成はユーザーによってキャンセルされました。")
             else:
                 self.error_occurred.emit(str(exc) or "生成中に不明なエラーが発生しました。")
+
+
+class ChatThread(QThread):
+    """Run one ordinary chat turn through the shared local llama-server."""
+
+    status_changed = Signal(str)
+    result_ready = Signal(str)
+    error_occurred = Signal(str)
+
+    def __init__(
+        self,
+        *,
+        engine: ChatEngine,
+        server: LlamaServerManager,
+        config: AppConfig,
+        conversation: list[dict[str, str]],
+        mock_mode: bool,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.engine = engine
+        self.server = server
+        self.config = config
+        self.conversation = [dict(message) for message in conversation]
+        self.mock_mode = mock_mode
+
+    def run(self) -> None:
+        try:
+            payload = self.engine.request_payload(self.conversation)
+            if not self.mock_mode:
+                self.status_changed.emit("chat.status.preparing_model")
+                model = validate_model(self.config.model_path)
+                self.server.start(
+                    model.path,
+                    backend=self.config.inference_backend,
+                    backend_device=self.config.backend_device,
+                    context_size=self.config.context_size,
+                    cpu_threads=self.config.cpu_threads,
+                    gpu_layers=self.config.gpu_layers,
+                )
+                self.status_changed.emit("chat.status.preflight")
+                self.server.preflight_context(payload, self.config.context_size)
+            self.status_changed.emit("chat.status.generating")
+            generated = self.server.generate(
+                payload,
+                timeout=DEFAULT_GENERATION_TIMEOUT_SECONDS,
+            )
+            if not self.isInterruptionRequested():
+                self.result_ready.emit(self.engine.finalize_response(generated))
+        except LlamaContextError:
+            if not self.isInterruptionRequested():
+                self.error_occurred.emit("CHAT_CONTEXT_OVERFLOW")
+        except LlamaConnectionError as exc:
+            if not self.isInterruptionRequested():
+                if exc.error_type == "exceed_context_size_error":
+                    self.error_occurred.emit("CHAT_CONTEXT_OVERFLOW")
+                else:
+                    self.error_occurred.emit(str(exc))
+        except Exception as exc:
+            if self.isInterruptionRequested():
+                self.error_occurred.emit("CHAT_CANCELLED")
+            else:
+                self.error_occurred.emit(str(exc) or "CHAT_UNKNOWN_ERROR")

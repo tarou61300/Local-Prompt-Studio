@@ -11,6 +11,7 @@ from typing import Any
 class MockLlamaServer(ThreadingHTTPServer):
     delay: float = 0.0
     response_text: str | None = None
+    received_payloads: list[dict[str, Any]]
 
 
 class MockHandler(BaseHTTPRequestHandler):
@@ -33,6 +34,7 @@ class MockHandler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, json.JSONDecodeError):
             self._json(400, {"error": "invalid request"})
             return
+        self.server.received_payloads.append(payload)
         if self.server.delay:
             time.sleep(self.server.delay)
         user_text = next(
@@ -77,6 +79,7 @@ def start_mock_server(
     server = MockLlamaServer(("127.0.0.1", 0), MockHandler)
     server.delay = delay
     server.response_text = response_text
+    server.received_payloads = []
     thread = threading.Thread(target=server.serve_forever, name="mmh3-mock-server", daemon=True)
     thread.start()
     host, port = server.server_address

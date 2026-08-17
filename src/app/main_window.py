@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtGui import QAction, QCloseEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QToolBar,
     QToolButton,
     QVBoxLayout,
@@ -34,6 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.comfyui_bridge import ComfyUIBridgeError, ComfyUIBridgeService
+from core.chat_engine import ChatEngine
 from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
 from core.history_manager import HistoryManager
 from core.inference_backends import BACKEND_VULKAN, backend_spec
@@ -69,12 +71,48 @@ from core.version import (
 )
 
 from .settings_dialog import SettingsDialog
-from .workers import ComfyUISendThread, GenerationThread
+from .chat_page import ChatPage
+from .ime_aware_text_edit import ImeAwarePlaceholderPlainTextEdit
+from .workers import ChatThread, ComfyUISendThread, GenerationThread
 
 
 CAMERAS = ("Free", "Static camera", "Slow push-in", "Slow pull-out", "Pan", "Tilt", "Tracking", "Handheld")
 SHOTS = ("Single continuous shot", "Allow cuts")
 MOTIONS = ("Low", "Natural", "Medium", "High")
+
+
+MAIN_MODE_TABS_STYLE = """
+QTabWidget#main_mode_tabs::pane {
+    border: 1px solid palette(mid);
+    top: -1px;
+    background: palette(window);
+}
+QTabBar#main_mode_tab_bar::tab {
+    min-height: 30px;
+    padding: 0px 14px;
+    margin-right: 2px;
+    color: palette(text);
+    background: palette(button);
+    border: 1px solid palette(mid);
+    border-bottom-color: palette(mid);
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    font-weight: normal;
+}
+QTabBar#main_mode_tab_bar::tab:selected {
+    background: palette(window);
+    border-bottom-color: palette(window);
+    margin-top: 0px;
+    margin-bottom: -1px;
+    font-weight: 600;
+}
+QTabBar#main_mode_tab_bar::tab:!selected {
+    margin-top: 2px;
+}
+QTabBar#main_mode_tab_bar::tab:!selected:hover {
+    background: palette(midlight);
+}
+"""
 
 
 COMFYUI_SEND_ERROR_MESSAGES = {
@@ -187,6 +225,9 @@ class MainWindow(QMainWindow):
         self.history = HistoryManager(config_manager.data_dir / "history.sqlite3")
         self.worker: GenerationThread | None = None
         self._generation_active = False
+        self.chat_worker: ChatThread | None = None
+        self._chat_active = False
+        self.chat_messages: list[dict[str, str]] = []
         self._bridge_service_factory = bridge_service_factory or (
             lambda base_url: ComfyUIBridgeService(
                 base_url,
@@ -286,6 +327,11 @@ class MainWindow(QMainWindow):
         self.system_details_group.setVisible(False)
         header_layout.addWidget(self.system_details_group)
         root.addWidget(self.header_widget)
+
+        self.prompt_page = QWidget()
+        self.prompt_page.setObjectName("prompt_generation_page")
+        prompt_root = QVBoxLayout(self.prompt_page)
+        prompt_root.setContentsMargins(0, 0, 0, 0)
 
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.main_splitter.setObjectName("main_columns_splitter")
@@ -437,14 +483,21 @@ class MainWindow(QMainWindow):
         mode_section_layout.addWidget(self.mode_supplement_toggle)
         self.mode_group = QGroupBox(self.tr("mode.notes"))
         mode_layout = QVBoxLayout(self.mode_group)
+        self.common_note_label = QLabel(self.tr("mode.common_note"))
+        self.common_note = QPlainTextEdit()
+        self.common_note.setObjectName("common_supplement")
+        self.common_note.setMinimumHeight(38)
+        self.common_note.setMaximumHeight(48)
         self.start_note_label = QLabel(self.tr("mode.start_note"))
         self.start_note = QPlainTextEdit()
-        self.start_note.setMinimumHeight(45)
-        self.start_note.setMaximumHeight(55)
+        self.start_note.setMinimumHeight(38)
+        self.start_note.setMaximumHeight(48)
         self.end_note_label = QLabel(self.tr("mode.end_note"))
         self.end_note = QPlainTextEdit()
-        self.end_note.setMinimumHeight(45)
-        self.end_note.setMaximumHeight(55)
+        self.end_note.setMinimumHeight(38)
+        self.end_note.setMaximumHeight(48)
+        mode_layout.addWidget(self.common_note_label)
+        mode_layout.addWidget(self.common_note)
         mode_layout.addWidget(self.start_note_label)
         mode_layout.addWidget(self.start_note)
         mode_layout.addWidget(self.end_note_label)
@@ -484,7 +537,7 @@ class MainWindow(QMainWindow):
         request_layout = QVBoxLayout(request_group)
         request_layout.setContentsMargins(9, 12, 9, 9)
         request_layout.setSpacing(6)
-        self.request_text = QPlainTextEdit()
+        self.request_text = ImeAwarePlaceholderPlainTextEdit()
         self.request_text.setMinimumHeight(105)
         self.request_text.setPlaceholderText(self.tr("input.placeholder"))
         self.request_text.setToolTip(self.tr("input.literal_hint"))
@@ -540,7 +593,7 @@ class MainWindow(QMainWindow):
         self.main_splitter.setStretchFactor(0, 0)
         self.main_splitter.setStretchFactor(1, 1)
         self.main_splitter.setSizes([290, 750])
-        root.addWidget(self.main_splitter, 1)
+        prompt_root.addWidget(self.main_splitter, 1)
 
         self.action_bar = QWidget()
         self.action_bar.setObjectName("bottom_action_bar")
@@ -587,20 +640,51 @@ class MainWindow(QMainWindow):
             clear,
         ):
             buttons.addWidget(button)
-        root.addWidget(self.action_bar)
+        prompt_root.addWidget(self.action_bar)
         self.status_label = QLabel(self.tr("common.ready"))
         self.status_label.setWordWrap(True)
-        root.addWidget(self.status_label)
+        prompt_root.addWidget(self.status_label)
+
+        self.chat_page = ChatPage(self.tr)
+        self.chat_page.setObjectName("ai_chat_page")
+        self.main_tabs = QTabWidget()
+        self.main_tabs.setObjectName("main_mode_tabs")
+        self.main_tabs.tabBar().setObjectName("main_mode_tab_bar")
+        self.main_tabs.setElideMode(Qt.TextElideMode.ElideRight)
+        self.main_tabs.setStyleSheet(MAIN_MODE_TABS_STYLE)
+        self.main_tabs.addTab(self.prompt_page, "")
+        self.main_tabs.addTab(self.chat_page, self.tr("tabs.ai_chat"))
+        root.addWidget(self.main_tabs, 1)
         self.setCentralWidget(central)
         self.output_text.textChanged.connect(self._update_send_button_state)
         self.negative_output_text.textChanged.connect(self._update_send_button_state)
         self.profile_category.currentIndexChanged.connect(self._profile_category_changed)
         self.profile_model.currentIndexChanged.connect(self._profile_model_changed)
         self.profile_variant.currentIndexChanged.connect(self._profile_variant_changed)
-        self.mode.currentTextChanged.connect(self._update_mode_fields)
+        self.mode.currentTextChanged.connect(self._task_changed)
         self.processing.currentTextChanged.connect(self._update_prompt_style_help)
         self.auto_quality_tags.toggled.connect(self._persist_auto_quality_tags)
         self._populate_profile_selectors()
+        self.chat_page.set_target_catalog(
+            tuple(
+                (
+                    profile.manifest.id,
+                    profile.manifest.name,
+                    profile.manifest.supported_tasks,
+                )
+                for profile in self._available_profiles()
+            )
+        )
+        self.chat_page.send_requested.connect(self._send_chat_message)
+        self.chat_page.cancel_requested.connect(self._cancel_chat)
+        self.chat_page.new_chat_requested.connect(self._new_chat)
+        self.chat_page.target_profile_requested.connect(
+            self._select_chat_target_profile
+        )
+        self.chat_page.target_task_requested.connect(self._select_chat_target_task)
+        self.chat_page.transfer_requested.connect(self._transfer_chat_response)
+        self.chat_page.open_prompt_requested.connect(self._open_prompt_destination)
+        self._sync_prompt_target_ui()
         self._update_send_button_state()
         self._update_unload_button_state()
         self._update_mode_fields(self.mode.currentText())
@@ -707,6 +791,7 @@ class MainWindow(QMainWindow):
         self._update_mode_fields(self.mode.currentText())
         self._update_output_fields()
         self._update_prompt_style_help()
+        self._sync_prompt_target_ui()
         if persist:
             self._persist_profile_selection()
         if hasattr(self, "readiness"):
@@ -778,6 +863,40 @@ class MainWindow(QMainWindow):
         self._update_variant_help()
         self._persist_profile_selection()
 
+    def _task_changed(self, mode: str) -> None:
+        self._update_mode_fields(mode)
+        self._sync_prompt_target_ui()
+
+    def _prompt_tab_title(self) -> str:
+        profile_name = self.profile.manifest.name if self.profile else "—"
+        task_name = self.mode.currentText()
+        return f"{profile_name} / {task_name}" if task_name else profile_name
+
+    def _sync_prompt_target_ui(self) -> None:
+        if not hasattr(self, "main_tabs"):
+            return
+        title = self._prompt_tab_title()
+        self.main_tabs.setTabText(0, title)
+        self.main_tabs.setTabToolTip(0, title)
+        if self.profile is None or not hasattr(self, "chat_page"):
+            return
+        start_visible, end_visible, _refs_visible = self._supplement_capabilities(
+            self.mode.currentText()
+        )
+        destinations: list[tuple[str, str]] = [
+            ("common", self.tr("chat.destination.common"))
+        ]
+        if start_visible:
+            destinations.append(("start", self.tr("chat.destination.start")))
+        if end_visible:
+            destinations.append(("end", self.tr("chat.destination.end")))
+        self.chat_page.sync_target(
+            profile_id=self.profile.manifest.id,
+            profile_name=self.profile.manifest.name,
+            task=self.mode.currentText(),
+            destinations=destinations,
+        )
+
     def _update_variant_help(self) -> None:
         text = ""
         if self.profile is not None:
@@ -846,15 +965,9 @@ class MainWindow(QMainWindow):
             and self.profile.manifest.capabilities.get("legacy_h3_controls", False)
         )
         self.legacy_video_settings_group.setVisible(legacy_controls)
-        if not legacy_controls:
-            self._mode_supplement_available = False
-            self.mode_section.setVisible(False)
-            self.mode_group.setVisible(False)
-            self._sync_mode_section_height()
-            return
-        start_visible = mode in {"I2VA", "FL2VA"}
-        end_visible = mode in {"FL2VA", "L2VA"}
-        refs_visible = mode == "Ref2VA"
+        start_visible, end_visible, refs_visible = self._supplement_capabilities(mode)
+        self.common_note_label.setVisible(True)
+        self.common_note.setVisible(True)
         self.start_note_label.setVisible(start_visible)
         self.start_note.setVisible(start_visible)
         self.end_note_label.setVisible(end_visible)
@@ -867,15 +980,23 @@ class MainWindow(QMainWindow):
                     widget = item.layout().itemAt(child_index).widget()
                     if widget:
                         widget.setVisible(refs_visible)
-        self._mode_supplement_available = (
-            start_visible or end_visible or refs_visible
-        )
-        self.mode_section.setVisible(self._mode_supplement_available)
+        self._mode_supplement_available = True
+        self.mode_section.setVisible(True)
         self.mode_group.setVisible(
             self._mode_supplement_available
             and self.mode_supplement_toggle.isChecked()
         )
         self._sync_mode_section_height()
+
+    def _supplement_capabilities(self, mode: str) -> tuple[bool, bool, bool]:
+        start_visible = mode in {"I2V", "I2VA", "FL2VA"}
+        end_visible = mode in {"FL2VA", "L2VA"}
+        refs_visible = bool(
+            mode == "Ref2VA"
+            and self.profile
+            and self.profile.manifest.capabilities.get("legacy_h3_controls", False)
+        )
+        return start_visible, end_visible, refs_visible
 
     def _add_reference(self) -> None:
         row = self.references.rowCount()
@@ -913,11 +1034,175 @@ class MainWindow(QMainWindow):
             environmental_audio=self.environment_audio.isChecked(),
             dialogue=self.dialogue_audio.isChecked(),
             background_music=self.music_audio.isChecked(),
+            common_supplement=self.common_note.toPlainText(),
             start_frame_note=self.start_note.toPlainText(),
             end_frame_note=self.end_note.toPlainText(),
             references=refs,
             auto_quality_tags=self.auto_quality_tags.isChecked(),
         )
+
+    def _select_chat_target_profile(self, profile_id: str) -> None:
+        try:
+            profile = self.profile_catalog.get(profile_id)
+        except KeyError:
+            return
+        category_index = self.profile_category.findData(profile.manifest.category)
+        if category_index < 0:
+            return
+        self.profile_category.blockSignals(True)
+        self.profile_category.setCurrentIndex(category_index)
+        self.profile_category.blockSignals(False)
+        self._populate_models(profile.manifest.category, profile_id)
+        self._select_current_profile(persist=True)
+
+    def _select_chat_target_task(self, task: str) -> None:
+        task_index = self.mode.findData(task)
+        if task_index >= 0:
+            if self.mode.currentIndex() == task_index:
+                self._task_changed(self.mode.currentText())
+            else:
+                self.mode.setCurrentIndex(task_index)
+
+    @staticmethod
+    def _append_supplement(widget: QPlainTextEdit, text: str) -> None:
+        existing = widget.toPlainText()
+        combined = f"{existing.rstrip()}\n\n{text}" if existing.strip() else text
+        widget.setPlainText(combined)
+        cursor = widget.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.clearSelection()
+        widget.setTextCursor(cursor)
+
+    def _transfer_chat_response(self, text: str, destination: str) -> None:
+        widgets = {
+            "common": self.common_note,
+            "start": self.start_note,
+            "end": self.end_note,
+        }
+        start_visible, end_visible, _refs_visible = self._supplement_capabilities(
+            self.mode.currentText()
+        )
+        allowed = {"common"}
+        if start_visible:
+            allowed.add("start")
+        if end_visible:
+            allowed.add("end")
+        if destination not in allowed:
+            return
+        self._append_supplement(widgets[destination], text)
+        labels = {
+            "common": self.tr("chat.destination.common"),
+            "start": self.tr("chat.destination.start"),
+            "end": self.tr("chat.destination.end"),
+        }
+        self.chat_page.show_transfer_complete(
+            destination,
+            labels[destination],
+            self._prompt_tab_title(),
+        )
+
+    def _open_prompt_destination(self, destination: str) -> None:
+        widgets = {
+            "common": self.common_note,
+            "start": self.start_note,
+            "end": self.end_note,
+        }
+        widget = widgets.get(destination)
+        if widget is None:
+            return
+        self.main_tabs.setCurrentWidget(self.prompt_page)
+        self.mode_supplement_toggle.setChecked(True)
+        self._sync_mode_section_height()
+
+        def focus_destination() -> None:
+            widget.setFocus(Qt.FocusReason.OtherFocusReason)
+            cursor = widget.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            cursor.clearSelection()
+            widget.setTextCursor(cursor)
+
+        focus_destination()
+        QTimer.singleShot(0, focus_destination)
+
+    def _send_chat_message(self, text: str) -> None:
+        if self._generation_active or self._chat_active:
+            return
+        message = text.strip()
+        if not message:
+            return
+        self.config = self.config_manager.load()
+        self.chat_messages.append({"role": "user", "content": message})
+        self.chat_page.add_message("user", message)
+        self.chat_page.input_text.clear()
+        self.chat_worker = ChatThread(
+            engine=ChatEngine(),
+            server=self.server,
+            config=self.config,
+            conversation=self.chat_messages,
+            mock_mode=self.mock_mode,
+            parent=self,
+        )
+        self.chat_worker.status_changed.connect(self._set_chat_status)
+        self.chat_worker.result_ready.connect(self._chat_complete)
+        self.chat_worker.error_occurred.connect(self._chat_error)
+        self.chat_worker.finished.connect(self._chat_finished)
+        self._chat_active = True
+        self._update_llm_controls()
+        self.chat_worker.start()
+
+    def _cancel_chat(self) -> None:
+        if self.chat_worker is not None and self.chat_worker.isRunning():
+            self.chat_worker.requestInterruption()
+            self.server.cancel()
+            self.chat_page.set_status(self.tr("chat.error.cancelled"))
+
+    def _new_chat(self) -> None:
+        if self._chat_active:
+            return
+        self.chat_messages.clear()
+        self.chat_page.clear_messages()
+        self.chat_page.input_text.clear()
+        self.chat_page.set_status("")
+
+    def _set_chat_status(self, status: str) -> None:
+        self.chat_page.set_status(self.tr(status))
+
+    def _chat_complete(self, response: str) -> None:
+        self.chat_messages.append({"role": "assistant", "content": response})
+        self.chat_page.add_message("assistant", response)
+        self.chat_page.set_status(self.tr("chat.status.complete"))
+
+    def _chat_error(self, error: str) -> None:
+        if error == "CHAT_CONTEXT_OVERFLOW":
+            message = self.tr("chat.error.context")
+        elif error == "CHAT_CANCELLED":
+            message = self.tr("chat.error.cancelled")
+        else:
+            message = error or self.tr("chat.error.generic")
+        self.chat_page.set_status(message, error=True)
+
+    def _chat_finished(self) -> None:
+        self._chat_active = False
+        finished_worker = self.chat_worker
+        self.chat_worker = None
+        if finished_worker is not None:
+            finished_worker.deleteLater()
+        self._update_llm_controls()
+        self._refresh_memory_display()
+
+    def _update_llm_controls(self) -> None:
+        any_busy = self._generation_active or self._chat_active
+        self.chat_page.set_busy(
+            any_llm_busy=any_busy,
+            chat_busy=self._chat_active,
+        )
+        if self._chat_active:
+            self.generate_button.setEnabled(False)
+            self.regenerate_button.setEnabled(False)
+        elif not self._generation_active and self._send_worker is None:
+            self.generate_button.setEnabled(True)
+            self.regenerate_button.setEnabled(True)
+        self._update_unload_button_state()
 
     def _update_send_button_state(self) -> None:
         generation_idle = not self._generation_active
@@ -937,11 +1222,16 @@ class MainWindow(QMainWindow):
     def _update_unload_button_state(self) -> None:
         self.unload_model_button.setEnabled(
             not self._generation_active
+            and not self._chat_active
             and self.server.is_owned_server_running
         )
 
     def _unload_model(self) -> None:
-        if self._generation_active or not self.server.is_owned_server_running:
+        if (
+            self._generation_active
+            or self._chat_active
+            or not self.server.is_owned_server_running
+        ):
             self._update_unload_button_state()
             return
         try:
@@ -964,8 +1254,8 @@ class MainWindow(QMainWindow):
         self._update_send_button_state()
 
     def _set_send_conflicting_actions_enabled(self, enabled: bool) -> None:
-        self.generate_button.setEnabled(enabled)
-        self.regenerate_button.setEnabled(enabled)
+        self.generate_button.setEnabled(enabled and not self._chat_active)
+        self.regenerate_button.setEnabled(enabled and not self._chat_active)
         self.settings_action.setEnabled(enabled)
 
     def _send_to_comfyui(self) -> None:
@@ -1040,6 +1330,8 @@ class MainWindow(QMainWindow):
 
     def generate(self) -> None:
         if self._send_worker is not None:
+            return
+        if self._chat_active:
             return
         if self.worker is not None and self.worker.isRunning():
             return
@@ -1134,6 +1426,7 @@ class MainWindow(QMainWindow):
         self.generate_button.setEnabled(False)
         self.regenerate_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
+        self._update_llm_controls()
         self._update_send_button_state()
         self.worker.start()
 
@@ -1161,6 +1454,7 @@ class MainWindow(QMainWindow):
                 renderer_id=self.profile.manifest.renderer if self.profile else "minimax_h3",
                 processing_mode=self.processing.currentText(),
                 profile_hash=self.profile.content_hash if self.profile else "",
+                common_supplement=self.common_note.toPlainText(),
             )
         except (OSError, sqlite3.Error):
             QMessageBox.warning(
@@ -1205,6 +1499,7 @@ class MainWindow(QMainWindow):
         self.generate_button.setEnabled(True)
         self.regenerate_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
+        self._update_llm_controls()
         self._update_send_button_state()
         self._update_unload_button_state()
         self._refresh_memory_display()
@@ -1460,5 +1755,9 @@ class MainWindow(QMainWindow):
             self.worker.requestInterruption()
             self.server.cancel()
             self.worker.wait(2000)
+        if self.chat_worker is not None and self.chat_worker.isRunning():
+            self.chat_worker.requestInterruption()
+            self.server.cancel()
+            self.chat_worker.wait(2000)
         self.server.stop()
         event.accept()
