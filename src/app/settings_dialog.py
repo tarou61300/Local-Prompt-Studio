@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QTimer, Qt, QUrl, Signal
-from PySide6.QtGui import QCloseEvent, QDesktopServices
+from PySide6.QtCore import QEvent, QPoint, QRect, QTimer, Qt, QUrl, Signal
+from PySide6.QtGui import QCloseEvent, QDesktopServices, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -19,8 +19,11 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
+    QWidget,
 )
 
 from app.workers import ComfyUIPairThread, ComfyUITestThread
@@ -135,6 +138,10 @@ class PairingVerificationDialog(QDialog):
 
 
 class SettingsDialog(QDialog):
+    PREFERRED_WIDTH = 760
+    PREFERRED_HEIGHT = 760
+    AVAILABLE_GEOMETRY_RATIO = 0.9
+
     def __init__(
         self,
         config_manager: ConfigManager,
@@ -142,6 +149,7 @@ class SettingsDialog(QDialog):
         parent=None,
         bridge_service_factory: Callable[[str], ComfyUIBridgeService] | None = None,
         localization: Localization | None = None,
+        focus_chat_model: bool = False,
     ) -> None:
         super().__init__(parent)
         self.config_manager = config_manager
@@ -153,7 +161,6 @@ class SettingsDialog(QDialog):
         self.tr = self.localization.tr
         self.setWindowTitle(self.tr("settings.title"))
         self.setObjectName("settings_dialog")
-        self.setMinimumWidth(650)
         self._bridge_service_factory = bridge_service_factory or (
             lambda base_url: ComfyUIBridgeService(
                 base_url,
@@ -186,11 +193,26 @@ class SettingsDialog(QDialog):
         self.runtime_manager = LlamaServerManager(project_root / "runtime")
         self.vulkan_devices = self.runtime_manager.detect_vulkan_devices()
 
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        self.settings_scroll = QScrollArea(self)
+        self.settings_scroll.setObjectName("settings_scroll_area")
+        self.settings_scroll.setWidgetResizable(True)
+        self.settings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.settings_content = QWidget()
+        self.settings_content.setObjectName("settings_scroll_content")
+        self.settings_content.setMinimumWidth(0)
+        self.settings_scroll.setWidget(self.settings_content)
+        root_layout.addWidget(self.settings_scroll, 1)
+
+        layout = QVBoxLayout(self.settings_content)
         form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         layout.addLayout(form)
 
         self.model_path = QLineEdit(self.config.model_path)
+        self._configure_path_field(self.model_path)
         model_row = QHBoxLayout()
         model_row.addWidget(self.model_path, 1)
         browse_model = QPushButton(self.tr("settings.choose_gguf"))
@@ -263,9 +285,13 @@ class SettingsDialog(QDialog):
 
         self._mmproj_mapping = dict(self.config.model_mmproj_paths)
         self._current_mmproj_model_key = ""
-        chat_model_group = QGroupBox(self.tr("settings.chat_model.title"))
-        chat_model_group.setObjectName("chat_model_settings")
-        chat_model_form = QFormLayout(chat_model_group)
+        self.chat_model_group = QGroupBox(self.tr("settings.chat_model.title"))
+        self.chat_model_group.setObjectName("chat_model_settings")
+        chat_model_form = QFormLayout(self.chat_model_group)
+        chat_model_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        chat_model_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.use_prompt_model_for_chat = QCheckBox(
             self.tr("settings.chat_model.use_prompt")
         )
@@ -276,6 +302,7 @@ class SettingsDialog(QDialog):
         chat_model_form.addRow(self.use_prompt_model_for_chat)
 
         self.chat_model_path = QLineEdit(self.config.chat_model_path)
+        self._configure_path_field(self.chat_model_path)
         self.chat_model_path.setObjectName("chat_model_path")
         self.chat_model_browse = QPushButton(self.tr("settings.choose_gguf"))
         self.chat_model_browse.setObjectName("chat_model_browse")
@@ -288,6 +315,7 @@ class SettingsDialog(QDialog):
         )
 
         self.mmproj_path = QLineEdit()
+        self._configure_path_field(self.mmproj_path)
         self.mmproj_path.setObjectName("chat_mmproj_path")
         mmproj_tooltip = self.tr("settings.chat_model.mmproj_tooltip")
         self.mmproj_path.setToolTip(mmproj_tooltip)
@@ -299,7 +327,7 @@ class SettingsDialog(QDialog):
         mmproj_row.addWidget(self.mmproj_path, 1)
         mmproj_row.addWidget(self.mmproj_browse)
         chat_model_form.addRow(self.tr("settings.chat_model.mmproj"), mmproj_row)
-        layout.addWidget(chat_model_group)
+        layout.addWidget(self.chat_model_group)
 
         self.use_prompt_model_for_chat.toggled.connect(
             self._chat_model_mode_changed
@@ -311,6 +339,7 @@ class SettingsDialog(QDialog):
 
         default_skill = config_manager.data_dir / "skills" / "h3-prompt-writing"
         self.skill_location = QLineEdit(self.config.skill_location or str(default_skill))
+        self._configure_path_field(self.skill_location)
         skill_row = QHBoxLayout()
         skill_row.addWidget(self.skill_location, 1)
         browse_skill = QPushButton(self.tr("settings.choose_folder"))
@@ -347,7 +376,12 @@ class SettingsDialog(QDialog):
 
         comfyui_group = QGroupBox("ComfyUI Integration")
         comfyui_form = QFormLayout(comfyui_group)
+        comfyui_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        comfyui_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.comfyui_url = QLineEdit(self._saved_comfyui_url)
+        self._configure_path_field(self.comfyui_url)
         self.comfyui_url.textChanged.connect(self._update_comfyui_paired_state)
         comfyui_form.addRow("ComfyUI URL", self.comfyui_url)
 
@@ -374,11 +408,79 @@ class SettingsDialog(QDialog):
         buttons.button(QDialogButtonBox.Cancel).setText(self.tr("settings.cancel"))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        buttons.setObjectName("settings_action_buttons")
+        root_layout.addWidget(buttons)
         self.buttons = buttons
         self._update_comfyui_paired_state()
         self._update_backend_controls()
         self._update_model_info()
+        self._fit_to_available_geometry()
+        if focus_chat_model:
+            QTimer.singleShot(0, self._focus_chat_model_settings)
+
+    @staticmethod
+    def _configure_path_field(field: QLineEdit) -> None:
+        field.setMinimumWidth(0)
+        field.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def _target_screen(self):
+        parent = self.parentWidget()
+        if parent is not None:
+            window = parent.window()
+            handle = window.windowHandle()
+            if handle is not None and handle.screen() is not None:
+                return handle.screen()
+            screen = QApplication.screenAt(window.frameGeometry().center())
+            if screen is not None:
+                return screen
+        return QApplication.primaryScreen()
+
+    def _available_geometry(self) -> QRect:
+        screen = self._target_screen()
+        return screen.availableGeometry() if screen is not None else QRect(0, 0, 1280, 720)
+
+    def _fit_to_available_geometry(self) -> None:
+        available = self._available_geometry()
+        maximum_width = max(1, int(available.width() * self.AVAILABLE_GEOMETRY_RATIO))
+        maximum_height = max(1, int(available.height() * self.AVAILABLE_GEOMETRY_RATIO))
+        self.setMinimumWidth(min(650, maximum_width))
+        width = min(self.PREFERRED_WIDTH, maximum_width)
+        height = min(self.PREFERRED_HEIGHT, maximum_height)
+        self.resize(width, height)
+        self._center_in_available_geometry(available)
+
+    def _center_in_available_geometry(self, available: QRect | None = None) -> None:
+        available = available or self._available_geometry()
+        frame = self.frameGeometry()
+        target = QPoint(
+            available.left() + (available.width() - frame.width()) // 2,
+            available.top() + (available.height() - frame.height()) // 2,
+        )
+        self.move(self.pos() + target - frame.topLeft())
+
+    def _ensure_frame_on_screen(self) -> None:
+        available = self._available_geometry()
+        frame = self.frameGeometry()
+        delta_x = 0
+        delta_y = 0
+        if frame.left() < available.left():
+            delta_x = available.left() - frame.left()
+        elif frame.right() > available.right():
+            delta_x = available.right() - frame.right()
+        if frame.top() < available.top():
+            delta_y = available.top() - frame.top()
+        elif frame.bottom() > available.bottom():
+            delta_y = available.bottom() - frame.bottom()
+        if delta_x or delta_y:
+            self.move(self.pos() + QPoint(delta_x, delta_y))
+
+    def _focus_chat_model_settings(self) -> None:
+        self.settings_scroll.ensureWidgetVisible(self.mmproj_path, 16, 16)
+        self.mmproj_path.setFocus()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._ensure_frame_on_screen()
 
     def _normalized_entered_comfyui_url(self) -> str:
         return normalize_comfyui_base_url(self.comfyui_url.text())

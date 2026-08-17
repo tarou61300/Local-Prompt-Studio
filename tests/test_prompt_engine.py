@@ -61,6 +61,48 @@ def test_all_system_material_is_combined_before_user_for_jinja_compatibility(eng
     assert messages[1]["content"] == "A cat walks."
 
 
+def test_request_and_supplements_reach_generation_with_distinct_semantic_roles(engine):
+    request = "REQUEST core action with [speech:ja]こんにちは[/speech]."
+    settings = PromptSettings(
+        mode="FL2VA",
+        common_supplement="overall constraint with ginntuinn",
+        start_frame_note="start state only",
+        end_frame_note="end state only",
+        protected_terms=("ginntuinn",),
+    )
+    messages = engine.build_messages(request, settings)
+    assert messages[-1] == {"role": "user", "content": request}
+    system = messages[0]["content"]
+    assert "The user message is REQUEST: the central user intent" in system
+    assert "OVERALL_SUPPLEMENT:\noverall constraint with ginntuinn" in system
+    assert "START_IMAGE_SUPPLEMENT:\nstart state only" in system
+    assert "END_IMAGE_SUPPLEMENT:\nend state only" in system
+    assert "Never apply it as an end-state instruction" in system
+    assert "Never apply it as a start-state instruction" in system
+
+    context = engine._renderer_context(settings)
+    semantic_source = engine._semantic_source(request, context)
+    assert semantic_source.split("\n\n") == [
+        f"REQUEST:\n{request}",
+        "OVERALL_SUPPLEMENT:\noverall constraint with ginntuinn",
+        "START_IMAGE_SUPPLEMENT:\nstart state only",
+        "END_IMAGE_SUPPLEMENT:\nend state only",
+    ]
+
+
+def test_hidden_start_and_end_supplements_do_not_leak_to_unsupported_task(engine):
+    settings = PromptSettings(
+        mode="T2VA",
+        common_supplement="overall",
+        start_frame_note="stale start",
+        end_frame_note="stale end",
+    )
+    system = engine.build_messages("central request", settings)[0]["content"]
+    assert "OVERALL_SUPPLEMENT:\noverall" in system
+    assert "stale start" not in system
+    assert "stale end" not in system
+
+
 def test_reference_number_rules(engine):
     duplicate = PromptSettings(
         mode="Ref2VA",

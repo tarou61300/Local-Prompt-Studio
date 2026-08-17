@@ -199,6 +199,7 @@ def test_common_supplement_exists_for_every_profile_task_and_capabilities(tmp_pa
                     window.chat_page.destination.itemData(index)
                     for index in range(window.chat_page.destination.count())
                 }
+                assert "request" in keys
                 assert "common" in keys
                 start, end, _refs = window._supplement_capabilities(task)
                 assert ("start" in keys) is start
@@ -207,7 +208,7 @@ def test_common_supplement_exists_for_every_profile_task_and_capabilities(tmp_pa
         _close(window, server, app)
 
 
-def test_common_supplement_is_user_content_without_mutating_request(tmp_path):
+def test_overall_supplement_has_an_explicit_role_without_mutating_request(tmp_path):
     registry = RendererRegistry()
     catalog = ProfileLoader(PROJECT_ROOT / "profiles", tmp_path, registry).discover()
     profile = catalog.get("krea_2")
@@ -222,8 +223,11 @@ def test_common_supplement_is_user_content_without_mutating_request(tmp_path):
     )
     payload = engine.request_payload(request, settings)
     user_content = payload["messages"][-1]["content"]
-    assert request in user_content
-    assert supplement in user_content
+    system_content = payload["messages"][0]["content"]
+    assert user_content == request
+    assert "OVERALL_SUPPLEMENT:" in system_content
+    assert supplement in system_content
+    assert "must not replace the request" in system_content
     assert request == "A portrait by a café window."
     rendered = engine.finalize_output(
         request,
@@ -332,26 +336,38 @@ def test_chat_and_prompt_share_one_manager_and_exclusive_busy_state(tmp_path):
 
 def test_transfer_appends_notifies_opens_and_focuses_without_selection(tmp_path):
     app = _app()
-    window, server = _window(tmp_path)
+    answer = "Complete assistant answer."
+    window, server = _window(
+        tmp_path,
+        response=f"[TRANSFER_CONTENT]\n{answer}\n[/TRANSFER_CONTENT]",
+    )
     try:
         window.show()
         app.processEvents()
         window.mode.setCurrentText("FL2VA")
         window.main_tabs.setCurrentWidget(window.chat_page)
         window.common_note.setPlainText("existing text")
-        answer = "Complete assistant answer."
         window.chat_page.add_message("assistant", answer)
         transfer_buttons = window.chat_page.findChildren(
             QPushButton, "chat_transfer_button"
         )
         transfer_buttons[-1].click()
+        _wait_until(app, lambda: not window._chat_active)
         assert window.chat_page.transfer_panel.isVisibleTo(window.chat_page)
+        assert window.chat_page.transfer_content.toPlainText() == answer
         assert "MiniMax H3 / FL2VA" in window.chat_page.target_label.text()
         keys = [
             window.chat_page.destination.itemData(index)
             for index in range(window.chat_page.destination.count())
         ]
-        assert keys == ["common", "start", "end"]
+        assert keys == ["request", "common", "start", "end"]
+        window.request_text.setPlainText("existing request")
+        window.chat_page.destination.setCurrentIndex(
+            window.chat_page.destination.findData("request")
+        )
+        window.chat_page.transfer_button.click()
+        assert window.request_text.toPlainText() == f"existing request\n\n{answer}"
+        window.chat_page.open_transfer_panel(answer)
         window.chat_page.destination.setCurrentIndex(
             window.chat_page.destination.findData("common")
         )
@@ -403,7 +419,7 @@ def test_chat_target_change_updates_real_prompt_target_and_preserves_data(tmp_pa
             window.chat_page.destination.itemData(index)
             for index in range(window.chat_page.destination.count())
         }
-        assert keys == {"common", "start"}
+        assert keys == {"request", "common", "start"}
     finally:
         _close(window, server, app)
 
@@ -475,7 +491,7 @@ def test_chat_localization_is_complete():
     japanese = Localization(PROJECT_ROOT / "locales", "ja-JP")
     english = Localization(PROJECT_ROOT / "locales", "en-US")
     assert japanese.tr("tabs.ai_chat") == "AIチャット"
-    assert japanese.tr("mode.common_note") == "共通補足"
+    assert japanese.tr("mode.common_note") == "全体についての補足"
     assert english.tr("tabs.ai_chat") == "AI Chat"
-    assert english.tr("mode.common_note") == "Common supplement"
+    assert english.tr("mode.common_note") == "Overall Supplement"
     assert "context limit" in english.tr("chat.error.context")

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QTextCursor
@@ -36,6 +37,8 @@ from PySide6.QtWidgets import (
 
 from core.comfyui_bridge import ComfyUIBridgeError, ComfyUIBridgeService
 from core.chat_engine import ChatEngine
+from core.chat_attachments import ChatImageAttachment, ChatImageError
+from core.chat_renderers import PromptTransferRenderer, ReferenceImageRenderer
 from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
 from core.history_manager import HistoryManager
 from core.inference_backends import BACKEND_VULKAN, backend_spec
@@ -71,7 +74,7 @@ from core.version import (
 )
 
 from .settings_dialog import SettingsDialog
-from .chat_page import ChatPage
+from .chat_page import ChatMessageWidget, ChatPage
 from .ime_aware_text_edit import ImeAwarePlaceholderPlainTextEdit
 from .workers import ChatThread, ComfyUISendThread, GenerationThread
 
@@ -227,7 +230,12 @@ class MainWindow(QMainWindow):
         self._generation_active = False
         self.chat_worker: ChatThread | None = None
         self._chat_active = False
-        self.chat_messages: list[dict[str, str]] = []
+        self.chat_messages: list[dict[str, Any]] = []
+        self._pending_chat_user_message: dict[str, Any] | None = None
+        self._pending_chat_message_widget: ChatMessageWidget | None = None
+        self._pending_chat_draft = ""
+        self._chat_analysis_type = "chat"
+        self._chat_retain_attachment = False
         self._bridge_service_factory = bridge_service_factory or (
             lambda base_url: ComfyUIBridgeService(
                 base_url,
@@ -482,20 +490,56 @@ class MainWindow(QMainWindow):
         )
         mode_section_layout.addWidget(self.mode_supplement_toggle)
         self.mode_group = QGroupBox(self.tr("mode.notes"))
-        mode_layout = QVBoxLayout(self.mode_group)
+        mode_group_layout = QVBoxLayout(self.mode_group)
+        mode_group_layout.setContentsMargins(6, 8, 6, 6)
+        self.mode_notes_scroll = QScrollArea()
+        self.mode_notes_scroll.setObjectName("mode_supplement_scroll")
+        self.mode_notes_scroll.setWidgetResizable(True)
+        self.mode_notes_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.mode_notes_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.mode_notes_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.mode_notes_scroll.setMinimumHeight(140)
+        self.mode_notes_scroll.setMaximumHeight(340)
+        self.mode_content = QWidget()
+        self.mode_content.setObjectName("mode_supplement_content")
+        mode_layout = QVBoxLayout(self.mode_content)
+        mode_layout.setContentsMargins(3, 3, 3, 3)
+        mode_layout.setSpacing(6)
         self.common_note_label = QLabel(self.tr("mode.common_note"))
         self.common_note = QPlainTextEdit()
         self.common_note.setObjectName("common_supplement")
-        self.common_note.setMinimumHeight(38)
-        self.common_note.setMaximumHeight(48)
+        self.common_note.setMinimumHeight(72)
+        self.common_note.setMaximumHeight(90)
+        self.common_note.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.common_note.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self.start_note_label = QLabel(self.tr("mode.start_note"))
         self.start_note = QPlainTextEdit()
-        self.start_note.setMinimumHeight(38)
-        self.start_note.setMaximumHeight(48)
+        self.start_note.setMinimumHeight(72)
+        self.start_note.setMaximumHeight(90)
+        self.start_note.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.start_note.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self.end_note_label = QLabel(self.tr("mode.end_note"))
         self.end_note = QPlainTextEdit()
-        self.end_note.setMinimumHeight(38)
-        self.end_note.setMaximumHeight(48)
+        self.end_note.setMinimumHeight(72)
+        self.end_note.setMaximumHeight(90)
+        self.end_note.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.end_note.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         mode_layout.addWidget(self.common_note_label)
         mode_layout.addWidget(self.common_note)
         mode_layout.addWidget(self.start_note_label)
@@ -508,7 +552,9 @@ class MainWindow(QMainWindow):
         self.references.setHorizontalHeaderLabels(["Reference type", "Number", "Description"])
         self.references.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         mode_layout.addWidget(self.references)
-        ref_actions = QHBoxLayout()
+        self.reference_actions = QWidget()
+        ref_actions = QHBoxLayout(self.reference_actions)
+        ref_actions.setContentsMargins(0, 0, 0, 0)
         add_ref = QPushButton(self.tr("reference.add"))
         add_ref.clicked.connect(self._add_reference)
         remove_ref = QPushButton(self.tr("reference.remove"))
@@ -516,7 +562,9 @@ class MainWindow(QMainWindow):
         ref_actions.addWidget(add_ref)
         ref_actions.addWidget(remove_ref)
         ref_actions.addStretch()
-        mode_layout.addLayout(ref_actions)
+        mode_layout.addWidget(self.reference_actions)
+        self.mode_notes_scroll.setWidget(self.mode_content)
+        mode_group_layout.addWidget(self.mode_notes_scroll)
         self.mode_group.setVisible(False)
         mode_section_layout.addWidget(self.mode_group)
         left_layout.addStretch()
@@ -531,10 +579,10 @@ class MainWindow(QMainWindow):
         self.workspace_splitter = QSplitter(Qt.Orientation.Vertical)
         self.workspace_splitter.setObjectName("workspace_splitter")
         self.workspace_splitter.setChildrenCollapsible(False)
-        request_group = QGroupBox(self.tr("input.request"))
-        request_group.setObjectName("request_group")
-        request_group.setMinimumHeight(185)
-        request_layout = QVBoxLayout(request_group)
+        self.request_group = QGroupBox(self.tr("input.request"))
+        self.request_group.setObjectName("request_group")
+        self.request_group.setMinimumHeight(185)
+        request_layout = QVBoxLayout(self.request_group)
         request_layout.setContentsMargins(9, 12, 9, 9)
         request_layout.setSpacing(6)
         self.request_text = ImeAwarePlaceholderPlainTextEdit()
@@ -558,7 +606,7 @@ class MainWindow(QMainWindow):
         self.literal_hint.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.literal_hint.setToolTip(self.tr("input.literal_hint"))
         request_layout.addWidget(self.literal_hint)
-        self.workspace_splitter.addWidget(request_group)
+        self.workspace_splitter.addWidget(self.request_group)
 
         self.prompt_splitter = QSplitter(Qt.Orientation.Vertical)
         self.prompt_splitter.setObjectName("prompt_splitter")
@@ -676,6 +724,10 @@ class MainWindow(QMainWindow):
             )
         )
         self.chat_page.send_requested.connect(self._send_chat_message)
+        self.chat_page.image_requested.connect(self._select_chat_image)
+        self.chat_page.image_path_requested.connect(self._attach_chat_image)
+        self.chat_page.analyze_requested.connect(self._analyze_attached_image)
+        self.chat_page.settings_requested.connect(self._open_chat_model_settings)
         self.chat_page.cancel_requested.connect(self._cancel_chat)
         self.chat_page.new_chat_requested.connect(self._new_chat)
         self.chat_page.target_profile_requested.connect(
@@ -683,6 +735,9 @@ class MainWindow(QMainWindow):
         )
         self.chat_page.target_task_requested.connect(self._select_chat_target_task)
         self.chat_page.transfer_requested.connect(self._transfer_chat_response)
+        self.chat_page.transfer_prepare_requested.connect(
+            self._prepare_chat_transfer
+        )
         self.chat_page.open_prompt_requested.connect(self._open_prompt_destination)
         self.chat_page.unload_requested.connect(self._unload_model)
         self._sync_prompt_target_ui()
@@ -723,14 +778,68 @@ class MainWindow(QMainWindow):
         self.mode_group.setVisible(
             expanded and bool(getattr(self, "_mode_supplement_available", False))
         )
+        # On short screens keep both work editors usable while the three
+        # supplement editors retain their own readable, scrollable height.
+        if expanded:
+            self.request_group.setMinimumHeight(145)
+            self.request_text.setMinimumHeight(65)
+            self.prompt_splitter.setMinimumHeight(110)
+            self.output_group.setMinimumHeight(95)
+            self.output_text.setMinimumHeight(65)
+        else:
+            self.request_group.setMinimumHeight(185)
+            self.request_text.setMinimumHeight(105)
+            self.prompt_splitter.setMinimumHeight(170)
+            self.output_group.setMinimumHeight(150)
+            self.output_text.setMinimumHeight(105)
         self._sync_mode_section_height()
 
     def _sync_mode_section_height(self) -> None:
+        if self.mode_group.isVisible() and hasattr(self, "mode_content"):
+            self.mode_content.layout().activate()
+            content_height = self.mode_content.sizeHint().height() + 6
+            workspace_reserve = (
+                self.request_group.minimumHeight()
+                + self.prompt_splitter.minimumHeight()
+                + self.workspace_splitter.handleWidth()
+                + 24
+            )
+            available_scroll_height = max(
+                140,
+                self.right_workspace.height()
+                - workspace_reserve
+                - self.mode_supplement_toggle.sizeHint().height()
+                - 34,
+            )
+            scroll_height = min(content_height, available_scroll_height, 340)
+            self.mode_notes_scroll.setMinimumHeight(scroll_height)
+            self.mode_notes_scroll.setMaximumHeight(scroll_height)
+            group_chrome_height = self.mode_group.fontMetrics().lineSpacing() + 20
+            group_height = scroll_height + group_chrome_height
+            self.mode_group.setMinimumHeight(group_height)
+            self.mode_group.setMaximumHeight(group_height)
         layout = self.mode_section.layout()
         if layout is not None:
+            layout.invalidate()
             layout.activate()
-        self.mode_section.setMaximumHeight(self.mode_section.sizeHint().height())
+            if self.mode_group.isVisible():
+                section_height = (
+                    self.mode_supplement_toggle.sizeHint().height()
+                    + layout.spacing()
+                    + self.mode_group.minimumHeight()
+                )
+            else:
+                section_height = self.mode_supplement_toggle.sizeHint().height()
+        else:
+            section_height = self.mode_section.sizeHint().height()
+        self.mode_section.setMinimumHeight(section_height)
+        self.mode_section.setMaximumHeight(section_height)
         self.mode_section.updateGeometry()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "mode_section"):
+            QTimer.singleShot(0, self._sync_mode_section_height)
 
     def _available_profiles(self) -> tuple[LoadedProfile, ...]:
         profiles = (
@@ -886,6 +995,7 @@ class MainWindow(QMainWindow):
             self.mode.currentText()
         )
         destinations: list[tuple[str, str]] = [
+            ("request", self.tr("chat.destination.request")),
             ("common", self.tr("chat.destination.common"))
         ]
         if start_visible:
@@ -975,13 +1085,7 @@ class MainWindow(QMainWindow):
         self.end_note_label.setVisible(end_visible)
         self.end_note.setVisible(end_visible)
         self.references.setVisible(refs_visible)
-        for index in range(self.mode_group.layout().count() - 1, self.mode_group.layout().count()):
-            item = self.mode_group.layout().itemAt(index)
-            if item and item.layout():
-                for child_index in range(item.layout().count()):
-                    widget = item.layout().itemAt(child_index).widget()
-                    if widget:
-                        widget.setVisible(refs_visible)
+        self.reference_actions.setVisible(refs_visible)
         self._mode_supplement_available = True
         self.mode_section.setVisible(True)
         self.mode_group.setVisible(
@@ -1077,6 +1181,7 @@ class MainWindow(QMainWindow):
 
     def _transfer_chat_response(self, text: str, destination: str) -> None:
         widgets = {
+            "request": self.request_text,
             "common": self.common_note,
             "start": self.start_note,
             "end": self.end_note,
@@ -1084,7 +1189,7 @@ class MainWindow(QMainWindow):
         start_visible, end_visible, _refs_visible = self._supplement_capabilities(
             self.mode.currentText()
         )
-        allowed = {"common"}
+        allowed = {"request", "common"}
         if start_visible:
             allowed.add("start")
         if end_visible:
@@ -1093,6 +1198,7 @@ class MainWindow(QMainWindow):
             return
         self._append_supplement(widgets[destination], text)
         labels = {
+            "request": self.tr("chat.destination.request"),
             "common": self.tr("chat.destination.common"),
             "start": self.tr("chat.destination.start"),
             "end": self.tr("chat.destination.end"),
@@ -1105,6 +1211,7 @@ class MainWindow(QMainWindow):
 
     def _open_prompt_destination(self, destination: str) -> None:
         widgets = {
+            "request": self.request_text,
             "common": self.common_note,
             "start": self.start_note,
             "end": self.end_note,
@@ -1113,7 +1220,8 @@ class MainWindow(QMainWindow):
         if widget is None:
             return
         self.main_tabs.setCurrentWidget(self.prompt_page)
-        self.mode_supplement_toggle.setChecked(True)
+        if destination != "request":
+            self.mode_supplement_toggle.setChecked(True)
         self._sync_mode_section_height()
 
         def focus_destination() -> None:
@@ -1126,19 +1234,117 @@ class MainWindow(QMainWindow):
         focus_destination()
         QTimer.singleShot(0, focus_destination)
 
-    def _send_chat_message(self, text: str) -> None:
+    def _select_chat_image(self) -> None:
+        if self._generation_active or self._chat_active:
+            return
+        if not self._chat_image_attachment_allowed():
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("chat.image.choose"),
+            "",
+            self.tr("chat.image.filter"),
+        )
+        if path:
+            self._attach_chat_image(path)
+
+    def _chat_image_attachment_allowed(self) -> bool:
+        self.config = self.config_manager.load()
+        self._update_chat_model_status()
+        model_path = self.config.effective_chat_model_path().strip()
+        mmproj_path = self.config.mmproj_for_model(model_path) if model_path else ""
+        if not mmproj_path:
+            self.chat_page.show_mmproj_guidance(self.tr("chat.image.no_mmproj"))
+            return False
+        if not Path(mmproj_path).is_file():
+            self.chat_page.show_mmproj_guidance(self.tr("chat.image.mmproj_missing"))
+            return False
+        state_reader = getattr(self.server, "multimodal_state_for", None)
+        if callable(state_reader) and state_reader(model_path, mmproj_path) == "unsupported":
+            self.chat_page.show_mmproj_guidance(self.tr("chat.image.unsupported"))
+            return False
+        return True
+
+    def _attach_chat_image(self, path: str) -> None:
+        if self._generation_active or self._chat_active:
+            return
+        if not self._chat_image_attachment_allowed():
+            return
+        try:
+            attachment = ChatImageAttachment.from_file(path)
+        except ChatImageError as exc:
+            key = {
+                "CHAT_IMAGE_UNSUPPORTED_FORMAT": "chat.error.image_format",
+                "CHAT_IMAGE_READ_FAILED": "chat.error.image_read",
+                "CHAT_IMAGE_DECODE_FAILED": "chat.error.image_decode",
+            }.get(exc.code, "chat.error.image_decode")
+            self.chat_page.set_status(self.tr(key), error=True)
+            return
+        self.chat_page.set_attachment(attachment)
+        self.chat_page.set_status("")
+
+    def _analyze_attached_image(self, analysis_type: str) -> None:
+        attachment = self.chat_page.attachment
+        if attachment is None or self._generation_active or self._chat_active:
+            return
+        if analysis_type == "reference_image":
+            display_text = self.tr("chat.reference_analysis")
+            engine: ChatEngine = ReferenceImageRenderer()
+        else:
+            display_text = self.tr("chat.normal_analysis_instruction")
+            engine = ChatEngine(
+                image_only_instruction=self.tr("chat.image_only_instruction")
+            )
+            analysis_type = "normal_image"
+        self._send_chat_message(
+            display_text,
+            attachment,
+            engine=engine,
+            preserve_draft=True,
+            retain_attachment=True,
+            analysis_type=analysis_type,
+        )
+
+    def _open_chat_model_settings(self) -> None:
+        self._open_settings(focus_chat_model=True)
+
+    def _send_chat_message(
+        self,
+        text: str,
+        attachment: ChatImageAttachment | None = None,
+        *,
+        engine: ChatEngine | None = None,
+        preserve_draft: bool = False,
+        retain_attachment: bool = False,
+        analysis_type: str = "chat",
+    ) -> None:
         if self._generation_active or self._chat_active:
             return
         message = text.strip()
-        if not message:
+        if not message and attachment is None:
             return
         self.config = self.config_manager.load()
         self._update_chat_model_status()
-        self.chat_messages.append({"role": "user", "content": message})
-        self.chat_page.add_message("user", message)
-        self.chat_page.input_text.clear()
+        user_message: dict[str, Any] = {"role": "user", "content": message}
+        if attachment is not None:
+            user_message["image"] = attachment
+        self.chat_messages.append(user_message)
+        self._pending_chat_user_message = user_message
+        self._pending_chat_draft = self.chat_page.input_text.toPlainText()
+        self._chat_analysis_type = analysis_type
+        self._chat_retain_attachment = retain_attachment
+        self._pending_chat_message_widget = self.chat_page.add_message(
+            "user",
+            message,
+            image_filename=attachment.filename if attachment is not None else "",
+        )
+        if not preserve_draft:
+            self.chat_page.input_text.clear()
         self.chat_worker = ChatThread(
-            engine=ChatEngine(),
+            engine=engine
+            or ChatEngine(
+                image_only_instruction=self.tr("chat.image_only_instruction")
+            ),
             server=self.server,
             config=self.config,
             conversation=self.chat_messages,
@@ -1153,6 +1359,33 @@ class MainWindow(QMainWindow):
         self._update_llm_controls()
         self.chat_worker.start()
 
+    def _prepare_chat_transfer(self, source_text: str) -> None:
+        if not source_text.strip() or self._generation_active or self._chat_active:
+            return
+        self.config = self.config_manager.load()
+        self._chat_analysis_type = "prompt_transfer"
+        self._chat_retain_attachment = True
+        self.chat_worker = ChatThread(
+            engine=PromptTransferRenderer(),
+            server=self.server,
+            config=self.config,
+            conversation=[{"role": "user", "content": source_text}],
+            mock_mode=self.mock_mode,
+            parent=self,
+        )
+        self.chat_worker.status_changed.connect(self._set_chat_status)
+        self.chat_worker.result_ready.connect(self._transfer_render_complete)
+        self.chat_worker.error_occurred.connect(self._chat_error)
+        self.chat_worker.finished.connect(self._chat_finished)
+        self._chat_active = True
+        self.chat_page.set_status(self.tr("chat.status.preparing_transfer"))
+        self._update_llm_controls()
+        self.chat_worker.start()
+
+    def _transfer_render_complete(self, transfer_payload: str) -> None:
+        self.chat_page.open_transfer_panel(transfer_payload)
+        self.chat_page.set_status(self.tr("chat.status.transfer_ready"))
+
     def _cancel_chat(self) -> None:
         if self.chat_worker is not None and self.chat_worker.isRunning():
             self.chat_worker.requestInterruption()
@@ -1163,6 +1396,9 @@ class MainWindow(QMainWindow):
         if self._chat_active:
             return
         self.chat_messages.clear()
+        self._pending_chat_user_message = None
+        self._pending_chat_message_widget = None
+        self._pending_chat_draft = ""
         self.chat_page.clear_messages()
         self.chat_page.input_text.clear()
         self.chat_page.set_status("")
@@ -1171,28 +1407,83 @@ class MainWindow(QMainWindow):
         self.chat_page.set_status(self.tr(status))
 
     def _chat_complete(self, response: str) -> None:
-        self.chat_messages.append({"role": "assistant", "content": response})
-        self.chat_page.add_message("assistant", response)
+        reference = self._chat_analysis_type == "reference_image"
+        assistant_message: dict[str, Any] = {
+            "role": "assistant",
+            "content": response,
+        }
+        if reference:
+            assistant_message.update(
+                {
+                    "analysis_type": "reference_image",
+                    "transfer_payload": response,
+                    "transfer_ready": True,
+                }
+            )
+        self.chat_messages.append(assistant_message)
+        self.chat_page.add_message(
+            "assistant",
+            response,
+            transfer_payload=response if reference else "",
+            transfer_ready=reference,
+            analysis_type="reference_image" if reference else "chat",
+        )
+        self._pending_chat_user_message = None
+        self._pending_chat_message_widget = None
+        self._pending_chat_draft = ""
+        if not self._chat_retain_attachment:
+            self.chat_page.clear_attachment()
+        self._update_chat_model_status()
         self.chat_page.set_status(self.tr("chat.status.complete"))
 
     def _chat_error(self, error: str) -> None:
+        pending = self._pending_chat_user_message
+        if pending is not None and pending.get("image") is not None:
+            if self.chat_messages and self.chat_messages[-1] is pending:
+                self.chat_messages.pop()
+            widget = self._pending_chat_message_widget
+            if widget is not None:
+                self.chat_page.remove_message(widget)
+            restored_draft = self._pending_chat_draft
+            if not restored_draft and self._chat_analysis_type == "chat":
+                restored_draft = str(pending.get("content", ""))
+            self.chat_page.input_text.setPlainText(restored_draft)
+        self._pending_chat_user_message = None
+        self._pending_chat_message_widget = None
+        self._pending_chat_draft = ""
         if error == "CHAT_CONTEXT_OVERFLOW":
             message = self.tr("chat.error.context")
         elif error == "CHAT_CANCELLED":
             message = self.tr("chat.error.cancelled")
         elif error == "CHAT_MODEL_LOAD_FAILED":
             message = self.tr("chat.error.model_load")
+        elif error == "CHAT_MMPROJ_LOAD_FAILED":
+            message = self.tr("chat.error.mmproj_load")
+        elif error == "CHAT_IMAGE_UNSUPPORTED":
+            message = self.tr("chat.error.image_unsupported")
+        elif error == "CHAT_IMAGE_DECODE_FAILED":
+            message = self.tr("chat.error.image_decode")
+        elif error == "CHAT_IMAGE_REQUEST_FAILED":
+            message = self.tr("chat.error.image_request")
+        elif error == "REFERENCE_IMAGE_OUTPUT_INVALID":
+            message = self.tr("chat.error.reference_output")
+        elif error == "TRANSFER_OUTPUT_INVALID":
+            message = self.tr("chat.error.transfer_output")
         else:
             message = error or self.tr("chat.error.generic")
+        self._update_chat_model_status()
         self.chat_page.set_status(message, error=True)
 
     def _chat_finished(self) -> None:
         self._chat_active = False
+        self._chat_analysis_type = "chat"
+        self._chat_retain_attachment = False
         finished_worker = self.chat_worker
         self.chat_worker = None
         if finished_worker is not None:
             finished_worker.deleteLater()
         self._update_llm_controls()
+        self._update_chat_model_status()
         self._refresh_memory_display()
 
     def _update_llm_controls(self) -> None:
@@ -1243,9 +1534,12 @@ class MainWindow(QMainWindow):
         if not mmproj_path:
             image_state = "unset"
         elif Path(mmproj_path).is_file():
-            # Configuration is known, but this phase intentionally does not load
-            # mmproj for text-only chat, so availability remains unverified.
-            image_state = "configured"
+            state_reader = getattr(self.server, "multimodal_state_for", None)
+            image_state = (
+                state_reader(model_path, mmproj_path)
+                if callable(state_reader)
+                else None
+            ) or "configured"
         else:
             image_state = "load_error"
         self.chat_page.set_model_status(
@@ -1698,12 +1992,13 @@ class MainWindow(QMainWindow):
             self.system_summary.setStyleSheet("")
         self.system_summary.setText(summary)
 
-    def _open_settings(self) -> None:
+    def _open_settings(self, _checked: bool = False, *, focus_chat_model: bool = False) -> None:
         if SettingsDialog(
             self.config_manager,
             self.project_root,
             self,
             localization=self.localization,
+            focus_chat_model=focus_chat_model,
         ).exec():
             self.config = self.config_manager.load()
             self.skill_manager = SkillManager(
@@ -1790,5 +2085,10 @@ class MainWindow(QMainWindow):
             self.chat_worker.requestInterruption()
             self.server.cancel()
             self.chat_worker.wait(2000)
+        self.chat_messages.clear()
+        self._pending_chat_user_message = None
+        self._pending_chat_message_widget = None
+        if hasattr(self, "chat_page"):
+            self.chat_page.clear_attachment()
         self.server.stop()
         event.accept()

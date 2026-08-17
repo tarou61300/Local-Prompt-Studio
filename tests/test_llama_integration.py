@@ -701,3 +701,103 @@ def test_text_model_spec_does_not_load_mmproj_and_future_spec_can_include_it(tmp
     assert multimodal_command[multimodal_command.index("--mmproj") + 1] == str(
         (tmp_path / "mmproj.gguf").resolve()
     )
+
+
+def test_multimodal_runtime_upgrade_reuses_text_and_switches_other_model(
+    monkeypatch, tmp_path
+):
+    executable = tmp_path / "runtime" / "cpu" / "llama-server.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"placeholder")
+    model_a = tmp_path / "model-a.gguf"
+    model_b = tmp_path / "model-b.gguf"
+    mmproj_a = tmp_path / "mmproj-a.gguf"
+    mmproj_b = tmp_path / "mmproj-b.gguf"
+    commands = []
+    processes = []
+
+    class FakeProcess:
+        def __init__(self):
+            self.running = True
+
+        def poll(self):
+            return None if self.running else 0
+
+        def terminate(self):
+            self.running = False
+
+        def wait(self, timeout):
+            return 0
+
+        def kill(self):
+            self.running = False
+
+    class HealthyResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def popen(command, **kwargs):
+        process = FakeProcess()
+        commands.append(command)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr("subprocess.Popen", popen)
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: HealthyResponse())
+    manager = LlamaServerManager(tmp_path / "runtime")
+
+    manager.start(model_a)
+    manager.start(model_a, mmproj_path=mmproj_a)
+    assert len(commands) == 2
+    assert processes[0].running is False
+    assert commands[-1][commands[-1].index("--mmproj") + 1] == str(mmproj_a.resolve())
+
+    manager.start(model_a)
+    manager.start(model_a, mmproj_path=mmproj_a)
+    assert len(commands) == 2
+    assert processes[1].running is True
+    assert manager.active_model_spec is not None
+    assert manager.active_model_spec.mmproj_path == str(mmproj_a.resolve())
+
+    manager.start(model_b, mmproj_path=mmproj_b)
+    assert len(commands) == 3
+    assert processes[1].running is False
+    assert processes[2].running is True
+    assert sum(process.running for process in processes) == 1
+    manager.stop()
+
+
+def test_multimodal_capability_state_is_per_model_and_mmproj(tmp_path):
+    manager = LlamaServerManager(tmp_path)
+    model = tmp_path / "model.gguf"
+    first = tmp_path / "first-mmproj.gguf"
+    second = tmp_path / "second-mmproj.gguf"
+    assert manager.multimodal_state_for(model, first) is None
+    manager.mark_multimodal_state(model, first, "available")
+    manager.mark_multimodal_state(model, second, "unsupported")
+    assert manager.multimodal_state_for(model, first) == "available"
+    assert manager.multimodal_state_for(model, second) == "unsupported"
+
+
+def test_fallback_token_estimate_never_counts_base64_as_text(tmp_path):
+    payload = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64," + "A" * 1_000_000},
+                    },
+                    {"type": "text", "text": "describe"},
+                ],
+            }
+        ]
+    }
+    estimate = LlamaServerManager(tmp_path)._estimate_input_tokens(payload["messages"])
+    assert 2048 < estimate < 2200

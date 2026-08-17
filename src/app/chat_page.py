@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from pathlib import Path
+
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -18,13 +21,31 @@ from PySide6.QtWidgets import (
 )
 
 from .ime_aware_text_edit import ImeAwarePlaceholderPlainTextEdit
+from core.chat_attachments import (
+    SUPPORTED_IMAGE_EXTENSIONS,
+    ChatImageAttachment,
+)
 
 
 class ChatMessageWidget(QFrame):
-    transfer_requested = Signal(str)
+    transfer_requested = Signal(str, str, bool, str)
 
-    def __init__(self, role: str, text: str, tr, parent=None) -> None:
+    def __init__(
+        self,
+        role: str,
+        text: str,
+        tr,
+        parent=None,
+        image_filename: str = "",
+        transfer_payload: str = "",
+        transfer_ready: bool = False,
+        analysis_type: str = "chat",
+    ) -> None:
         super().__init__(parent)
+        self.display_text = text
+        self.transfer_payload = transfer_payload
+        self.transfer_ready = transfer_ready
+        self.analysis_type = analysis_type
         self.setObjectName(f"chat_{role}_message")
         self.setFrameShape(QFrame.Shape.StyledPanel)
         layout = QVBoxLayout(self)
@@ -32,13 +53,24 @@ class ChatMessageWidget(QFrame):
         role_label = QLabel(tr("chat.role.user") if role == "user" else tr("chat.role.assistant"))
         role_label.setStyleSheet("font-weight: 600;")
         layout.addWidget(role_label)
+        if analysis_type == "reference_image":
+            analysis_label = QLabel(tr("chat.reference_analysis"))
+            analysis_label.setObjectName("chat_analysis_type")
+            analysis_label.setStyleSheet("font-weight: 600;")
+            layout.addWidget(analysis_label)
+        if image_filename:
+            image_label = QLabel(tr("chat.image_message", filename=image_filename))
+            image_label.setObjectName("chat_message_image")
+            image_label.setTextFormat(Qt.TextFormat.PlainText)
+            layout.addWidget(image_label)
         body = QLabel(text)
         body.setObjectName("chat_message_body")
         body.setTextFormat(Qt.TextFormat.PlainText)
         body.setWordWrap(True)
         body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        layout.addWidget(body)
+        if text:
+            layout.addWidget(body)
         if role == "assistant":
             actions = QHBoxLayout()
             copy_button = QPushButton(tr("chat.copy"))
@@ -48,7 +80,14 @@ class ChatMessageWidget(QFrame):
             )
             transfer_button = QPushButton(tr("chat.transfer"))
             transfer_button.setObjectName("chat_transfer_button")
-            transfer_button.clicked.connect(lambda: self.transfer_requested.emit(text))
+            transfer_button.clicked.connect(
+                lambda: self.transfer_requested.emit(
+                    self.display_text,
+                    self.transfer_payload,
+                    self.transfer_ready,
+                    self.analysis_type,
+                )
+            )
             actions.addStretch()
             actions.addWidget(copy_button)
             actions.addWidget(transfer_button)
@@ -56,12 +95,17 @@ class ChatMessageWidget(QFrame):
 
 
 class ChatPage(QWidget):
-    send_requested = Signal(str)
+    send_requested = Signal(str, object)
+    image_requested = Signal()
+    image_path_requested = Signal(str)
+    analyze_requested = Signal(str)
+    settings_requested = Signal()
     cancel_requested = Signal()
     new_chat_requested = Signal()
     target_profile_requested = Signal(str)
     target_task_requested = Signal(str)
     transfer_requested = Signal(str, str)
+    transfer_prepare_requested = Signal(str)
     open_prompt_requested = Signal(str)
     unload_requested = Signal()
 
@@ -73,6 +117,7 @@ class ChatPage(QWidget):
         self._profiles: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
         self._syncing_target = False
         self._any_llm_busy = False
+        self._attachment: ChatImageAttachment | None = None
 
         root = QVBoxLayout(self)
         header = QHBoxLayout()
@@ -107,9 +152,45 @@ class ChatPage(QWidget):
         self.messages_layout.addWidget(self.empty_label)
         self.conversation_scroll.setWidget(self.conversation_widget)
 
-        self.transfer_panel = QGroupBox(self.tr("chat.transfer_title"))
+        self.transfer_panel = QFrame()
         self.transfer_panel.setObjectName("chat_transfer_panel")
+        self.transfer_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        self.transfer_panel.setStyleSheet(
+            """
+            QFrame#chat_transfer_panel {
+                border: 1px solid palette(mid);
+                border-radius: 6px;
+                background: palette(alternate-base);
+            }
+            QFrame#chat_transfer_panel QLabel {
+                border: none;
+                background: transparent;
+            }
+            QPlainTextEdit#chat_transfer_content {
+                border: 1px solid palette(mid);
+                border-radius: 3px;
+                background: palette(base);
+            }
+            """
+        )
         transfer_layout = QVBoxLayout(self.transfer_panel)
+        transfer_layout.setContentsMargins(12, 10, 12, 12)
+        transfer_layout.setSpacing(8)
+        transfer_header = QHBoxLayout()
+        transfer_title = QLabel(self.tr("chat.transfer_title"))
+        transfer_title.setObjectName("chat_transfer_title")
+        transfer_title.setStyleSheet("font-weight: 600;")
+        transfer_header.addWidget(transfer_title)
+        transfer_header.addStretch()
+        self.close_transfer_button = QPushButton("×")
+        self.close_transfer_button.setObjectName("chat_transfer_close")
+        self.close_transfer_button.setToolTip(self.tr("chat.close_transfer"))
+        self.close_transfer_button.setFixedSize(26, 26)
+        self.close_transfer_button.clicked.connect(
+            lambda: self.transfer_panel.setVisible(False)
+        )
+        transfer_header.addWidget(self.close_transfer_button)
+        transfer_layout.addLayout(transfer_header)
         target_row = QHBoxLayout()
         self.target_label = QLabel()
         self.target_label.setObjectName("chat_target_label")
@@ -132,6 +213,12 @@ class ChatPage(QWidget):
         chooser_layout.addWidget(self.target_task, 1)
         self.target_chooser.setVisible(False)
         transfer_layout.addWidget(self.target_chooser)
+        transfer_layout.addWidget(QLabel(self.tr("chat.transfer_content")))
+        self.transfer_content = ImeAwarePlaceholderPlainTextEdit()
+        self.transfer_content.setObjectName("chat_transfer_content")
+        self.transfer_content.setMinimumHeight(90)
+        self.transfer_content.setMaximumHeight(220)
+        transfer_layout.addWidget(self.transfer_content)
         destination_row = QHBoxLayout()
         destination_row.addWidget(QLabel(self.tr("chat.destination")))
         self.destination = QComboBox()
@@ -181,6 +268,19 @@ class ChatPage(QWidget):
         self.unload_button.clicked.connect(self.unload_requested)
         model_layout.addWidget(self.unload_button)
 
+        self.mmproj_guidance = QFrame()
+        self.mmproj_guidance.setObjectName("chat_mmproj_guidance")
+        guidance_layout = QHBoxLayout(self.mmproj_guidance)
+        guidance_layout.setContentsMargins(8, 4, 8, 4)
+        self.mmproj_guidance_label = QLabel()
+        self.mmproj_guidance_label.setWordWrap(True)
+        guidance_layout.addWidget(self.mmproj_guidance_label, 1)
+        self.open_settings_button = QPushButton(self.tr("chat.open_settings"))
+        self.open_settings_button.setObjectName("chat_open_settings_button")
+        self.open_settings_button.clicked.connect(self.settings_requested)
+        guidance_layout.addWidget(self.open_settings_button)
+        self.mmproj_guidance.setVisible(False)
+
         self.input_group = QGroupBox(self.tr("chat.input"))
         self.input_group.setObjectName("chat_input_group")
         self.input_group.setMinimumHeight(120)
@@ -190,6 +290,54 @@ class ChatPage(QWidget):
             QSizePolicy.Policy.Preferred,
         )
         input_layout = QVBoxLayout(self.input_group)
+        self.drop_hint = QLabel(self.tr("chat.drop_image"))
+        self.drop_hint.setObjectName("chat_drop_hint")
+        self.drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_hint.setStyleSheet(
+            "border: 1px dashed palette(highlight); color: palette(highlight); padding: 4px;"
+        )
+        self.drop_hint.setVisible(False)
+        input_layout.addWidget(self.drop_hint)
+        self.attachment_chip = QFrame()
+        self.attachment_chip.setObjectName("chat_attachment_chip")
+        attachment_layout = QHBoxLayout(self.attachment_chip)
+        attachment_layout.setContentsMargins(8, 4, 4, 4)
+        self.attachment_thumbnail = QLabel()
+        self.attachment_thumbnail.setObjectName("chat_attachment_thumbnail")
+        self.attachment_thumbnail.setFixedSize(96, 72)
+        self.attachment_thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        attachment_layout.addWidget(self.attachment_thumbnail)
+        attachment_details = QVBoxLayout()
+        self.attachment_label = QLabel()
+        self.attachment_label.setObjectName("chat_attachment_filename")
+        self.attachment_label.setTextFormat(Qt.TextFormat.PlainText)
+        attachment_details.addWidget(self.attachment_label)
+        attachment_actions = QHBoxLayout()
+        self.analyze_button = QPushButton(self.tr("chat.analyze"))
+        self.analyze_button.setObjectName("chat_analyze_image")
+        self.analyze_button.clicked.connect(
+            lambda: self.analyze_requested.emit("normal")
+        )
+        attachment_actions.addWidget(self.analyze_button)
+        self.reference_analyze_button = QPushButton(
+            self.tr("chat.reference_analysis")
+        )
+        self.reference_analyze_button.setObjectName("chat_reference_analyze")
+        self.reference_analyze_button.clicked.connect(
+            lambda: self.analyze_requested.emit("reference_image")
+        )
+        attachment_actions.addWidget(self.reference_analyze_button)
+        attachment_actions.addStretch()
+        self.remove_attachment_button = QPushButton("×")
+        self.remove_attachment_button.setObjectName("chat_remove_attachment")
+        self.remove_attachment_button.setFixedWidth(28)
+        self.remove_attachment_button.setToolTip(self.tr("chat.remove_image"))
+        self.remove_attachment_button.clicked.connect(self.clear_attachment)
+        attachment_actions.addWidget(self.remove_attachment_button)
+        attachment_details.addLayout(attachment_actions)
+        attachment_layout.addLayout(attachment_details, 1)
+        self.attachment_chip.setVisible(False)
+        input_layout.addWidget(self.attachment_chip)
         self.input_text = ImeAwarePlaceholderPlainTextEdit()
         self.input_text.setObjectName("chat_input")
         self.input_text.setPlaceholderText(self.tr("chat.placeholder"))
@@ -201,6 +349,10 @@ class ChatPage(QWidget):
         )
         input_layout.addWidget(self.input_text)
         input_actions = QHBoxLayout()
+        self.image_button = QPushButton(self.tr("chat.add_image"))
+        self.image_button.setObjectName("chat_add_image_button")
+        self.image_button.clicked.connect(self.image_requested)
+        input_actions.addWidget(self.image_button)
         input_actions.addWidget(self.new_chat_button)
         input_actions.addStretch()
         self.cancel_button = QPushButton(self.tr("common.cancel"))
@@ -225,18 +377,96 @@ class ChatPage(QWidget):
         root.addWidget(self.transfer_panel)
         root.addWidget(self.notification)
         root.addWidget(self.model_bar)
+        root.addWidget(self.mmproj_guidance)
         root.addWidget(self.input_group)
         root.addWidget(self.status_label)
         self.input_text.textChanged.connect(self._update_send_state)
         self.target_profile.currentIndexChanged.connect(self._profile_changed)
         self.target_task.currentIndexChanged.connect(self._task_changed)
+        self.setAcceptDrops(True)
+        self._drop_targets = (
+            self.input_group,
+            self.input_text,
+            self.input_text.viewport(),
+            self.attachment_chip,
+        )
+        for target in self._drop_targets:
+            target.setAcceptDrops(True)
+            target.installEventFilter(self)
 
-    def add_message(self, role: str, text: str) -> None:
+    @property
+    def attachment(self) -> ChatImageAttachment | None:
+        return self._attachment
+
+    def set_attachment(self, attachment: ChatImageAttachment) -> None:
+        self._attachment = attachment
+        self.attachment_label.setText(attachment.filename)
+        self.attachment_label.setToolTip(attachment.source_path)
+        pixmap = QPixmap()
+        if pixmap.loadFromData(attachment.image_bytes):
+            self.attachment_thumbnail.setPixmap(
+                pixmap.scaled(
+                    QSize(96, 72),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        else:
+            self.attachment_thumbnail.clear()
+        self.attachment_chip.setVisible(True)
+        self.input_group.setMaximumHeight(260)
+        self.mmproj_guidance.setVisible(False)
+        self._update_send_state()
+
+    def clear_attachment(self) -> None:
+        self._attachment = None
+        self.attachment_label.clear()
+        self.attachment_label.setToolTip("")
+        self.attachment_thumbnail.clear()
+        self.attachment_chip.setVisible(False)
+        self.input_group.setMaximumHeight(160)
+        self._update_send_state()
+
+    def show_mmproj_guidance(self, text: str) -> None:
+        self.mmproj_guidance_label.setText(text)
+        self.mmproj_guidance.setVisible(True)
+
+    def add_message(
+        self,
+        role: str,
+        text: str,
+        *,
+        image_filename: str = "",
+        transfer_payload: str = "",
+        transfer_ready: bool = False,
+        analysis_type: str = "chat",
+    ) -> ChatMessageWidget:
         self.empty_label.setVisible(False)
-        message = ChatMessageWidget(role, text, self.tr, self.conversation_widget)
-        message.transfer_requested.connect(self.open_transfer_panel)
+        message = ChatMessageWidget(
+            role,
+            text,
+            self.tr,
+            self.conversation_widget,
+            image_filename=image_filename,
+            transfer_payload=transfer_payload,
+            transfer_ready=transfer_ready,
+            analysis_type=analysis_type,
+        )
+        message.transfer_requested.connect(self._message_transfer_requested)
         self.messages_layout.addWidget(message)
         QTimer.singleShot(0, lambda: self._scroll_to_latest(message))
+        return message
+
+    def remove_message(self, message: ChatMessageWidget) -> None:
+        self.messages_layout.removeWidget(message)
+        message.hide()
+        message.setParent(None)
+        message.deleteLater()
+        has_messages = any(
+            self.messages_layout.itemAt(index).widget() is not self.empty_label
+            for index in range(self.messages_layout.count())
+        )
+        self.empty_label.setVisible(not has_messages)
 
     def _scroll_to_latest(self, message: QWidget) -> None:
         self.messages_layout.activate()
@@ -257,18 +487,31 @@ class ChatPage(QWidget):
         self.transfer_panel.setVisible(False)
         self.notification.setVisible(False)
         self._transfer_text = ""
+        self.transfer_content.clear()
+        self.clear_attachment()
 
     def set_busy(self, *, any_llm_busy: bool, chat_busy: bool) -> None:
         self._any_llm_busy = any_llm_busy
         self.input_text.setEnabled(not chat_busy)
+        self.image_button.setEnabled(not any_llm_busy)
+        self.remove_attachment_button.setEnabled(not chat_busy)
+        self.analyze_button.setEnabled(bool(self._attachment) and not any_llm_busy)
+        self.reference_analyze_button.setEnabled(
+            bool(self._attachment) and not any_llm_busy
+        )
+        self.open_settings_button.setEnabled(not any_llm_busy)
         self.cancel_button.setEnabled(chat_busy)
         self.new_chat_button.setEnabled(not chat_busy)
         self._update_send_state()
 
     def _update_send_state(self) -> None:
         self.send_button.setEnabled(
-            bool(self.input_text.toPlainText().strip()) and not self._any_llm_busy
+            bool(self.input_text.toPlainText().strip() or self._attachment)
+            and not self._any_llm_busy
         )
+        can_analyze = self._attachment is not None and not self._any_llm_busy
+        self.analyze_button.setEnabled(can_analyze)
+        self.reference_analyze_button.setEnabled(can_analyze)
 
     def set_status(self, text: str, *, error: bool = False) -> None:
         self.status_label.setText(text)
@@ -295,13 +538,26 @@ class ChatPage(QWidget):
 
     def _emit_send(self) -> None:
         text = self.input_text.toPlainText().strip()
-        if text:
-            self.send_requested.emit(text)
+        if text or self._attachment is not None:
+            self.send_requested.emit(text, self._attachment)
 
     def open_transfer_panel(self, text: str) -> None:
         self._transfer_text = text
+        self.transfer_content.setPlainText(text)
         self.notification.setVisible(False)
         self.transfer_panel.setVisible(True)
+
+    def _message_transfer_requested(
+        self,
+        display_text: str,
+        transfer_payload: str,
+        transfer_ready: bool,
+        _analysis_type: str,
+    ) -> None:
+        if transfer_ready:
+            self.open_transfer_panel(transfer_payload or display_text)
+            return
+        self.transfer_prepare_requested.emit(display_text)
 
     def set_target_catalog(
         self,
@@ -364,8 +620,10 @@ class ChatPage(QWidget):
 
     def _emit_transfer(self) -> None:
         destination = str(self.destination.currentData() or "")
-        if self._transfer_text and destination:
-            self.transfer_requested.emit(self._transfer_text, destination)
+        transfer_text = self.transfer_content.toPlainText().strip()
+        if transfer_text and destination:
+            self._transfer_text = transfer_text
+            self.transfer_requested.emit(transfer_text, destination)
 
     def show_transfer_complete(
         self,
@@ -383,3 +641,57 @@ class ChatPage(QWidget):
         )
         self.notification.setVisible(True)
         self.transfer_panel.setVisible(False)
+
+    @staticmethod
+    def _dropped_image_path(event) -> str:
+        mime_data = event.mimeData()
+        if not mime_data.hasUrls():
+            return ""
+        for url in mime_data.urls():
+            if not url.isLocalFile():
+                continue
+            path = url.toLocalFile()
+            if Path(path).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS:
+                return path
+        return ""
+
+    def _handle_drag_event(self, event) -> bool:
+        event_type = event.type()
+        if event_type in {QEvent.Type.DragEnter, QEvent.Type.DragMove}:
+            if self._dropped_image_path(event):
+                self.drop_hint.setVisible(True)
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+            return True
+        if event_type == QEvent.Type.DragLeave:
+            self.drop_hint.setVisible(False)
+            event.accept()
+            return True
+        if event_type == QEvent.Type.Drop:
+            self.drop_hint.setVisible(False)
+            path = self._dropped_image_path(event)
+            if path:
+                event.acceptProposedAction()
+                self.image_path_requested.emit(path)
+            else:
+                event.ignore()
+            return True
+        return False
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched in getattr(self, "_drop_targets", ()) and self._handle_drag_event(event):
+            return True
+        return super().eventFilter(watched, event)
+
+    def dragEnterEvent(self, event) -> None:
+        self._handle_drag_event(event)
+
+    def dragMoveEvent(self, event) -> None:
+        self._handle_drag_event(event)
+
+    def dragLeaveEvent(self, event) -> None:
+        self._handle_drag_event(event)
+
+    def dropEvent(self, event) -> None:
+        self._handle_drag_event(event)

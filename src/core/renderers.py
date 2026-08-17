@@ -79,6 +79,7 @@ class RendererContext:
     environmental_audio: bool = True
     dialogue: bool = True
     background_music: bool = False
+    overall_supplement: str = ""
     start_frame_note: str = ""
     end_frame_note: str = ""
     references: tuple[str, ...] = ()

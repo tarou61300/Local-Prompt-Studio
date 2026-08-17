@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import threading
+from typing import Any
 
 from PySide6.QtCore import QThread, Signal
 
@@ -191,7 +192,7 @@ class ChatThread(QThread):
         engine: ChatEngine,
         server: LlamaServerManager,
         config: AppConfig,
-        conversation: list[dict[str, str]],
+        conversation: list[dict[str, Any]],
         mock_mode: bool,
         parent=None,
     ) -> None:
@@ -203,36 +204,63 @@ class ChatThread(QThread):
         self.mock_mode = mock_mode
 
     def run(self) -> None:
+        requires_multimodal = any(
+            message.get("image") is not None for message in self.conversation
+        )
+        chat_model_path = self.config.effective_chat_model_path()
+        mmproj_path = (
+            self.config.mmproj_for_model(chat_model_path)
+            if requires_multimodal
+            else ""
+        )
         try:
             payload = self.engine.request_payload(self.conversation)
             if not self.mock_mode:
-                self.status_changed.emit("chat.status.preparing_model")
-                chat_model_path = self.config.effective_chat_model_path()
+                self.status_changed.emit(
+                    "chat.status.loading_multimodal"
+                    if requires_multimodal
+                    else "chat.status.preparing_model"
+                )
                 try:
                     model = validate_model(chat_model_path)
-                    # Text chat intentionally starts without mmproj. A future image
-                    # request can request a multimodal model spec explicitly.
-                    self.server.start(
-                        model.path,
-                        backend=self.config.inference_backend,
-                        backend_device=self.config.backend_device,
-                        context_size=self.config.context_size,
-                        cpu_threads=self.config.cpu_threads,
-                        gpu_layers=self.config.gpu_layers,
-                        status_callback=self.status_changed.emit,
-                    )
+                    if requires_multimodal and not Path(mmproj_path).is_file():
+                        raise LlamaError("CHAT_MMPROJ_LOAD_FAILED")
+                    launch_options: dict[str, Any] = {
+                        "backend": self.config.inference_backend,
+                        "backend_device": self.config.backend_device,
+                        "context_size": self.config.context_size,
+                        "cpu_threads": self.config.cpu_threads,
+                        "gpu_layers": self.config.gpu_layers,
+                        "status_callback": self.status_changed.emit,
+                    }
+                    if requires_multimodal:
+                        launch_options["mmproj_path"] = mmproj_path
+                    self.server.start(model.path, **launch_options)
                 except Exception as exc:
+                    if requires_multimodal:
+                        self._mark_multimodal_state(
+                            chat_model_path, mmproj_path, "load_error"
+                        )
+                        raise LlamaError("CHAT_MMPROJ_LOAD_FAILED") from exc
                     if not self.config.use_prompt_model_for_chat:
                         raise LlamaError("CHAT_MODEL_LOAD_FAILED") from exc
                     raise
                 self.status_changed.emit("chat.status.preflight")
                 self.server.preflight_context(payload, self.config.context_size)
-            self.status_changed.emit("chat.status.generating")
+            self.status_changed.emit(
+                "chat.status.analyzing_image"
+                if requires_multimodal
+                else "chat.status.generating"
+            )
             generated = self.server.generate(
                 payload,
                 timeout=DEFAULT_GENERATION_TIMEOUT_SECONDS,
             )
             if not self.isInterruptionRequested():
+                if requires_multimodal and mmproj_path:
+                    self._mark_multimodal_state(
+                        chat_model_path, mmproj_path, "available"
+                    )
                 self.result_ready.emit(self.engine.finalize_response(generated))
         except LlamaContextError:
             if not self.isInterruptionRequested():
@@ -241,10 +269,55 @@ class ChatThread(QThread):
             if not self.isInterruptionRequested():
                 if exc.error_type == "exceed_context_size_error":
                     self.error_occurred.emit("CHAT_CONTEXT_OVERFLOW")
+                elif requires_multimodal and self._is_image_unsupported(exc):
+                    self._mark_multimodal_state(
+                        chat_model_path, mmproj_path, "unsupported"
+                    )
+                    self.error_occurred.emit("CHAT_IMAGE_UNSUPPORTED")
+                elif requires_multimodal and self._is_image_decode_error(exc):
+                    self.error_occurred.emit("CHAT_IMAGE_DECODE_FAILED")
+                elif requires_multimodal:
+                    self.error_occurred.emit("CHAT_IMAGE_REQUEST_FAILED")
                 else:
                     self.error_occurred.emit(str(exc))
         except Exception as exc:
             if self.isInterruptionRequested():
                 self.error_occurred.emit("CHAT_CANCELLED")
+            elif str(exc) == "CHAT_MMPROJ_LOAD_FAILED":
+                self.error_occurred.emit("CHAT_MMPROJ_LOAD_FAILED")
+            elif requires_multimodal:
+                self.error_occurred.emit("CHAT_IMAGE_REQUEST_FAILED")
             else:
                 self.error_occurred.emit(str(exc) or "CHAT_UNKNOWN_ERROR")
+
+    def _mark_multimodal_state(
+        self,
+        model_path: str,
+        mmproj_path: str,
+        state: str,
+    ) -> None:
+        if not mmproj_path:
+            return
+        marker = getattr(self.server, "mark_multimodal_state", None)
+        if callable(marker):
+            marker(model_path, mmproj_path, state)
+
+    @staticmethod
+    def _is_image_unsupported(exc: LlamaConnectionError) -> bool:
+        detail = f"{exc.error_type or ''} {exc}".lower()
+        return "image input is not supported" in detail or (
+            "multimodal" in detail and "not supported" in detail
+        )
+
+    @staticmethod
+    def _is_image_decode_error(exc: LlamaConnectionError) -> bool:
+        detail = f"{exc.error_type or ''} {exc}".lower()
+        return any(
+            marker in detail
+            for marker in (
+                "failed to load image",
+                "invalid image",
+                "image decode",
+                "decode image",
+            )
+        )

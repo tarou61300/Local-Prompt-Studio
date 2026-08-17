@@ -217,6 +217,25 @@ def test_anima_detects_natural_tag_and_hybrid(source_text: str, expected: str):
     assert analysis.input_mode == expected
 
 
+def test_anima_request_selects_mode_while_overall_supplement_keeps_its_role():
+    engine = _engine("anima", "turbo_v1_0")
+    payload = engine.request_payload(
+        "1girl, silver_hair, blue_eyes",
+        PromptSettings(
+            mode="T2I",
+            common_supplement=(
+                "A woman stands beside a café sign reading "
+                "[text:ja]月夜珈琲[/text]."
+            ),
+        ),
+    )
+    system = payload["messages"][0]["content"]
+    assert "Detected input mode: TAG" in system
+    assert "OVERALL_SUPPLEMENT:" in system
+    assert "月夜珈琲" in system
+    assert payload["response_format"] == {"type": "json_object"}
+
+
 def test_anima_natural_output_remains_prose_with_separate_negative():
     engine = _engine("anima", "base_v1_0")
     request = "An anime girl walks under moonlight."

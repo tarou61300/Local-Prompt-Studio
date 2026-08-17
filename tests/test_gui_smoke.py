@@ -308,7 +308,7 @@ def test_target_window_sizes_keep_workspace_and_mode_supplement_usable(tmp_path)
                 request_group.height() - request_layout.contentsMargins().bottom()
             )
 
-        for width, height in ((1366, 768), (1118, 846), (1920, 1080)):
+        for width, height in ((1366, 768), (1118, 846), (1280, 720), (1920, 1080)):
             window.resize(width, height)
             app.processEvents()
             assert window.size().width() == width
@@ -325,8 +325,31 @@ def test_target_window_sizes_keep_workspace_and_mode_supplement_usable(tmp_path)
             window.mode_supplement_toggle.setChecked(True)
             app.processEvents()
             assert window.mode_group.isVisible()
+            supplement_editors = (window.common_note, window.start_note, window.end_note)
+            for editor in supplement_editors:
+                assert editor.isVisible()
+                assert editor.minimumHeight() >= 70
+                assert editor.height() >= editor.minimumHeight()
+                assert editor.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            for previous, following in zip(supplement_editors, supplement_editors[1:]):
+                assert previous.geometry().bottom() < following.geometry().top()
+            window.common_note.setPlainText("long supplement line\n" * 30)
+            app.processEvents()
+            assert window.common_note.verticalScrollBar().maximum() > 0
             assert window.request_text.height() >= window.request_text.minimumHeight()
             assert window.output_text.height() >= window.output_text.minimumHeight()
+            assert window.mode_section.geometry().bottom() < window.workspace_splitter.geometry().top()
+            scroll_bottom = window.mode_notes_scroll.mapTo(
+                window.mode_section,
+                window.mode_notes_scroll.rect().bottomLeft(),
+            ).y()
+            group_bottom = window.mode_group.mapTo(
+                window.mode_section,
+                window.mode_group.rect().bottomLeft(),
+            ).y()
+            assert scroll_bottom < window.mode_section.height()
+            assert group_bottom < window.mode_section.height()
+            assert window.action_bar.isVisibleTo(window.prompt_page)
             assert_request_helper_geometry()
             window.mode_supplement_toggle.setChecked(False)
             app.processEvents()

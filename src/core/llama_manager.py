@@ -71,6 +71,12 @@ class LlamaModelSpec:
             else None,
         )
 
+    def can_serve_text_spec(self, requested: "LlamaModelSpec") -> bool:
+        """A loaded multimodal runtime can safely satisfy its text-only base spec."""
+        if requested.mmproj_path is not None:
+            return False
+        return self.launch_signature[:-1] == requested.launch_signature[:-1]
+
 
 def _windows_safe_subprocess_path(path: Path) -> str:
     """Use an ASCII 8.3 alias when Windows child I/O fails from a Unicode path."""
@@ -285,6 +291,7 @@ class LlamaServerManager:
         self.active_device = ""
         self.last_model_load_seconds: float | None = None
         self.last_generation_metrics: dict[str, int | float | str | None] = {}
+        self._multimodal_states: dict[tuple[str, str], str] = {}
 
     @property
     def is_mock_or_external_local(self) -> bool:
@@ -295,6 +302,34 @@ class LlamaServerManager:
         """Return whether this manager currently owns a live llama-server."""
         process = self.process
         return process is not None and process.poll() is None
+
+    @staticmethod
+    def _multimodal_key(model_path: Path | str, mmproj_path: Path | str) -> tuple[str, str]:
+        return (
+            os.path.normcase(os.path.normpath(str(Path(model_path).resolve(strict=False)))),
+            os.path.normcase(os.path.normpath(str(Path(mmproj_path).resolve(strict=False)))),
+        )
+
+    def mark_multimodal_state(
+        self,
+        model_path: Path | str,
+        mmproj_path: Path | str,
+        state: str,
+    ) -> None:
+        if state not in {"available", "unsupported", "load_error"}:
+            raise ValueError(f"Invalid multimodal state: {state}")
+        self._multimodal_states[
+            self._multimodal_key(model_path, mmproj_path)
+        ] = state
+
+    def multimodal_state_for(
+        self,
+        model_path: Path | str,
+        mmproj_path: Path | str,
+    ) -> str | None:
+        return self._multimodal_states.get(
+            self._multimodal_key(model_path, mmproj_path)
+        )
 
     @staticmethod
     def _validated_backend_id(value: str) -> str:
@@ -435,7 +470,10 @@ class LlamaServerManager:
         )
         signature = requested_spec.launch_signature
         if self.base_url:
-            if self._launch_signature == signature:
+            if self._launch_signature == signature or (
+                self.active_model_spec is not None
+                and self.active_model_spec.can_serve_text_spec(requested_spec)
+            ):
                 return self.base_url
             if status_callback is not None:
                 status_callback("status.switching_model")
@@ -600,18 +638,35 @@ class LlamaServerManager:
         ascii_characters = 0
         non_ascii_characters = 0
         message_count = 0
+        media_tokens = 0
         if isinstance(messages, list):
             for message in messages:
                 if not isinstance(message, dict):
                     continue
                 message_count += 1
-                content = str(message.get("content", ""))
+                raw_content = message.get("content", "")
+                if isinstance(raw_content, list):
+                    text_parts = []
+                    for part in raw_content:
+                        if not isinstance(part, dict):
+                            continue
+                        if part.get("type") == "text":
+                            text_parts.append(str(part.get("text", "")))
+                        elif part.get("type") == "image_url":
+                            # The active multimodal processor normally supplies an
+                            # exact count. Never treat base64 bytes as text tokens if
+                            # that endpoint is unavailable.
+                            media_tokens += 2048
+                    content = " ".join(text_parts)
+                else:
+                    content = str(raw_content)
                 ascii_characters += sum(ord(character) < 128 for character in content)
                 non_ascii_characters += sum(ord(character) >= 128 for character in content)
         return (
             math.ceil(ascii_characters / 4)
             + math.ceil(non_ascii_characters * 1.5)
             + message_count * 8
+            + media_tokens
         )
 
     @staticmethod

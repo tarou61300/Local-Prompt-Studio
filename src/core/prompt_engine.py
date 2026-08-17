@@ -9,7 +9,7 @@ from typing import Any
 from .profile_loader import ProfileLoader
 from .profile_models import LoadedProfile, ProfileVariant
 from .protected_terms import normalize_protected_terms
-from .renderers import RenderResult, RendererContext, RendererRegistry
+from .renderers import RenderResult, RendererAnalysis, RendererContext, RendererRegistry
 from .skill_manager import SkillManager
 
 
@@ -86,8 +86,8 @@ class PromptEngine:
             raise ValueError("Requestを入力してください。")
         self._validate(settings)
         renderer = self.renderer_registry.get(self.profile.manifest.renderer)
-        effective_request = self._effective_request(request, settings)
-        analysis = renderer.analyze_request(effective_request)
+        context = self._renderer_context(settings)
+        analysis = self._analyze_roles(renderer, request, context)
         protected_terms = normalize_protected_terms(settings.protected_terms)
         external_materials = self._external_materials(settings)
         # Some embedded Jinja templates (including Qwen3.5 variants) accept a
@@ -96,17 +96,18 @@ class PromptEngine:
         system_content = "\n\n".join(
             (
                 renderer.system_instructions(
-                    self._renderer_context(settings),
+                    context,
                     analysis,
                     protected_terms,
                 ),
+                self._input_role_material(context),
                 f"SELECTED PROFILE ({self.profile.manifest.id} v{self.profile.manifest.profile_version})",
                 *external_materials,
             )
         )
         return [
             {"role": "system", "content": system_content},
-            {"role": "user", "content": effective_request},
+            {"role": "user", "content": request},
         ]
 
     def _external_materials(self, settings: PromptSettings) -> tuple[str, ...]:
@@ -128,7 +129,8 @@ class PromptEngine:
 
     def request_payload(self, request: str, settings: PromptSettings) -> dict[str, Any]:
         renderer = self.renderer_registry.get(self.profile.manifest.renderer)
-        analysis = renderer.analyze_request(self._effective_request(request, settings))
+        context = self._renderer_context(settings)
+        analysis = self._analyze_roles(renderer, request, context)
         payload: dict[str, Any] = {
             "messages": self.build_messages(request, settings),
             "temperature": TEMPERATURES[settings.processing],
@@ -143,24 +145,69 @@ class PromptEngine:
         self, request: str, settings: PromptSettings, generated: str
     ) -> RenderResult:
         renderer = self.renderer_registry.get(self.profile.manifest.renderer)
-        effective_request = self._effective_request(request, settings)
-        analysis = renderer.analyze_request(effective_request)
+        context = self._renderer_context(settings)
+        semantic_source = self._semantic_source(request, context)
+        analysis = self._analyze_roles(renderer, request, context)
         return renderer.render(
             clean_model_output(generated),
             self.variant,
             analysis.literals,
             normalize_protected_terms(settings.protected_terms),
             input_mode=analysis.input_mode,
-            source_request=effective_request,
+            source_request=semantic_source,
             auto_quality_tags=settings.auto_quality_tags,
         )
 
     @staticmethod
-    def _effective_request(request: str, settings: PromptSettings) -> str:
-        supplement = settings.common_supplement
-        if not supplement.strip():
+    def _semantic_source(request: str, context: RendererContext) -> str:
+        """Keep input roles explicit for analysis and final preservation audits."""
+        supplements = (
+            ("OVERALL_SUPPLEMENT", context.overall_supplement),
+            ("START_IMAGE_SUPPLEMENT", context.start_frame_note),
+            ("END_IMAGE_SUPPLEMENT", context.end_frame_note),
+        )
+        if not any(value for _label, value in supplements):
             return request
-        return f"{request}\n\n{supplement}"
+        blocks = [f"REQUEST:\n{request}"]
+        blocks.extend(
+            f"{label}:\n{value}" for label, value in supplements if value
+        )
+        return "\n\n".join(blocks)
+
+    @classmethod
+    def _analyze_roles(cls, renderer: Any, request: str, context: RendererContext) -> RendererAnalysis:
+        """Let Request select renderer mode while preserving literals in every role."""
+        request_analysis = renderer.analyze_request(request)
+        semantic_source = cls._semantic_source(request, context)
+        if semantic_source == request:
+            return request_analysis
+        all_roles_analysis = renderer.analyze_request(semantic_source)
+        return RendererAnalysis(
+            literals=all_roles_analysis.literals,
+            input_mode=request_analysis.input_mode,
+        )
+
+    @staticmethod
+    def _input_role_material(context: RendererContext) -> str:
+        """Give the LLM supplements separately from the central user request."""
+        blocks = [
+            "INPUT ROLE POLICY:",
+            "The user message is REQUEST: the central user intent. Preserve it as the primary instruction.",
+            "OVERALL_SUPPLEMENT adds context or constraints to the whole request; it must not replace the request or create a different request.",
+            "START_IMAGE_SUPPLEMENT applies only to the starting image/state. Never apply it as an end-state instruction.",
+            "END_IMAGE_SUPPLEMENT applies only to the ending image/state. Never apply it as a start-state instruction.",
+            "Integrate supplied roles naturally in the final prompt; the final prompt need not retain these section labels.",
+            "Preserve Literal Content and Protected Terms from every supplied role exactly.",
+            "Perform model-specific optimization only under the selected renderer's policy.",
+        ]
+        for label, value in (
+            ("OVERALL_SUPPLEMENT", context.overall_supplement),
+            ("START_IMAGE_SUPPLEMENT", context.start_frame_note),
+            ("END_IMAGE_SUPPLEMENT", context.end_frame_note),
+        ):
+            if value:
+                blocks.append(f"{label}:\n{value}")
+        return "\n".join(blocks)
 
     def _validate(self, settings: PromptSettings) -> None:
         if settings.mode not in self.profile.manifest.supported_tasks:
@@ -185,6 +232,8 @@ class PromptEngine:
             counts[reference.kind] += 1
 
     def _renderer_context(self, settings: PromptSettings) -> RendererContext:
+        supports_start = settings.mode in {"I2V", "I2VA", "FL2VA"}
+        supports_end = settings.mode in {"FL2VA", "L2VA"}
         return RendererContext(
             task=settings.mode,
             processing=settings.processing,
@@ -198,8 +247,9 @@ class PromptEngine:
             environmental_audio=settings.environmental_audio,
             dialogue=settings.dialogue,
             background_music=settings.background_music,
-            start_frame_note=settings.start_frame_note.strip(),
-            end_frame_note=settings.end_frame_note.strip(),
+            overall_supplement=settings.common_supplement.strip(),
+            start_frame_note=(settings.start_frame_note.strip() if supports_start else ""),
+            end_frame_note=(settings.end_frame_note.strip() if supports_end else ""),
             references=tuple(
                 f"{reference.tag()} {reference.description.strip()}"
                 for reference in settings.references
