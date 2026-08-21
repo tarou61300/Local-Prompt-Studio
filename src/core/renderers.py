@@ -21,7 +21,6 @@ LITERAL_CONTENT_NOT_PRESERVED = "LITERAL_CONTENT_NOT_PRESERVED"
 PROTECTED_TERM_NOT_PRESERVED = "PROTECTED_TERM_NOT_PRESERVED"
 DANBOORU_OUTPUT_INVALID = "DANBOORU_OUTPUT_INVALID"
 ANIMA_HYBRID_OUTPUT_INVALID = "ANIMA_HYBRID_OUTPUT_INVALID"
-UNREQUESTED_SEMANTIC_TAG = "UNREQUESTED_SEMANTIC_TAG"
 UNKNOWN_RENDERER = "UNKNOWN_RENDERER"
 
 _ANIMA_SECTION_ORDER = (
@@ -203,72 +202,6 @@ class MiniMaxH3Renderer:
     renderer_id = "minimax_h3"
 
     @staticmethod
-    def _validate_no_unrequested_semantic_tags(
-        output: str,
-        source_request: str | None,
-        literals: tuple[LiteralContent, ...],
-        protected_terms: tuple[ProtectedTerm, ...],
-    ) -> None:
-        requested = "\n".join(
-            (
-                source_request or "",
-                *(item.text for item in literals),
-                *(item.text for item in protected_terms),
-            )
-        ).casefold().replace("_", " ")
-        aliases: list[str] = []
-        if "安全" in requested:
-            aliases.append("safe")
-        if "センシティブ" in requested:
-            aliases.append("sensitive")
-        if "成人向け" in requested:
-            aliases.extend(("nsfw", "explicit"))
-        aliases.extend(
-            f"{match.group(1)}s"
-            for match in re.finditer(r"((?:18|19|20)\d0)年代", requested)
-        )
-        requested += "\n" + "\n".join(aliases)
-        restricted = (
-            re.compile(r"\b(?:safe|sensitive|nsfw|explicit)\b", re.IGNORECASE),
-            re.compile(r"\bscore_\d+\b", re.IGNORECASE),
-            re.compile(
-                r"\b(?:artist|character|copyright|series)\s*:\s*[^,.;\n]+",
-                re.IGNORECASE,
-            ),
-            re.compile(r"(?:^|,\s*)by\s+[^,.;\n]+(?=,|[.;]|$)", re.IGNORECASE),
-            re.compile(
-                r"\b(?:art|artwork|painting|illustration|image|style)\s+by\s+[^,.;\n]+",
-                re.IGNORECASE,
-            ),
-            re.compile(r"(?<!\w)@[\w -]+", re.IGNORECASE),
-            re.compile(r"\b(?:(?:18|19|20)\d{2}|(?:18|19|20)\d0s|retro|vintage)\b", re.IGNORECASE),
-            re.compile(
-                r"(?:^|,\s*)(?:1girls?|1boys?|1others?|girls?|boys?|women|woman|"
-                r"men|man|female|male|child|children|teens?|teenagers?|adults?|"
-                r"loli|shota|(?:young|old|elderly|teenage|adult|middle[- ]aged)\s+"
-                r"(?:girl|boy|woman|man|person|people|character|subject)s?)(?=,|[.;]|$)",
-                re.IGNORECASE,
-            ),
-        )
-        for pattern in restricted:
-            for match in pattern.finditer(output):
-                candidate = match.group(0).strip(" ,.;").casefold().replace("_", " ")
-                forms = {candidate}
-                if ":" in candidate:
-                    forms.add(candidate.split(":", 1)[1].strip())
-                by_match = re.search(r"\bby\s+(.+)$", candidate)
-                if by_match is not None:
-                    forms.add(by_match.group(1).strip())
-                if candidate.startswith("@"):
-                    forms.add(candidate[1:].strip())
-                if not any(
-                    form
-                    and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", requested)
-                    for form in forms
-                ):
-                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
-
-    @staticmethod
     def _fixed_quality_components(
         variant: ProfileVariant,
         *,
@@ -400,7 +333,7 @@ class MiniMaxH3Renderer:
         return "\n\n".join(
             (
                 """CORE TRANSFORMATION POLICY — MINIMAX H3 RENDERER POLICY (highest priority):
-Transform the user request into one finished MiniMax H3 prompt. Preserve semantic intent, action order, camera directions, relationships, timing, Literal Content, and Protected Terms. The installed official MiniMax H3 Skill is authoritative for H3 model syntax. Preserve the existing T2VA, I2VA, FL2VA, L2VA, and Ref2VA task meanings. Produce a natural-language English video narrative with one Positive prompt and no Negative prompt. Preserve exact dialogue in its original language. Interpret explicitly marked speech/text before contextual quote inference; spoken quotes belong to dialogue, while signs/labels are visible text. Quality metadata must follow the AUTOMATIC QUALITY TAGS setting below. Never add unrequested rating/safety, score/ranking, artist/byline, age/demographic, copyright/character, or year/era metadata in any processing mode. Preserve those categories only when the user explicitly supplied them. Never alter meaning merely to approach a length target. Return no analysis, preface, Markdown, or marker syntax.""",
+Transform the user request into one finished MiniMax H3 prompt. Preserve semantic intent, action order, camera directions, relationships, timing, Literal Content, and Protected Terms. The installed official MiniMax H3 Skill and selected Profile are authoritative for H3 output conventions and structural syntax; this Renderer does not prescribe a fixed translation template. Skill/Profile examples demonstrate format only and are never defaults for semantic content. These intent-preservation rules override example content: when visual medium/style, camera movement, shot change, or cut is absent from both the user request and an explicit UI control, omit it instead of selecting or inventing it from an example. Two requested time ranges or an action change do not by themselves request a new shot or camera behavior. Preserve the existing T2VA, I2VA, FL2VA, L2VA, and Ref2VA task meanings. A timing change alone never implies a shot change. Do not introduce an additional shot, cut, transition, or shot label unless the user explicitly requested one. Do not invent camera movement unless the user explicitly requested it or the selected UI camera control requests it. When the camera is fixed/static, do not introduce tracking, panning, zooming, cutting, or reframing. Preserve every explicit time or duration exactly. Do not infer live-action, 2D, 3D, cinematic, watercolor, or another visual medium/style merely from Skill examples when the user did not specify it; preserve any style that the user did specify. Produce a natural-language English video narrative with one Positive prompt and no Negative prompt. Preserve exact dialogue in its original language. Interpret explicitly marked speech/text before contextual quote inference; spoken quotes belong to dialogue, while signs/labels are visible text. Quality metadata must follow the AUTOMATIC QUALITY TAGS setting below. Never add unrequested rating/safety, score/ranking, artist/byline, age/demographic, copyright/character, or year/era metadata in any processing mode. Preserve those categories only when the user explicitly supplied them. Never alter meaning merely to approach a length target. Return no analysis, preface, Markdown, or marker syntax.""",
                 _profile_configuration(context),
                 "\n".join(controls),
                 quality_policy,
@@ -408,6 +341,34 @@ Transform the user request into one finished MiniMax H3 prompt. Preserve semanti
                 self.llm_output_instruction(context.output_language),
             )
         )
+
+    def post_external_intent_guardrails(self, context: RendererContext) -> str:
+        rules = [
+            "FINAL INTENT-PRESERVATION OVERRIDE — APPLY AFTER ALL SKILL/PROFILE EXAMPLES:",
+            "The Skill/Profile remains authoritative for syntax and format only. Its examples are non-normative and must never supply absent semantic content.",
+            "Add a visual medium/style, camera behavior, shot change, or cut only when the user request explicitly asks for it or a specific UI control explicitly selects it. Otherwise omit it; never choose one merely because an example contains it.",
+            "Preserve every explicitly requested medium/style, camera behavior, cut, shot change, action transition, and timing.",
+            "Preserve every explicitly stated temporal interval as meaning, including each start time, end time, and interval-to-action association; never omit, merge, or replace one interval with another. Let the current Skill/Profile determine the syntax or natural-language notation for those intervals; this Renderer imposes no time notation format.",
+            "Never reverse or convert an explicitly requested visual medium. Keep 2D, anime, or illustration as 2D/anime/illustration and never turn it into live-action or photorealistic content. Keep live-action or photorealistic content as live-action/photorealistic and never turn it into 2D, anime, or illustration. If the user explicitly requests a mixed medium, preserve that exact combination instead of collapsing it to either side.",
+            "Separate time ranges or a change from walking to running do not by themselves request a cut, a new shot, tracking, or any other camera behavior.",
+        ]
+        if context.processing == "Faithful":
+            rules.append(
+                "Faithful mode treats missing creative details as intentionally unspecified; do not fill them from examples."
+            )
+        if context.camera == "Free":
+            rules.append(
+                "The Camera UI value is Free: it does not request tracking or any other camera movement."
+            )
+        elif context.camera == "Static camera":
+            rules.append(
+                "The Camera UI explicitly requires a static camera from beginning to end; add no camera movement or reframing."
+            )
+        if context.shot == "Single continuous shot":
+            rules.append(
+                "The Shot UI requires one continuous shot unless the user explicitly requests a cut."
+            )
+        return "\n".join(rules)
 
     def llm_output_instruction(self, output_language: str) -> str:
         return (
@@ -445,78 +406,12 @@ Transform the user request into one finished MiniMax H3 prompt. Preserve semanti
                 *fixed_suffix,
             )
         ).strip()
-        self._validate_no_unrequested_semantic_tags(
-            positive,
-            source_request,
-            literals,
-            protected_terms,
-        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, None, length_warnings(positive, variant.length_guidance))
 
 
 class Wan22Renderer:
     renderer_id = "wan_2_2"
-
-    @staticmethod
-    def _validate_no_unrequested_semantic_tags(
-        output: str,
-        source_request: str | None,
-        literals: tuple[LiteralContent, ...],
-        protected_terms: tuple[ProtectedTerm, ...],
-    ) -> None:
-        requested = "\n".join(
-            (
-                source_request or "",
-                *(item.text for item in literals),
-                *(item.text for item in protected_terms),
-            )
-        ).casefold().replace("_", " ")
-        aliases: list[str] = []
-        if "安全" in requested:
-            aliases.append("safe")
-        if "センシティブ" in requested:
-            aliases.append("sensitive")
-        if "成人向け" in requested:
-            aliases.extend(("nsfw", "explicit"))
-        aliases.extend(
-            f"{match.group(1)}s"
-            for match in re.finditer(r"((?:18|19|20)\d0)年代", requested)
-        )
-        requested += "\n" + "\n".join(aliases)
-        restricted = (
-            re.compile(r"\b(?:safe|sensitive|nsfw|explicit)\b", re.IGNORECASE),
-            re.compile(r"\bscore_\d+\b", re.IGNORECASE),
-            re.compile(r"\b(?:artist|character|copyright|series)\s*:\s*[^,.;\n]+", re.IGNORECASE),
-            re.compile(r"(?:^|,\s*)by\s+[^,.;\n]+(?=,|[.;]|$)", re.IGNORECASE),
-            re.compile(r"\b(?:art|artwork|painting|illustration|image|style)\s+by\s+[^,.;\n]+", re.IGNORECASE),
-            re.compile(r"(?<!\w)@[\w -]+", re.IGNORECASE),
-            re.compile(r"\b(?:(?:18|19|20)\d{2}|(?:18|19|20)\d0s|retro|vintage)\b", re.IGNORECASE),
-            re.compile(
-                r"(?:^|,\s*)(?:1girls?|1boys?|1others?|girls?|boys?|women|woman|"
-                r"men|man|female|male|child|children|teens?|teenagers?|adults?|"
-                r"loli|shota|(?:young|old|elderly|teenage|adult|middle[- ]aged)\s+"
-                r"(?:girl|boy|woman|man|person|people|character|subject)s?)(?=,|[.;]|$)",
-                re.IGNORECASE,
-            ),
-        )
-        for pattern in restricted:
-            for match in pattern.finditer(output):
-                candidate = match.group(0).strip(" ,.;").casefold().replace("_", " ")
-                forms = {candidate}
-                if ":" in candidate:
-                    forms.add(candidate.split(":", 1)[1].strip())
-                by_match = re.search(r"\bby\s+(.+)$", candidate)
-                if by_match is not None:
-                    forms.add(by_match.group(1).strip())
-                if candidate.startswith("@"):
-                    forms.add(candidate[1:].strip())
-                if not any(
-                    form
-                    and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", requested)
-                    for form in forms
-                ):
-                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
 
     @staticmethod
     def _fixed_quality_components(
@@ -667,78 +562,12 @@ Produce one clean natural-language English video prompt for A14B T2V/I2V. Preser
                 *fixed_suffix,
             )
         ).strip()
-        self._validate_no_unrequested_semantic_tags(
-            positive,
-            source_request,
-            literals,
-            protected_terms,
-        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, None, length_warnings(positive, variant.length_guidance))
 
 
 class LTX23Renderer:
     renderer_id = "ltx_2_3"
-
-    @staticmethod
-    def _validate_no_unrequested_semantic_tags(
-        output: str,
-        source_request: str | None,
-        literals: tuple[LiteralContent, ...],
-        protected_terms: tuple[ProtectedTerm, ...],
-    ) -> None:
-        requested = "\n".join(
-            (
-                source_request or "",
-                *(item.text for item in literals),
-                *(item.text for item in protected_terms),
-            )
-        ).casefold().replace("_", " ")
-        aliases: list[str] = []
-        if "安全" in requested:
-            aliases.append("safe")
-        if "センシティブ" in requested:
-            aliases.append("sensitive")
-        if "成人向け" in requested:
-            aliases.extend(("nsfw", "explicit"))
-        aliases.extend(
-            f"{match.group(1)}s"
-            for match in re.finditer(r"((?:18|19|20)\d0)年代", requested)
-        )
-        requested += "\n" + "\n".join(aliases)
-        restricted = (
-            re.compile(r"\b(?:safe|sensitive|nsfw|explicit)\b", re.IGNORECASE),
-            re.compile(r"\bscore_\d+\b", re.IGNORECASE),
-            re.compile(r"\b(?:artist|character|copyright|series)\s*:\s*[^,.;\n]+", re.IGNORECASE),
-            re.compile(r"(?:^|,\s*)by\s+[^,.;\n]+(?=,|[.;]|$)", re.IGNORECASE),
-            re.compile(r"\b(?:art|artwork|painting|illustration|image|style)\s+by\s+[^,.;\n]+", re.IGNORECASE),
-            re.compile(r"(?<!\w)@[\w -]+", re.IGNORECASE),
-            re.compile(r"\b(?:(?:18|19|20)\d{2}|(?:18|19|20)\d0s|retro|vintage)\b", re.IGNORECASE),
-            re.compile(
-                r"(?:^|,\s*)(?:1girls?|1boys?|1others?|girls?|boys?|women|woman|"
-                r"men|man|female|male|child|children|teens?|teenagers?|adults?|"
-                r"loli|shota|(?:young|old|elderly|teenage|adult|middle[- ]aged)\s+"
-                r"(?:girl|boy|woman|man|person|people|character|subject)s?)(?=,|[.;]|$)",
-                re.IGNORECASE,
-            ),
-        )
-        for pattern in restricted:
-            for match in pattern.finditer(output):
-                candidate = match.group(0).strip(" ,.;").casefold().replace("_", " ")
-                forms = {candidate}
-                if ":" in candidate:
-                    forms.add(candidate.split(":", 1)[1].strip())
-                by_match = re.search(r"\bby\s+(.+)$", candidate)
-                if by_match is not None:
-                    forms.add(by_match.group(1).strip())
-                if candidate.startswith("@"):
-                    forms.add(candidate[1:].strip())
-                if not any(
-                    form
-                    and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", requested)
-                    for form in forms
-                ):
-                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
 
     @staticmethod
     def _fixed_quality_components(
@@ -889,78 +718,12 @@ Produce one detailed natural-language English joint audio-video prompt for LTX-2
                 *fixed_suffix,
             )
         ).strip()
-        self._validate_no_unrequested_semantic_tags(
-            positive,
-            source_request,
-            literals,
-            protected_terms,
-        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, None, length_warnings(positive, variant.length_guidance))
 
 
 class Krea2Renderer:
     renderer_id = "krea_2"
-
-    @staticmethod
-    def _validate_no_unrequested_semantic_tags(
-        output: str,
-        source_request: str | None,
-        literals: tuple[LiteralContent, ...],
-        protected_terms: tuple[ProtectedTerm, ...],
-    ) -> None:
-        requested = "\n".join(
-            (
-                source_request or "",
-                *(item.text for item in literals),
-                *(item.text for item in protected_terms),
-            )
-        ).casefold().replace("_", " ")
-        aliases: list[str] = []
-        if "安全" in requested:
-            aliases.append("safe")
-        if "センシティブ" in requested:
-            aliases.append("sensitive")
-        if "成人向け" in requested:
-            aliases.extend(("nsfw", "explicit"))
-        aliases.extend(
-            f"{match.group(1)}s"
-            for match in re.finditer(r"((?:18|19|20)\d0)年代", requested)
-        )
-        requested += "\n" + "\n".join(aliases)
-        restricted = (
-            re.compile(r"\b(?:safe|sensitive|nsfw|explicit)\b", re.IGNORECASE),
-            re.compile(r"\bscore_\d+\b", re.IGNORECASE),
-            re.compile(r"\b(?:artist|character|copyright|series)\s*:\s*[^,.;\n]+", re.IGNORECASE),
-            re.compile(r"(?:^|,\s*)by\s+[^,.;\n]+(?=,|[.;]|$)", re.IGNORECASE),
-            re.compile(r"\b(?:art|artwork|painting|illustration|image|style)\s+by\s+[^,.;\n]+", re.IGNORECASE),
-            re.compile(r"(?<!\w)@[\w -]+", re.IGNORECASE),
-            re.compile(r"\b(?:(?:18|19|20)\d{2}|(?:18|19|20)\d0s|retro|vintage)\b", re.IGNORECASE),
-            re.compile(
-                r"(?:^|,\s*)(?:1girls?|1boys?|1others?|girls?|boys?|women|woman|"
-                r"men|man|female|male|child|children|teens?|teenagers?|adults?|"
-                r"loli|shota|(?:young|old|elderly|teenage|adult|middle[- ]aged)\s+"
-                r"(?:girl|boy|woman|man|person|people|character|subject)s?)(?=,|[.;]|$)",
-                re.IGNORECASE,
-            ),
-        )
-        for pattern in restricted:
-            for match in pattern.finditer(output):
-                candidate = match.group(0).strip(" ,.;").casefold().replace("_", " ")
-                forms = {candidate}
-                if ":" in candidate:
-                    forms.add(candidate.split(":", 1)[1].strip())
-                by_match = re.search(r"\bby\s+(.+)$", candidate)
-                if by_match is not None:
-                    forms.add(by_match.group(1).strip())
-                if candidate.startswith("@"):
-                    forms.add(candidate[1:].strip())
-                if not any(
-                    form
-                    and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", requested)
-                    for form in forms
-                ):
-                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
 
     @staticmethod
     def _fixed_quality_components(
@@ -1106,12 +869,6 @@ Produce one cohesive English natural-language image prompt, never Danbooru tags,
                 *fixed_suffix,
             )
         ).strip()
-        self._validate_no_unrequested_semantic_tags(
-            positive,
-            source_request,
-            literals,
-            protected_terms,
-        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, None, length_warnings(positive, variant.length_guidance))
 
@@ -1158,119 +915,6 @@ def _dedupe_tags(values: tuple[str, ...] | list[str], seen: set[str]) -> list[st
 
 class AnimaRenderer:
     renderer_id = "anima"
-
-    @staticmethod
-    def _semantic_reference_text(
-        source_request: str | None,
-        literals: tuple[LiteralContent, ...],
-        protected_terms: tuple[ProtectedTerm, ...],
-    ) -> str:
-        requested = "\n".join(
-            (
-                source_request or "",
-                *(item.text for item in literals),
-                *(item.text for item in protected_terms),
-            )
-        ).casefold().replace("_", " ")
-        aliases: list[str] = []
-        if "安全" in requested:
-            aliases.append("safe")
-        if "センシティブ" in requested:
-            aliases.append("sensitive")
-        if "成人向け" in requested:
-            aliases.extend(("nsfw", "explicit", "adult"))
-        if re.search(r"(?:女性|女の人)", requested):
-            aliases.extend(("woman", "female"))
-        if re.search(r"(?:少女|女の子)", requested):
-            aliases.append("girl")
-        if re.search(r"(?:男性|男の人)", requested):
-            aliases.extend(("man", "male"))
-        if re.search(r"(?:少年|男の子)", requested):
-            aliases.append("boy")
-        if re.search(r"(?:子供|子ども)", requested):
-            aliases.extend(("child", "children"))
-        if "若い" in requested:
-            aliases.append("young")
-        if re.search(r"(?:高齢|老人)", requested):
-            aliases.extend(("old", "elderly"))
-        if "若い" in requested and re.search(r"(?:女性|女の人)", requested):
-            aliases.append("young woman")
-        if "若い" in requested and re.search(r"(?:男性|男の人)", requested):
-            aliases.append("young man")
-        aliases.extend(
-            f"{match.group(1)}s"
-            for match in re.finditer(r"((?:18|19|20)\d0)年代", requested)
-        )
-        return requested + "\n" + "\n".join(aliases)
-
-    @staticmethod
-    def _semantic_term_was_requested(candidate: str, requested: str) -> bool:
-        normalized = candidate.strip(" ,.;").casefold().replace("_", " ")
-        forms = {normalized}
-        if ":" in normalized:
-            forms.add(normalized.split(":", 1)[1].strip())
-        by_match = re.search(r"\bby\s+(.+)$", normalized)
-        if by_match is not None:
-            forms.add(by_match.group(1).strip())
-        if normalized.startswith("@"):
-            forms.add(normalized[1:].strip())
-        return any(
-            form
-            and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", requested)
-            for form in forms
-        )
-
-    @classmethod
-    def _validate_no_unrequested_semantic_tags(
-        cls,
-        output: str,
-        source_request: str | None,
-        literals: tuple[LiteralContent, ...],
-        protected_terms: tuple[ProtectedTerm, ...],
-    ) -> None:
-        requested = cls._semantic_reference_text(
-            source_request,
-            literals,
-            protected_terms,
-        )
-        restricted = (
-            re.compile(r"\b(?:safe|sensitive|nsfw|explicit)\b", re.IGNORECASE),
-            re.compile(r"\bscore_\d+\b", re.IGNORECASE),
-            re.compile(r"\b(?:artist|character|copyright|series)\s*:\s*[^,.;\n]+", re.IGNORECASE),
-            re.compile(r"(?:^|,\s*)by\s+[^,.;\n]+(?=,|[.;]|$)", re.IGNORECASE),
-            re.compile(r"\b(?:art|artwork|painting|illustration|image|style)\s+by\s+[^,.;\n]+", re.IGNORECASE),
-            re.compile(r"(?<!\w)@[\w -]+", re.IGNORECASE),
-            re.compile(r"\b(?:(?:18|19|20)\d{2}|(?:18|19|20)\d0s|retro|vintage)\b", re.IGNORECASE),
-            re.compile(
-                r"(?:^|,\s*)(?:1girls?|1boys?|1others?|girls?|boys?|women|woman|"
-                r"men|man|female|male|child|children|teens?|teenagers?|adults?|"
-                r"loli|shota|(?:young|old|elderly|teenage|adult|middle[- ]aged)\s+"
-                r"(?:girl|boy|woman|man|person|people|character|subject)s?)(?=,|[.;]|$)",
-                re.IGNORECASE,
-            ),
-        )
-        for pattern in restricted:
-            for match in pattern.finditer(output):
-                if not cls._semantic_term_was_requested(match.group(0), requested):
-                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
-
-    @classmethod
-    def _validate_structured_semantic_sections(
-        cls,
-        sections: dict[str, tuple[str, ...]],
-        source_request: str | None,
-        literals: tuple[LiteralContent, ...],
-        protected_terms: tuple[ProtectedTerm, ...],
-    ) -> None:
-        requested = cls._semantic_reference_text(
-            source_request,
-            literals,
-            protected_terms,
-        )
-        for section in ("subject_count", "character", "series", "artist"):
-            for value in sections[section]:
-                if not cls._semantic_term_was_requested(value, requested):
-                    raise TransformationError(UNREQUESTED_SEMANTIC_TAG)
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
         descriptions = (
@@ -1584,12 +1228,6 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
             for part in (*fixed_negative, generated_negative, *fixed_negative_suffix)
             if part
         ).strip() or None
-        self._validate_no_unrequested_semantic_tags(
-            "\n".join((positive, negative or "")),
-            source_request,
-            literals,
-            protected_terms,
-        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, negative, length_warnings(positive, variant.length_guidance))
 
@@ -1603,12 +1241,6 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         auto_quality_tags: bool,
     ) -> RenderResult:
         sections = self._tag_sections(raw, _ANIMA_TAG_KEYS)
-        self._validate_structured_semantic_sections(
-            sections,
-            source_request,
-            literals,
-            protected_terms,
-        )
         exemptions = _normalization_exemptions(literals, protected_terms)
         normalized_sections: dict[str, list[str]] = {}
         for section in _ANIMA_SECTION_ORDER:
@@ -1639,12 +1271,6 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         negative = ", ".join(
             (*fixed_negative, *_dedupe_tags(generated_negative, negative_seen), *fixed_negative_suffix)
         ).strip() or None
-        self._validate_no_unrequested_semantic_tags(
-            "\n".join((positive, negative or "")),
-            source_request,
-            literals,
-            protected_terms,
-        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, negative, length_warnings(positive, variant.length_guidance))
 
@@ -1721,12 +1347,6 @@ Adapt to the detected input form instead of forcing one format: Natural remains 
         negative = ", ".join(
             (*fixed_negative, *_dedupe_tags(normalized_negative, negative_seen), *fixed_negative_suffix)
         ).strip() or None
-        self._validate_no_unrequested_semantic_tags(
-            "\n".join((positive, negative or "")),
-            source_request,
-            literals,
-            protected_terms,
-        )
         _validate_preservation(positive, literals, protected_terms)
         return RenderResult(positive, negative, length_warnings(positive, variant.length_guidance))
 

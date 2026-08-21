@@ -18,7 +18,6 @@ from core.renderers import (
     RendererContext,
     RendererRegistry,
     TransformationError,
-    UNREQUESTED_SEMANTIC_TAG,
     Wan22Renderer,
 )
 from core.skill_manager import SkillManager
@@ -434,17 +433,21 @@ def test_each_renderer_owns_all_processing_mode_rules(renderer, task: str, proce
         "sensitive",
         "nsfw",
         "explicit",
+        "rating:explicit",
         "score_9",
         "artist:Unasked Artist",
         "by Unasked Artist",
         "1girl",
+        "woman",
+        "man",
+        "adult",
         "character:Unasked Character",
         "copyright:Unasked Series",
         "1990s",
         "vintage",
     ],
 )
-def test_all_renderers_reject_unrequested_non_quality_semantic_tags(
+def test_all_renderers_do_not_hard_reject_semantic_category_words(
     profile_id: str,
     task: str,
     unrequested: str,
@@ -458,10 +461,12 @@ def test_all_renderers_reject_unrequested_non_quality_semantic_tags(
         else generated_text
     )
 
-    with pytest.raises(TransformationError) as exc:
-        engine.finalize_output(request, PromptSettings(mode=task), generated)
-
-    assert exc.value.code == UNREQUESTED_SEMANTIC_TAG
+    result = engine.finalize_output(
+        request,
+        PromptSettings(mode=task),
+        generated,
+    )
+    assert unrequested.casefold() in result.positive.casefold()
 
 
 @pytest.mark.parametrize(

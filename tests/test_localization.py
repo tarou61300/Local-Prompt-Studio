@@ -33,11 +33,13 @@ def test_english_and_japanese_locales_load():
     )
     assert Localization(root, "en-US").tr("output.negative") == "Negative Prompt (editable)"
     assert "ネガティブ" in Localization(root, "ja-JP").tr("output.negative")
-    assert "not requested" in Localization(root, "en-US").tr(
-        "error.unrequested_semantic_tag"
+    assert Localization(root, "en-US").tr("input.guide") == "Input guide"
+    assert Localization(root, "ja-JP").tr("input.guide") == "入力ガイド"
+    assert "Translating" in Localization(root, "en-US").tr(
+        "translation.status.translating"
     )
-    assert "ユーザー未指定" in Localization(root, "ja-JP").tr(
-        "error.unrequested_semantic_tag"
+    assert "翻訳中" in Localization(root, "ja-JP").tr(
+        "translation.status.translating"
     )
 
 

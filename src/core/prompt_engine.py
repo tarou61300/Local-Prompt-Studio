@@ -93,8 +93,13 @@ class PromptEngine:
         # Some embedded Jinja templates (including Qwen3.5 variants) accept a
         # system role only as the first message. Keep every instruction and the
         # Skill text unchanged, but place them in one leading system message.
+        post_external = getattr(renderer, "post_external_intent_guardrails", None)
+        final_intent_guardrails = (
+            post_external(context) if callable(post_external) else ""
+        )
         system_content = "\n\n".join(
-            (
+            block
+            for block in (
                 renderer.system_instructions(
                     context,
                     analysis,
@@ -103,7 +108,9 @@ class PromptEngine:
                 self._input_role_material(context),
                 f"SELECTED PROFILE ({self.profile.manifest.id} v{self.profile.manifest.profile_version})",
                 *external_materials,
+                final_intent_guardrails,
             )
+            if block
         )
         return [
             {"role": "system", "content": system_content},

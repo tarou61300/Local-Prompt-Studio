@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QEvent, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QTextCursor
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -43,11 +44,13 @@ from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
 from core.history_manager import HistoryManager
 from core.inference_backends import BACKEND_VULKAN, backend_spec
 from core.llama_manager import LlamaServerManager
+from core.literal_content import parse_literal_content
 from core.localization import Localization
 from core.model_manager import inspect_model
 from core.profile_loader import ProfileLoader
 from core.profile_models import LoadedProfile
 from core.prompt_engine import H3Reference, PromptEngine, PromptSettings, REFERENCE_LIMITS
+from core.prompt_translation import PromptTranslationService
 from core.renderers import (
     ANIMA_HYBRID_OUTPUT_INVALID,
     DANBOORU_OUTPUT_INVALID,
@@ -55,7 +58,6 @@ from core.renderers import (
     PROTECTED_TERM_NOT_PRESERVED,
     RenderResult,
     RendererRegistry,
-    UNREQUESTED_SEMANTIC_TAG,
 )
 from core.skill_manager import SkillManager
 from core.system_memory import (
@@ -73,10 +75,17 @@ from core.version import (
     REPOSITORY_URL,
 )
 
-from .settings_dialog import SettingsDialog
 from .chat_page import ChatMessageWidget, ChatPage
 from .ime_aware_text_edit import ImeAwarePlaceholderPlainTextEdit
-from .workers import ChatThread, ComfyUISendThread, GenerationThread
+from .prompt_translation_dialog import PromptTranslationDialog
+from .request_guide import request_guide_entries
+from .settings_dialog import SettingsDialog
+from .workers import (
+    ChatThread,
+    ComfyUISendThread,
+    GenerationThread,
+    TranslationThread,
+)
 
 
 CAMERAS = ("Free", "Static camera", "Slow push-in", "Slow pull-out", "Pan", "Tilt", "Tracking", "Handheld")
@@ -173,6 +182,15 @@ COMFYUI_SEND_ERROR_MESSAGES = {
 }
 
 
+_VISUAL_STYLE_KEYS = (
+    "unspecified",
+    "2d_animation",
+    "live_action",
+    "3d_cg",
+)
+_VISUAL_STYLE_SUPPORTED_RENDERERS = frozenset({"minimax_h3"})
+
+
 def comfyui_send_error_message(code: str) -> str:
     return COMFYUI_SEND_ERROR_MESSAGES.get(
         code,
@@ -230,6 +248,12 @@ class MainWindow(QMainWindow):
         self._generation_active = False
         self.chat_worker: ChatThread | None = None
         self._chat_active = False
+        self.translation_service = PromptTranslationService()
+        self.translation_worker: TranslationThread | None = None
+        self.translation_dialog: PromptTranslationDialog | None = None
+        self._translation_active = False
+        self._pending_translation: tuple[int, str, str, bool] | None = None
+        self._last_protected_terms: tuple[str, ...] = ()
         self.chat_messages: list[dict[str, Any]] = []
         self._pending_chat_user_message: dict[str, Any] | None = None
         self._pending_chat_message_widget: ChatMessageWidget | None = None
@@ -253,6 +277,9 @@ class MainWindow(QMainWindow):
             self._application.installEventFilter(self)
         self._last_memory_info: MemoryInfo | None = None
         self._vulkan_devices = []
+        self._visual_style_key = "unspecified"
+        self._managed_visual_style_block: str | None = None
+        self._visual_style_edit_in_progress = False
 
         self.setWindowTitle(f"{self.tr('app.title')} {APP_DISPLAY_VERSION}")
         self.resize(1120, 820)
@@ -488,7 +515,38 @@ class MainWindow(QMainWindow):
         self.mode_supplement_toggle.toggled.connect(
             self._toggle_mode_supplement
         )
-        mode_section_layout.addWidget(self.mode_supplement_toggle)
+        self.mode_controls = QWidget()
+        self.mode_controls.setObjectName("mode_controls")
+        mode_controls_layout = QHBoxLayout(self.mode_controls)
+        mode_controls_layout.setContentsMargins(0, 0, 0, 0)
+        mode_controls_layout.setSpacing(8)
+        mode_controls_layout.addWidget(self.mode_supplement_toggle)
+        self.visual_style_button = QToolButton()
+        self.visual_style_button.setObjectName("visual_style_button")
+        self.visual_style_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup
+        )
+        self.visual_style_button.setToolTip(self.tr("visual_style.tooltip"))
+        self.visual_style_menu = QMenu(self.visual_style_button)
+        self.visual_style_action_group = QActionGroup(self.visual_style_menu)
+        self.visual_style_action_group.setExclusive(True)
+        self.visual_style_actions: dict[str, QAction] = {}
+        for key in _VISUAL_STYLE_KEYS:
+            action = self.visual_style_menu.addAction(
+                self.tr(f"visual_style.option.{key}")
+            )
+            action.setCheckable(True)
+            action.setData(key)
+            action.triggered.connect(
+                lambda _checked=False, selected=key: self._set_visual_style(selected)
+            )
+            self.visual_style_action_group.addAction(action)
+            self.visual_style_actions[key] = action
+        self.visual_style_button.setMenu(self.visual_style_menu)
+        mode_controls_layout.addWidget(self.visual_style_button)
+        mode_controls_layout.addStretch()
+        mode_section_layout.addWidget(self.mode_controls)
+        self._update_visual_style_button()
         self.mode_group = QGroupBox(self.tr("mode.notes"))
         mode_group_layout = QVBoxLayout(self.mode_group)
         mode_group_layout.setContentsMargins(6, 8, 6, 6)
@@ -589,6 +647,9 @@ class MainWindow(QMainWindow):
         self.request_text.setMinimumHeight(105)
         self.request_text.setPlaceholderText(self.tr("input.placeholder"))
         self.request_text.setToolTip(self.tr("input.literal_hint"))
+        self.request_text.document().contentsChange.connect(
+            self._track_visual_style_request_edit
+        )
         request_layout.addWidget(self.request_text, 1)
         self.literal_hint = QLabel(self.tr("input.literal_hint"))
         self.literal_hint.setObjectName("literal_syntax_hint")
@@ -605,6 +666,28 @@ class MainWindow(QMainWindow):
         )
         self.literal_hint.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.literal_hint.setToolTip(self.tr("input.literal_hint"))
+        guide_row = QHBoxLayout(self.literal_hint)
+        guide_row.setContentsMargins(0, 0, 0, 0)
+        guide_row.addStretch()
+        self.request_guide_button = QToolButton()
+        self.request_guide_button.setObjectName("request_guide_button")
+        self.request_guide_button.setText(self.tr("input.guide"))
+        self.request_guide_button.setToolTip(self.tr("input.guide_tooltip"))
+        self.request_guide_button.setPopupMode(
+            QToolButton.ToolButtonPopupMode.InstantPopup
+        )
+        guide_menu = QMenu(self.request_guide_button)
+        for entry in request_guide_entries(
+            self.localization.locale_id,
+            profile_id=self.profile.manifest.id if self.profile else None,
+        ):
+            action = guide_menu.addAction(f"{entry.title}: {entry.example}")
+            action.setData(entry.key)
+            action.triggered.connect(
+                lambda _checked=False, key=entry.key: self._insert_request_guide(key)
+            )
+        self.request_guide_button.setMenu(guide_menu)
+        guide_row.addWidget(self.request_guide_button)
         request_layout.addWidget(self.literal_hint)
         self.workspace_splitter.addWidget(self.request_group)
 
@@ -615,6 +698,21 @@ class MainWindow(QMainWindow):
         self.output_group = QGroupBox(self.tr("output.prompt"))
         self.output_group.setMinimumHeight(150)
         output_layout = QVBoxLayout(self.output_group)
+        output_actions = QHBoxLayout()
+        output_actions.setContentsMargins(0, 0, 0, 0)
+        output_actions.addStretch()
+        self.edit_prompt_button = QPushButton()
+        self.edit_prompt_button.setObjectName("edit_prompt_translation_button")
+        self.edit_prompt_button.setText(self.tr("translation.edit"))
+        self.edit_prompt_button.setToolTip(self.tr("translation.edit_tooltip"))
+        self.edit_prompt_button.setMinimumSize(150, 30)
+        self.edit_prompt_button.setSizePolicy(
+            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Fixed,
+        )
+        self.edit_prompt_button.clicked.connect(self._open_prompt_translation)
+        output_actions.addWidget(self.edit_prompt_button)
+        output_layout.addLayout(output_actions)
         self.output_text = QPlainTextEdit()
         self.output_text.setMinimumHeight(105)
         output_layout.addWidget(self.output_text)
@@ -808,7 +906,7 @@ class MainWindow(QMainWindow):
                 140,
                 self.right_workspace.height()
                 - workspace_reserve
-                - self.mode_supplement_toggle.sizeHint().height()
+                - self.mode_controls.sizeHint().height()
                 - 34,
             )
             scroll_height = min(content_height, available_scroll_height, 340)
@@ -824,12 +922,12 @@ class MainWindow(QMainWindow):
             layout.activate()
             if self.mode_group.isVisible():
                 section_height = (
-                    self.mode_supplement_toggle.sizeHint().height()
+                    self.mode_controls.sizeHint().height()
                     + layout.spacing()
                     + self.mode_group.minimumHeight()
                 )
             else:
-                section_height = self.mode_supplement_toggle.sizeHint().height()
+                section_height = self.mode_controls.sizeHint().height()
         else:
             section_height = self.mode_section.sizeHint().height()
         self.mode_section.setMinimumHeight(section_height)
@@ -1088,11 +1186,67 @@ class MainWindow(QMainWindow):
         self.reference_actions.setVisible(refs_visible)
         self._mode_supplement_available = True
         self.mode_section.setVisible(True)
+        renderer_id = self.profile.manifest.renderer if self.profile else ""
+        self.visual_style_button.setVisible(
+            renderer_id in _VISUAL_STYLE_SUPPORTED_RENDERERS
+        )
         self.mode_group.setVisible(
             self._mode_supplement_available
             and self.mode_supplement_toggle.isChecked()
         )
         self._sync_mode_section_height()
+
+    def _track_visual_style_request_edit(
+        self,
+        position: int,
+        chars_removed: int,
+        chars_added: int,
+    ) -> None:
+        _ = chars_removed, chars_added
+        managed = self._managed_visual_style_block
+        if (
+            not self._visual_style_edit_in_progress
+            and managed is not None
+            and position < len(managed)
+        ):
+            self._managed_visual_style_block = None
+
+    def _update_visual_style_button(self) -> None:
+        value = self.tr(f"visual_style.option.{self._visual_style_key}")
+        self.visual_style_button.setText(
+            self.tr("visual_style.current", value=value)
+        )
+        for key, action in self.visual_style_actions.items():
+            action.setChecked(key == self._visual_style_key)
+
+    def _set_visual_style(self, key: str) -> None:
+        if key not in _VISUAL_STYLE_KEYS:
+            return
+        current = self.request_text.toPlainText()
+        old_block = self._managed_visual_style_block
+        old_block_is_intact = bool(old_block and current.startswith(old_block))
+        new_block = (
+            ""
+            if key == "unspecified"
+            else f'{self.tr(f"visual_style.request.{key}")}\n'
+        )
+        edit_cursor = QTextCursor(self.request_text.document())
+        edit_cursor.setPosition(0)
+        self._visual_style_edit_in_progress = True
+        try:
+            if old_block_is_intact and old_block is not None:
+                edit_cursor.setPosition(
+                    len(old_block),
+                    QTextCursor.MoveMode.KeepAnchor,
+                )
+                edit_cursor.insertText(new_block)
+            elif new_block:
+                edit_cursor.insertText(new_block)
+        finally:
+            self._visual_style_edit_in_progress = False
+        self._managed_visual_style_block = new_block or None
+        self._visual_style_key = key
+        self._update_visual_style_button()
 
     def _supplement_capabilities(self, mode: str) -> tuple[bool, bool, bool]:
         start_visible = mode in {"I2V", "I2VA", "FL2VA"}
@@ -1179,6 +1333,17 @@ class MainWindow(QMainWindow):
         cursor.clearSelection()
         widget.setTextCursor(cursor)
 
+    def _insert_request_guide(self, key: str) -> None:
+        entries = request_guide_entries(
+            self.localization.locale_id,
+            profile_id=self.profile.manifest.id if self.profile else None,
+        )
+        entry = next((item for item in entries if item.key == key), None)
+        if entry is None:
+            return
+        self._append_supplement(self.request_text, entry.example)
+        self.request_text.setFocus(Qt.FocusReason.OtherFocusReason)
+
     def _transfer_chat_response(self, text: str, destination: str) -> None:
         widgets = {
             "request": self.request_text,
@@ -1235,7 +1400,11 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, focus_destination)
 
     def _select_chat_image(self) -> None:
-        if self._generation_active or self._chat_active:
+        if (
+            self._generation_active
+            or self._chat_active
+            or self._translation_active
+        ):
             return
         if not self._chat_image_attachment_allowed():
             return
@@ -1266,7 +1435,11 @@ class MainWindow(QMainWindow):
         return True
 
     def _attach_chat_image(self, path: str) -> None:
-        if self._generation_active or self._chat_active:
+        if (
+            self._generation_active
+            or self._chat_active
+            or self._translation_active
+        ):
             return
         if not self._chat_image_attachment_allowed():
             return
@@ -1285,7 +1458,12 @@ class MainWindow(QMainWindow):
 
     def _analyze_attached_image(self, analysis_type: str) -> None:
         attachment = self.chat_page.attachment
-        if attachment is None or self._generation_active or self._chat_active:
+        if (
+            attachment is None
+            or self._generation_active
+            or self._chat_active
+            or self._translation_active
+        ):
             return
         if analysis_type == "reference_image":
             display_text = self.tr("chat.reference_analysis")
@@ -1318,7 +1496,11 @@ class MainWindow(QMainWindow):
         retain_attachment: bool = False,
         analysis_type: str = "chat",
     ) -> None:
-        if self._generation_active or self._chat_active:
+        if (
+            self._generation_active
+            or self._chat_active
+            or self._translation_active
+        ):
             return
         message = text.strip()
         if not message and attachment is None:
@@ -1360,7 +1542,12 @@ class MainWindow(QMainWindow):
         self.chat_worker.start()
 
     def _prepare_chat_transfer(self, source_text: str) -> None:
-        if not source_text.strip() or self._generation_active or self._chat_active:
+        if (
+            not source_text.strip()
+            or self._generation_active
+            or self._chat_active
+            or self._translation_active
+        ):
             return
         self.config = self.config_manager.load()
         self._chat_analysis_type = "prompt_transfer"
@@ -1486,13 +1673,152 @@ class MainWindow(QMainWindow):
         self._update_chat_model_status()
         self._refresh_memory_display()
 
+    def _open_prompt_translation(self) -> None:
+        original = self.output_text.toPlainText()
+        if (
+            not original.strip()
+            or self._generation_active
+            or self._chat_active
+            or self._translation_active
+        ):
+            return
+        dialog = PromptTranslationDialog(
+            self.tr,
+            original,
+            protected_terms=self._last_protected_terms,
+            parent=self,
+        )
+        dialog.translation_requested.connect(self._translation_requested)
+        dialog.finished.connect(self._translation_dialog_finished)
+        self.translation_dialog = dialog
+        self._translation_active = True
+        self._update_llm_controls()
+        self._update_send_button_state()
+        dialog.open()
+
+    def _translation_requested(
+        self,
+        revision: int,
+        direction: str,
+        source_text: str,
+        structure_protection: bool,
+    ) -> None:
+        if self.translation_dialog is None:
+            return
+        request = (revision, direction, source_text, structure_protection)
+        if self.translation_worker is not None:
+            self._pending_translation = request
+            return
+        self._start_translation(*request)
+
+    def _start_translation(
+        self,
+        revision: int,
+        direction: str,
+        source_text: str,
+        structure_protection: bool,
+    ) -> None:
+        if self.translation_dialog is None:
+            return
+        self.config = self.config_manager.load()
+        self.translation_dialog.mark_translating(revision)
+        self.translation_worker = TranslationThread(
+            service=self.translation_service,
+            server=self.server,
+            config=self.config,
+            source_text=source_text,
+            direction=direction,
+            protected_terms=self._last_protected_terms,
+            structure_protection=structure_protection,
+            revision=revision,
+            mock_mode=self.mock_mode,
+            parent=self,
+        )
+        self.translation_worker.status_changed.connect(
+            self._set_translation_status
+        )
+        self.translation_worker.result_ready.connect(
+            self._translation_complete
+        )
+        self.translation_worker.error_occurred.connect(
+            self._translation_error
+        )
+        self.translation_worker.finished.connect(self._translation_finished)
+        self._translation_active = True
+        self._update_llm_controls()
+        self.translation_worker.start()
+
+    def _set_translation_status(self, status: str) -> None:
+        if self.translation_dialog is not None:
+            self.translation_dialog.status_label.setText(self.tr(status))
+
+    def _translation_complete(
+        self,
+        revision: int,
+        direction: str,
+        translated: str,
+    ) -> None:
+        if self.translation_dialog is not None:
+            self.translation_dialog.apply_translation_result(
+                revision,
+                direction,
+                translated,
+            )
+
+    def _translation_error(self, revision: int, code: str) -> None:
+        if self.translation_dialog is not None:
+            self.translation_dialog.apply_translation_error(revision, code)
+
+    def _translation_finished(self) -> None:
+        finished_worker = self.translation_worker
+        self.translation_worker = None
+        if finished_worker is not None:
+            finished_worker.deleteLater()
+        pending = self._pending_translation
+        self._pending_translation = None
+        if pending is not None and self.translation_dialog is not None:
+            self._start_translation(*pending)
+            return
+        if self.translation_dialog is None:
+            self._translation_active = False
+        self._update_llm_controls()
+        self._update_send_button_state()
+        self._update_unload_button_state()
+        self._refresh_memory_display()
+
+    def _translation_dialog_finished(self, result: int) -> None:
+        dialog = self.translation_dialog
+        if dialog is None:
+            return
+        if result:
+            self.output_text.setPlainText(dialog.original_text())
+            self.status_label.setText(self.tr("translation.status.applied"))
+        self.translation_dialog = None
+        self._pending_translation = None
+        if (
+            not result
+            and self.translation_worker is not None
+            and self.translation_worker.isRunning()
+        ):
+            self.translation_worker.requestInterruption()
+            self.server.cancel()
+        if self.translation_worker is None:
+            self._translation_active = False
+        dialog.deleteLater()
+        self._update_llm_controls()
+        self._update_send_button_state()
+
     def _update_llm_controls(self) -> None:
-        any_busy = self._generation_active or self._chat_active
+        any_busy = (
+            self._generation_active
+            or self._chat_active
+            or self._translation_active
+        )
         self.chat_page.set_busy(
             any_llm_busy=any_busy,
             chat_busy=self._chat_active,
         )
-        if self._chat_active:
+        if self._chat_active or self._translation_active:
             self.generate_button.setEnabled(False)
             self.regenerate_button.setEnabled(False)
         elif not self._generation_active and self._send_worker is None:
@@ -1501,7 +1827,7 @@ class MainWindow(QMainWindow):
         self._update_unload_button_state()
 
     def _update_send_button_state(self) -> None:
-        generation_idle = not self._generation_active
+        generation_idle = not self._generation_active and not self._translation_active
         self.copy_button.setEnabled(
             bool(self.output_text.toPlainText()) and generation_idle
         )
@@ -1514,11 +1840,18 @@ class MainWindow(QMainWindow):
             and generation_idle
             and not self._send_close_requested
         )
+        self.edit_prompt_button.setEnabled(
+            bool(self.output_text.toPlainText())
+            and not self._generation_active
+            and not self._chat_active
+            and not self._translation_active
+        )
 
     def _update_unload_button_state(self) -> None:
         enabled = (
             not self._generation_active
             and not self._chat_active
+            and not self._translation_active
             and self.server.is_owned_server_running
         )
         self.unload_model_button.setEnabled(enabled)
@@ -1553,6 +1886,7 @@ class MainWindow(QMainWindow):
         if (
             self._generation_active
             or self._chat_active
+            or self._translation_active
             or not self.server.is_owned_server_running
         ):
             self._update_unload_button_state()
@@ -1578,12 +1912,17 @@ class MainWindow(QMainWindow):
         self._update_send_button_state()
 
     def _set_send_conflicting_actions_enabled(self, enabled: bool) -> None:
-        self.generate_button.setEnabled(enabled and not self._chat_active)
-        self.regenerate_button.setEnabled(enabled and not self._chat_active)
+        llm_idle = not self._chat_active and not self._translation_active
+        self.generate_button.setEnabled(enabled and llm_idle)
+        self.regenerate_button.setEnabled(enabled and llm_idle)
         self.settings_action.setEnabled(enabled)
 
     def _send_to_comfyui(self) -> None:
-        if self._send_worker is not None or self._generation_active:
+        if (
+            self._send_worker is not None
+            or self._generation_active
+            or self._translation_active
+        ):
             return
         text = self.output_text.toPlainText()
         if not text:
@@ -1655,7 +1994,7 @@ class MainWindow(QMainWindow):
     def generate(self) -> None:
         if self._send_worker is not None:
             return
-        if self._chat_active:
+        if self._chat_active or self._translation_active:
             return
         if self.worker is not None and self.worker.isRunning():
             return
@@ -1723,12 +2062,21 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "PROFILE_INVALID", self.tr("error.profile_invalid"))
             return
         variant_id = str(self.profile_variant.currentData() or self.profile.manifest.default_variant)
+        prompt_settings = self._collect_settings()
+        self._last_protected_terms = tuple(
+            dict.fromkeys(
+                (
+                    *prompt_settings.protected_terms,
+                    *(item.text for item in parse_literal_content(request)),
+                )
+            )
+        )
         self.worker = GenerationThread(
             engine=PromptEngine(self.skill_manager, self.profile, variant_id),
             server=self.server,
             config=self.config,
             request_text=request,
-            settings=self._collect_settings(),
+            settings=prompt_settings,
             mock_mode=self.mock_mode,
             parent=self,
         )
@@ -1798,8 +2146,6 @@ class MainWindow(QMainWindow):
             message = self.tr("error.danbooru_output_invalid")
         elif message == ANIMA_HYBRID_OUTPUT_INVALID:
             message = self.tr("error.anima_hybrid_output_invalid")
-        elif message == UNREQUESTED_SEMANTIC_TAG:
-            message = self.tr("error.unrequested_semantic_tag")
         QMessageBox.warning(self, self.tr("error.generation_title"), message)
 
     def _set_generation_status(self, status: str) -> None:
@@ -2085,6 +2431,10 @@ class MainWindow(QMainWindow):
             self.chat_worker.requestInterruption()
             self.server.cancel()
             self.chat_worker.wait(2000)
+        if self.translation_worker is not None and self.translation_worker.isRunning():
+            self.translation_worker.requestInterruption()
+            self.server.cancel()
+            self.translation_worker.wait(2000)
         self.chat_messages.clear()
         self._pending_chat_user_message = None
         self._pending_chat_message_widget = None

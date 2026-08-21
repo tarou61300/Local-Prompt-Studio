@@ -22,6 +22,11 @@ from core.llama_manager import (
 )
 from core.model_manager import validate_model
 from core.prompt_engine import PromptEngine, PromptSettings
+from core.prompt_translation import (
+    PromptTranslationService,
+    TRANSLATION_EMPTY_RESPONSE,
+    TRANSLATION_STRUCTURE_NOT_PRESERVED,
+)
 
 
 class ComfyUITestThread(QThread):
@@ -177,6 +182,85 @@ class GenerationThread(QThread):
                 self.error_occurred.emit("生成はユーザーによってキャンセルされました。")
             else:
                 self.error_occurred.emit(str(exc) or "生成中に不明なエラーが発生しました。")
+
+
+class TranslationThread(QThread):
+    """Run one faithful prompt translation through the shared llama-server."""
+
+    status_changed = Signal(str)
+    result_ready = Signal(int, str, str)
+    error_occurred = Signal(int, str)
+
+    def __init__(
+        self,
+        *,
+        service: PromptTranslationService,
+        server: LlamaServerManager,
+        config: AppConfig,
+        source_text: str,
+        direction: str,
+        protected_terms: tuple[str, ...],
+        structure_protection: bool,
+        revision: int,
+        mock_mode: bool,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.service = service
+        self.server = server
+        self.config = config
+        self.source_text = source_text
+        self.direction = direction
+        self.protected_terms = tuple(protected_terms)
+        self.structure_protection = structure_protection
+        self.revision = revision
+        self.mock_mode = mock_mode
+
+    def run(self) -> None:
+        try:
+            request = self.service.request_payload(
+                self.source_text,
+                self.direction,
+                protected_terms=self.protected_terms,
+                structure_protection=self.structure_protection,
+            )
+            if not self.mock_mode:
+                self.status_changed.emit("translation.status.preparing_model")
+                model = validate_model(self.config.model_path)
+                self.server.start(
+                    model.path,
+                    backend=self.config.inference_backend,
+                    backend_device=self.config.backend_device,
+                    context_size=self.config.context_size,
+                    cpu_threads=self.config.cpu_threads,
+                    gpu_layers=self.config.gpu_layers,
+                    status_callback=self.status_changed.emit,
+                )
+                self.status_changed.emit("translation.status.preflight")
+                self.server.preflight_context(request.payload, self.config.context_size)
+            self.status_changed.emit("translation.status.translating")
+            generated = self.server.generate(
+                request.payload,
+                timeout=DEFAULT_GENERATION_TIMEOUT_SECONDS,
+            )
+            if not self.isInterruptionRequested():
+                translated = self.service.finalize_response(
+                    generated,
+                    request,
+                    protected_terms=self.protected_terms,
+                )
+                self.result_ready.emit(self.revision, self.direction, translated)
+        except Exception as exc:
+            if self.isInterruptionRequested():
+                code = "TRANSLATION_CANCELLED"
+            elif str(exc) in {
+                TRANSLATION_EMPTY_RESPONSE,
+                TRANSLATION_STRUCTURE_NOT_PRESERVED,
+            }:
+                code = str(exc)
+            else:
+                code = "TRANSLATION_FAILED"
+            self.error_occurred.emit(self.revision, code)
 
 
 class ChatThread(QThread):

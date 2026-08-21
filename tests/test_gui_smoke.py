@@ -28,6 +28,7 @@ from core.inference_backends import (
     GPU_LAYERS_AUTO,
     BackendDevice,
 )
+from core.prompt_engine import PromptEngine
 from core.skill_manager import SkillManager
 from core.system_memory import GIB, MemoryInfo
 from mock_server import start_mock_server
@@ -1385,3 +1386,113 @@ def test_settings_disables_vulkan_when_llama_reports_no_device(tmp_path, monkeyp
     finally:
         dialog.close()
         app.processEvents()
+
+
+def test_h3_visual_style_control_manages_only_its_own_request_prefix(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    mock, url = start_mock_server()
+    try:
+        manager = ConfigManager(tmp_path / "japanese")
+        manager.save(AppConfig(ui_locale="ja-JP"))
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        window.show()
+        app.processEvents()
+
+        assert window.visual_style_button.isVisible()
+        assert window.mode_controls.isAncestorOf(window.visual_style_button)
+        assert window.visual_style_button.geometry().left() > (
+            window.mode_supplement_toggle.geometry().right()
+        )
+        assert window.visual_style_button.text() == "映像スタイル: 未指定"
+        assert window.visual_style_actions["unspecified"].isChecked()
+        assert [
+            action.data() for action in window.request_guide_button.menu().actions()
+        ] == ["time", "fixed_camera", "cut", "speech", "visible_text"]
+
+        body = (
+            "動画の0-10秒間は女性が歩く。\n"
+            "動画の10-15秒間は女性が走る。\n"
+            + "長いRequest本文を保持する。" * 20
+        )
+        window.request_text.setPlainText(body)
+        window.visual_style_actions["2d_animation"].trigger()
+        assert window.request_text.toPlainText() == f"2Dアニメーション。\n{body}"
+        assert window.visual_style_button.text() == "映像スタイル: 2Dアニメーション"
+
+        window.visual_style_actions["live_action"].trigger()
+        assert window.request_text.toPlainText() == f"実写映像。\n{body}"
+        assert window.request_text.toPlainText().count("実写映像。") == 1
+        window.visual_style_actions["3d_cg"].trigger()
+        assert window.request_text.toPlainText() == f"3D CG映像。\n{body}"
+        assert "実写映像。" not in window.request_text.toPlainText()
+        window.visual_style_actions["unspecified"].trigger()
+        assert window.request_text.toPlainText() == body
+
+        user_style = "手描き風の2Dアニメーションで、女性が街を歩く。"
+        window.request_text.setPlainText(user_style)
+        window.visual_style_actions["2d_animation"].trigger()
+        window.visual_style_actions["unspecified"].trigger()
+        assert window.request_text.toPlainText() == user_style
+
+        window.request_text.setPlainText(body)
+        window.visual_style_actions["2d_animation"].trigger()
+        pasted_request = "2Dアニメーション。\nユーザーが全文を貼り付けたRequest。"
+        window.request_text.setPlainText(pasted_request)
+        assert window._managed_visual_style_block is None
+        window.visual_style_actions["unspecified"].trigger()
+        assert window.request_text.toPlainText() == pasted_request
+
+        window.request_text.setPlainText(body)
+        window.visual_style_actions["2d_animation"].trigger()
+        user_edited = window.request_text.toPlainText().replace(
+            "2Dアニメーション。", "ユーザーが編集した映像表現。", 1
+        )
+        window.request_text.setPlainText(user_edited)
+        window.visual_style_actions["live_action"].trigger()
+        assert window.request_text.toPlainText() == f"実写映像。\n{user_edited}"
+        window.visual_style_actions["unspecified"].trigger()
+        assert window.request_text.toPlainText() == user_edited
+
+        window.request_text.setPlainText(body)
+        window.visual_style_actions["3d_cg"].trigger()
+        request = window.request_text.toPlainText()
+        engine = PromptEngine(
+            window.skill_manager,
+            window.profile,
+            str(window.profile_variant.currentData()),
+        )
+        assert engine.build_messages(request, window._collect_settings())[1] == {
+            "role": "user",
+            "content": request,
+        }
+        window.close()
+        app.processEvents()
+
+        english_manager = ConfigManager(tmp_path / "english")
+        english_manager.save(AppConfig(ui_locale="en-US"))
+        english = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=english_manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        assert english.visual_style_button.text() == "Visual Style: Unspecified"
+        assert [
+            english.visual_style_actions[key].text()
+            for key in ("unspecified", "2d_animation", "live_action", "3d_cg")
+        ] == ["Unspecified", "2D Animation", "Live Action", "3D CG"]
+        english.request_text.setPlainText("A woman walks, then runs.")
+        english.visual_style_actions["live_action"].trigger()
+        assert english.request_text.toPlainText() == (
+            "Live-action footage.\nA woman walks, then runs."
+        )
+        english.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
