@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.1.0 — 2026-08-23
+
+Stable theme and visibility update for Local Prompt Studio.
+
+### Theme and appearance
+
+- Added localized **Normal** and **Dark** theme selection in Settings.
+- Saved the selected theme in portable configuration and applied it immediately when Settings is saved.
+- Restored the saved theme at application startup.
+- Migrated and normalized legacy System, Light, and Dark configuration values without changing Config schema v7.
+- Added a complete dark palette with improved text, control, menu, disabled-state, tooltip, translation-highlight, and error-state contrast.
+- Preserved the native Windows appearance when returning to Normal theme, including repeated Normal/Dark switching.
+- Improved the Dark theme visibility of the Request and editable Prompt input boundaries, with distinct normal and focused outlines limited to those two editors.
+
+### Compatibility
+
+- Kept Prompt generation, AI Chat, local VLM analysis, Profile/Renderer behavior, portable storage, and MMH3 Prompt Bridge protocol unchanged.
+
 ## 2.0.0 — 2026-08-22
 
 First stable Local Prompt Studio release, consolidating the v2 community-test series into a portable local Prompt, Chat, image-analysis, and ComfyUI workflow.

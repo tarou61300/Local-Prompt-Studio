@@ -1,8 +1,8 @@
-# Local Prompt Studio v2.0.0
+# Local Prompt Studio v2.1.0
 
 **Windows x64 portable stable release**
 
-Release date: 2026-08-22
+Release date: 2026-08-23
 
 Repository: [https://github.com/tarou61300/Local-Prompt-Studio](https://github.com/tarou61300/Local-Prompt-Studio)
 
@@ -16,7 +16,7 @@ UI言語はEnglishと日本語を選択でき、入力言語とは独立して�
 いない場合も、従来のローカルMiniMax H3 Prompt生成をそのまま利用できます。既存の
 MMH3 Prompt Bridge v1.2との後方互換性も維持します。
 
-v2.0.0では、従来のPrompt生成に加えてローカルLLMによるAI Chatを追加しました。Prompt生成と
+Local Prompt Studio 2.xでは、従来のPrompt生成に加えてローカルLLMによるAI Chatを利用できます。Prompt生成と
 同じGGUFを共有するか、AI Chat専用GGUFを選択できます。アプリが常駐させるモデルは1つだけで、
 用途を切り替えると既存のllama-server管理機構が必要なモデルへ安全に切り替えます。読み込み済み
 モデルは「モデルをアンロード」から停止でき、次回のChatまたはPrompt生成時に再読み込みします。
@@ -35,6 +35,13 @@ Request付近の入力ガイドから時間・カメラ・カット・発話・�
 映像スタイルを未指定／2Dアニメーション／実写／3D CGから選び、選択内容をRequest先頭へ可視的に
 追加できます。生成済みPromptはTranslation EditorでOriginalと日本語訳を並べて編集でき、構造保護、
 保護範囲highlight、手動翻訳更新、任意の自動翻訳に対応します。
+
+## Theme
+
+設定画面の「外観テーマ」から、通常またはダークを選択できます。選択したThemeはポータブル設定へ
+保存され、保存時に即時適用されるほか、次回起動時にも復元されます。旧設定のSystem／Light／Dark値は
+安全に通常／ダークへ移行されます。ダークThemeでは各UI部品のコントラストを調整し、RequestとPromptの
+入力欄は通常時とフォーカス時で枠線を切り替えて、編集対象を判別しやすくしています。
 
 ## Profile architecture
 
@@ -66,8 +73,8 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `Local-Prompt-Studio-v2.0.0-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
-2. 展開した`Local-Prompt-Studio-v2.0.0-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
+1. `Local-Prompt-Studio-v2.1.0-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+2. 展開した`Local-Prompt-Studio-v2.1.0-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
 
 既存v1.xリリースは上書きせず、別フォルダへ展開してください。
 
