@@ -12,6 +12,14 @@ _ORIGINAL_STYLE_NAME_ATTRIBUTE = "_local_prompt_studio_normal_style_name"
 _THEME_PROPERTY = "local_prompt_studio_theme"
 _NORMAL_ERROR_COLOR = QColor("#b00020")
 _DARK_ERROR_COLOR = QColor("#ff7b72")
+_DARK_PROMPT_EDITOR_STYLESHEET = """
+QPlainTextEdit {
+    border: 1px solid #4a4f55;
+}
+QPlainTextEdit:focus {
+    border: 1px solid #6d8fb3;
+}
+""".strip()
 
 
 def error_text_stylesheet(palette: QPalette) -> str:
@@ -23,6 +31,16 @@ def error_text_stylesheet(palette: QPalette) -> str:
         else _NORMAL_ERROR_COLOR
     )
     return f"color: {color.name()};"
+
+
+def apply_prompt_editor_theme(widget: QWidget, theme: object) -> None:
+    """Apply the dark outline only to a designated prompt editor."""
+    stylesheet = (
+        _DARK_PROMPT_EDITOR_STYLESHEET
+        if normalize_theme(theme) == THEME_DARK
+        else ""
+    )
+    widget.setStyleSheet(stylesheet)
 
 
 def build_dark_palette() -> QPalette:
@@ -135,8 +153,8 @@ def apply_application_theme(app: QApplication, theme: object) -> str:
         )
         normalized = THEME_NORMAL
 
-    _repolish_application_widgets(app)
     app.setProperty(_THEME_PROPERTY, normalized)
+    _repolish_application_widgets(app)
     return normalized
 
 

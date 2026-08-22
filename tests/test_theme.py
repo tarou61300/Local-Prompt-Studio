@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent
-from PySide6.QtGui import QPalette, QTextCharFormat
+from PySide6.QtGui import QColor, QPalette, QTextCharFormat
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -659,5 +659,103 @@ def test_saved_dark_theme_reaches_prompt_chat_tabs_and_translation_highlights(
         )
     finally:
         translation.close()
+        window.close()
+        app.processEvents()
+
+
+def test_dark_prompt_editor_outlines_are_targeted_and_focus_aware(tmp_path, app):
+    manager = ConfigManager(tmp_path)
+    apply_application_theme(app, THEME_NORMAL)
+    window = MainWindow(
+        project_root=PROJECT_ROOT,
+        config_manager=manager,
+        server_url="http://127.0.0.1:1",
+        dev_skill_path=SKILL_FIXTURE,
+    )
+    try:
+        window.show()
+        app.processEvents()
+        request_normal_style = window.request_text.styleSheet()
+        prompt_normal_style = window.output_text.styleSheet()
+        unaffected_styles = {
+            "request_group": window.request_group.styleSheet(),
+            "output_group": window.output_group.styleSheet(),
+            "negative": window.negative_output_text.styleSheet(),
+            "chat_input": window.chat_page.input_text.styleSheet(),
+            "model_combo": window.profile_model.styleSheet(),
+        }
+        assert request_normal_style == ""
+        assert prompt_normal_style == ""
+
+        apply_application_theme(app, THEME_DARK)
+        app.processEvents()
+        for editor in (window.request_text, window.output_text):
+            stylesheet = editor.styleSheet()
+            assert "border: 1px solid #4a4f55;" in stylesheet
+            assert "QPlainTextEdit:focus" in stylesheet
+            assert "border: 1px solid #6d8fb3;" in stylesheet
+            assert editor.palette().color(QPalette.ColorRole.Base) == QColor(
+                "#17181a"
+            )
+
+        assert window.request_group.styleSheet() == unaffected_styles["request_group"]
+        assert window.output_group.styleSheet() == unaffected_styles["output_group"]
+        assert (
+            window.negative_output_text.styleSheet()
+            == unaffected_styles["negative"]
+        )
+        assert window.chat_page.input_text.styleSheet() == unaffected_styles["chat_input"]
+        assert window.profile_model.styleSheet() == unaffected_styles["model_combo"]
+
+        window.request_text.setFocus()
+        app.processEvents()
+        request_pixel = window.request_text.grab().toImage().pixelColor(
+            0, window.request_text.height() // 2
+        )
+        prompt_pixel = window.output_text.grab().toImage().pixelColor(
+            0, window.output_text.height() // 2
+        )
+        assert request_pixel.name() == "#6d8fb3"
+        assert prompt_pixel.name() == "#4a4f55"
+
+        window.output_text.setFocus()
+        app.processEvents()
+        request_pixel = window.request_text.grab().toImage().pixelColor(
+            0, window.request_text.height() // 2
+        )
+        prompt_pixel = window.output_text.grab().toImage().pixelColor(
+            0, window.output_text.height() // 2
+        )
+        assert request_pixel.name() == "#4a4f55"
+        assert prompt_pixel.name() == "#6d8fb3"
+
+        window.generate_button.setFocus()
+        app.processEvents()
+        assert (
+            window.request_text.grab().toImage().pixelColor(
+                0, window.request_text.height() // 2
+            ).name()
+            == "#4a4f55"
+        )
+        assert (
+            window.output_text.grab().toImage().pixelColor(
+                0, window.output_text.height() // 2
+            ).name()
+            == "#4a4f55"
+        )
+
+        apply_application_theme(app, THEME_NORMAL)
+        app.processEvents()
+        assert window.request_text.styleSheet() == request_normal_style
+        assert window.output_text.styleSheet() == prompt_normal_style
+        assert window.request_group.styleSheet() == unaffected_styles["request_group"]
+        assert window.output_group.styleSheet() == unaffected_styles["output_group"]
+        assert (
+            window.negative_output_text.styleSheet()
+            == unaffected_styles["negative"]
+        )
+        assert window.chat_page.input_text.styleSheet() == unaffected_styles["chat_input"]
+        assert window.profile_model.styleSheet() == unaffected_styles["model_combo"]
+    finally:
         window.close()
         app.processEvents()

@@ -80,6 +80,7 @@ from .ime_aware_text_edit import ImeAwarePlaceholderPlainTextEdit
 from .prompt_translation_dialog import PromptTranslationDialog
 from .request_guide import request_guide_entries
 from .settings_dialog import SettingsDialog
+from .theme import apply_prompt_editor_theme, current_application_theme
 from .workers import (
     ChatThread,
     ComfyUISendThread,
@@ -285,6 +286,7 @@ class MainWindow(QMainWindow):
         self.resize(1120, 820)
         self.setMinimumSize(850, 640)
         self._build_ui()
+        self.refresh_theme()
         self._refresh_readiness()
         self._refresh_memory_display()
         self.memory_timer = QTimer(self)
@@ -645,6 +647,7 @@ class MainWindow(QMainWindow):
         request_layout.setContentsMargins(9, 12, 9, 9)
         request_layout.setSpacing(6)
         self.request_text = ImeAwarePlaceholderPlainTextEdit()
+        self.request_text.setObjectName("request_input_editor")
         self.request_text.setMinimumHeight(105)
         self.request_text.setPlaceholderText(self.tr("input.placeholder"))
         self.request_text.setToolTip(self.tr("input.literal_hint"))
@@ -715,6 +718,7 @@ class MainWindow(QMainWindow):
         output_actions.addWidget(self.edit_prompt_button)
         output_layout.addLayout(output_actions)
         self.output_text = QPlainTextEdit()
+        self.output_text.setObjectName("prompt_output_editor")
         self.output_text.setMinimumHeight(105)
         output_layout.addWidget(self.output_text)
         self.prompt_splitter.addWidget(self.output_group)
@@ -844,6 +848,12 @@ class MainWindow(QMainWindow):
         self._update_send_button_state()
         self._update_unload_button_state()
         self._update_mode_fields(self.mode.currentText())
+
+    def refresh_theme(self) -> None:
+        app = QApplication.instance()
+        theme = current_application_theme(app) if app is not None else None
+        for editor in (self.request_text, self.output_text):
+            apply_prompt_editor_theme(editor, theme)
 
     @staticmethod
     def _combo(values: tuple[str, ...]) -> QComboBox:
