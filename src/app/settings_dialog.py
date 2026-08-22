@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.theme import apply_application_theme
 from app.workers import ComfyUIPairThread, ComfyUITestThread
 from core.comfyui_bridge import (
     BridgeStatus,
@@ -362,9 +363,12 @@ class SettingsDialog(QDialog):
         form.addRow("History", self.history_enabled)
 
         self.theme = QComboBox()
-        self.theme.addItems(["System", "Light", "Dark"])
-        self.theme.setCurrentText(self.config.theme)
-        form.addRow("Theme", self.theme)
+        self.theme.setObjectName("theme")
+        self.theme.addItem(self.tr("settings.theme.normal"), "normal")
+        self.theme.addItem(self.tr("settings.theme.dark"), "dark")
+        theme_index = self.theme.findData(self.config.theme)
+        self.theme.setCurrentIndex(max(0, theme_index))
+        form.addRow(self.tr("settings.theme"), self.theme)
 
         self.ui_locale = QComboBox()
         self.ui_locale.setObjectName("ui_locale")
@@ -876,7 +880,7 @@ class SettingsDialog(QDialog):
             str(self.config_manager.data_dir / "skills" / "h3-prompt-writing")
         )
         self.history_enabled.setChecked(default.history_enabled)
-        self.theme.setCurrentText(default.theme)
+        self.theme.setCurrentIndex(self.theme.findData(default.theme))
         self.ui_locale.setCurrentIndex(self.ui_locale.findData(default.ui_locale))
         self.comfyui_url.setText(default.comfyui_url)
         self.use_prompt_model_for_chat.setChecked(default.use_prompt_model_for_chat)
@@ -926,7 +930,7 @@ class SettingsDialog(QDialog):
         config.context_size = int(self.context_size.currentData())
         config.skill_location = self.skill_location.text().strip()
         config.history_enabled = self.history_enabled.isChecked()
-        config.theme = self.theme.currentText()
+        config.theme = str(self.theme.currentData())
         previous_locale = config.ui_locale
         config.ui_locale = str(self.ui_locale.currentData())
         config.comfyui_url = normalized_comfyui_url
@@ -936,6 +940,8 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(self, "設定を保存できませんでした", PORTABLE_WRITE_ERROR)
             return
         self._saved_comfyui_url = normalized_comfyui_url
+        if self._application is not None:
+            apply_application_theme(self._application, config.theme)
         if config.ui_locale != previous_locale:
             QMessageBox.information(
                 self,

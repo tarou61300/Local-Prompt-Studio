@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.main_window import MainWindow
 from app.setup_dialog import SetupDialog
+from app.theme import apply_application_theme
 from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
 from core.localization import Localization
 from core.version import APP_VERSION, INTERNAL_APPLICATION_ID, PRODUCT_NAME
@@ -64,12 +65,14 @@ def main() -> int:
     args = parse_args()
     project_root, data_dir = application_paths(args)
     config_manager = ConfigManager(data_dir)
-    localization = Localization(project_root / "locales", config_manager.load().ui_locale)
+    config = config_manager.load()
+    localization = Localization(project_root / "locales", config.ui_locale)
 
     app = QApplication(sys.argv[:1])
     app.setApplicationName(PRODUCT_NAME)
     app.setApplicationVersion(APP_VERSION)
     app.setOrganizationName(INTERNAL_APPLICATION_ID)
+    apply_application_theme(app, config.theme)
     try:
         config_manager.ensure_writable()
         configure_logging(config_manager.data_dir)
@@ -97,7 +100,6 @@ def main() -> int:
     )
     window.show()
 
-    config = config_manager.load()
     if not args.skip_setup and not args.mock and not config.setup_completed:
         def show_setup() -> None:
             if SetupDialog(

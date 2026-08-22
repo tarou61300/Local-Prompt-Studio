@@ -15,6 +15,8 @@ PORTABLE_WRITE_ERROR = (
     "書き込み可能なフォルダへ解凍してください。"
 )
 CONFIG_VERSION = 7
+THEME_NORMAL = "normal"
+THEME_DARK = "dark"
 DEFAULT_CONTEXT_SIZE = 8192
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
 CONTEXT_PRESETS = (
@@ -45,6 +47,11 @@ def normalize_configured_path(value: Path | str) -> str:
         return ""
     return str(Path(text).expanduser().resolve(strict=False))
 
+def normalize_theme(value: object) -> str:
+    """Map current and legacy theme values to the two supported theme IDs."""
+    normalized = str(value or "").strip().lower()
+    return THEME_DARK if normalized == THEME_DARK else THEME_NORMAL
+
 
 @dataclass(slots=True)
 class AppConfig:
@@ -57,7 +64,7 @@ class AppConfig:
     context_size: int = DEFAULT_CONTEXT_SIZE
     skill_location: str = ""
     history_enabled: bool = False
-    theme: str = "System"
+    theme: str = THEME_NORMAL
     setup_completed: bool = False
     comfyui_url: str = field(default=DEFAULT_COMFYUI_URL, repr=False)
     ui_locale: str = "ja-JP"
@@ -76,7 +83,7 @@ class AppConfig:
         self.cpu_threads = max(0, int(self.cpu_threads))
         self.gpu_layers = max(GPU_LAYERS_AUTO, int(self.gpu_layers))
         self.context_size = max(2048, int(self.context_size))
-        self.theme = self.theme if self.theme in {"System", "Light", "Dark"} else "System"
+        self.theme = normalize_theme(self.theme)
         if not isinstance(self.comfyui_url, str) or not self.comfyui_url.strip():
             self.comfyui_url = DEFAULT_COMFYUI_URL
         else:

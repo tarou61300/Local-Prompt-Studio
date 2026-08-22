@@ -549,9 +549,9 @@ def test_connection_runs_once_off_gui_thread_and_reports_version(tmp_path, app):
     dialog.comfyui_test_button.click()
     wait_until(app, lambda: service.test_started.is_set())
     assert dialog._test_worker is not None and dialog._test_worker.isRunning()
-    dialog.theme.setCurrentText("Dark")
+    dialog.theme.setCurrentIndex(dialog.theme.findData("dark"))
     app.processEvents()
-    assert dialog.theme.currentText() == "Dark"
+    assert dialog.theme.currentData() == "dark"
     service.test_release.set()
     wait_until(app, lambda: dialog._test_worker is None)
     assert service.test_calls == 1

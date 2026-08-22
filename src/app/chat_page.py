@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from .ime_aware_text_edit import ImeAwarePlaceholderPlainTextEdit
+from .theme import error_text_stylesheet
 from core.chat_attachments import (
     SUPPORTED_IMAGE_EXTENSIONS,
     ChatImageAttachment,
@@ -118,6 +119,7 @@ class ChatPage(QWidget):
         self._syncing_target = False
         self._any_llm_busy = False
         self._attachment: ChatImageAttachment | None = None
+        self._status_is_error = False
 
         root = QVBoxLayout(self)
         header = QHBoxLayout()
@@ -148,7 +150,7 @@ class ChatPage(QWidget):
         self.messages_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.empty_label = QLabel(self.tr("chat.empty"))
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_label.setStyleSheet("color: palette(mid);")
+        self.empty_label.setStyleSheet("color: palette(placeholder-text);")
         self.messages_layout.addWidget(self.empty_label)
         self.conversation_scroll.setWidget(self.conversation_widget)
 
@@ -513,9 +515,25 @@ class ChatPage(QWidget):
         self.analyze_button.setEnabled(can_analyze)
         self.reference_analyze_button.setEnabled(can_analyze)
 
+    def refresh_theme(self) -> None:
+        if hasattr(self, "status_label") and self._status_is_error:
+            self.status_label.setStyleSheet(error_text_stylesheet(self.palette()))
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.PaletteChange, QEvent.Type.StyleChange):
+            self.refresh_theme()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.refresh_theme()
+
     def set_status(self, text: str, *, error: bool = False) -> None:
+        self._status_is_error = error
         self.status_label.setText(text)
-        self.status_label.setStyleSheet("color: #b00020;" if error else "")
+        self.status_label.setStyleSheet(
+            error_text_stylesheet(self.palette()) if error else ""
+        )
 
     def set_model_status(
         self,

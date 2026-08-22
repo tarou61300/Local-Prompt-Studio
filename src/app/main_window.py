@@ -320,7 +320,8 @@ class MainWindow(QMainWindow):
         title.setStyleSheet("font-size: 24px; font-weight: 600;")
         header_layout.addWidget(title)
         subtitle = QLabel(self.tr("app.subtitle"))
-        subtitle.setStyleSheet("color: palette(mid);")
+        subtitle.setObjectName("app_subtitle")
+        subtitle.setStyleSheet("color: palette(placeholder-text);")
         header_layout.addWidget(subtitle)
 
         system_summary_row = QHBoxLayout()
@@ -410,7 +411,7 @@ class MainWindow(QMainWindow):
         self.profile_variant_help.setObjectName("profile_variant_help")
         self.profile_variant_help.setWordWrap(True)
         self.profile_variant_help.setStyleSheet(
-            "color: palette(mid); font-size: 11px;"
+            "color: palette(placeholder-text); font-size: 11px;"
         )
         self.mode = QComboBox()
         self.mode.setObjectName("profile_task")
@@ -420,7 +421,7 @@ class MainWindow(QMainWindow):
         self.prompt_style_help.setObjectName("prompt_style_help")
         self.prompt_style_help.setWordWrap(True)
         self.prompt_style_help.setStyleSheet(
-            "color: palette(mid); font-size: 11px;"
+            "color: palette(placeholder-text); font-size: 11px;"
         )
         self.auto_quality_tags = QCheckBox(self.tr("profile.auto_quality_tags"))
         self.auto_quality_tags.setObjectName("auto_quality_tags")

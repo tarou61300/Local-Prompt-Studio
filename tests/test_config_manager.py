@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from core.config_manager import (
     AppConfig,
     ConfigManager,
     CONFIG_VERSION,
     DEFAULT_COMFYUI_URL,
     DEFAULT_CONTEXT_SIZE,
+    THEME_DARK,
+    THEME_NORMAL,
     normalize_model_path_key,
 )
 from core.inference_backends import BACKEND_CPU, BACKEND_VULKAN, GPU_LAYERS_AUTO
@@ -54,7 +58,56 @@ def test_default_context_is_8192():
     assert AppConfig().use_prompt_model_for_chat is True
     assert AppConfig().chat_model_path == ""
     assert AppConfig().model_mmproj_paths == {}
+    assert AppConfig().theme == THEME_NORMAL
 
+
+@pytest.mark.parametrize(
+    ("stored_theme", "expected"),
+    [
+        (None, THEME_NORMAL),
+        ("System", THEME_NORMAL),
+        ("system", THEME_NORMAL),
+        ("Light", THEME_NORMAL),
+        ("light", THEME_NORMAL),
+        ("default", THEME_NORMAL),
+        ("Normal", THEME_NORMAL),
+        ("normal", THEME_NORMAL),
+        ("Dark", THEME_DARK),
+        ("dark", THEME_DARK),
+        ("invalid", THEME_NORMAL),
+    ],
+)
+def test_legacy_and_current_theme_values_normalize_safely(
+    tmp_path,
+    stored_theme,
+    expected,
+):
+    manager = ConfigManager(tmp_path)
+    tmp_path.mkdir(exist_ok=True)
+    manager.path.write_text(
+        json.dumps({"config_version": CONFIG_VERSION, "theme": stored_theme}),
+        encoding="utf-8",
+    )
+
+    assert manager.load().theme == expected
+
+
+def test_dark_theme_round_trip_preserves_other_settings(tmp_path):
+    manager = ConfigManager(tmp_path)
+    manager.save(
+        AppConfig(
+            theme=THEME_DARK,
+            context_size=16384,
+            history_enabled=True,
+            auto_quality_tags=False,
+        )
+    )
+
+    loaded = manager.load()
+    assert loaded.theme == THEME_DARK
+    assert loaded.context_size == 16384
+    assert loaded.history_enabled is True
+    assert loaded.auto_quality_tags is False
 
 def test_v6_config_migrates_chat_model_defaults_without_losing_values(tmp_path):
     manager = ConfigManager(tmp_path)
@@ -76,7 +129,7 @@ def test_v6_config_migrates_chat_model_defaults_without_losing_values(tmp_path):
 
     assert loaded.config_version == 7
     assert loaded.model_path == r"D:\Models\Prompt.gguf"
-    assert loaded.theme == "Dark"
+    assert loaded.theme == THEME_DARK
     assert loaded.history_enabled is True
     assert loaded.auto_quality_tags is False
     assert loaded.use_prompt_model_for_chat is True
@@ -149,7 +202,7 @@ def test_damaged_or_unknown_settings_are_safe(tmp_path):
     manager.path.write_text("not-json", encoding="utf-8")
     assert manager.load() == AppConfig()
     manager.path.write_text(json.dumps({"unknown": 1, "theme": "Invalid"}), encoding="utf-8")
-    assert manager.load().theme == "System"
+    assert manager.load().theme == THEME_NORMAL
     manager.path.write_text(json.dumps({"config_version": 4, "comfyui_url": None}), encoding="utf-8")
     assert manager.load().comfyui_url == DEFAULT_COMFYUI_URL
 
@@ -182,7 +235,7 @@ def test_v3_config_migrates_to_current_with_default_comfyui_url(tmp_path):
     )
     migrated = manager.load()
     assert migrated.config_version == CONFIG_VERSION
-    assert migrated.theme == "Dark"
+    assert migrated.theme == THEME_DARK
     assert migrated.comfyui_url == DEFAULT_COMFYUI_URL
 
 
