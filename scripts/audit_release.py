@@ -46,23 +46,21 @@ APPLICATION_REQUIRED_FILES = (
     "_internal/runtime/cpu/llama-server.exe",
     "_internal/runtime/vulkan/llama-server.exe",
 )
+BRIDGE_REQUIRED_FILES = (
+    "ComfyUI-Bridge/MMH3PromptBridge/__init__.py",
+    "ComfyUI-Bridge/MMH3PromptBridge/js/mmh3_bridge.js",
+    "ComfyUI-Bridge/MMH3PromptBridge/README.md",
+    "ComfyUI-Bridge/MMH3PromptBridge/LICENSE",
+)
 COMBINED_REQUIRED_FILES = (
     "README.md",
     "LICENSE",
     "THIRD_PARTY_LICENSES.md",
     "CHANGELOG.md",
     "VERSION",
-    "ComfyUI-Bridge/MMH3PromptBridge/__init__.py",
-    "ComfyUI-Bridge/MMH3PromptBridge/js/mmh3_bridge.js",
-    "ComfyUI-Bridge/MMH3PromptBridge/README.md",
-    "ComfyUI-Bridge/MMH3PromptBridge/LICENSE",
+    *BRIDGE_REQUIRED_FILES,
 )
-ALLOWED_BRIDGE_FILES = {
-    "ComfyUI-Bridge/MMH3PromptBridge/__init__.py",
-    "ComfyUI-Bridge/MMH3PromptBridge/js/mmh3_bridge.js",
-    "ComfyUI-Bridge/MMH3PromptBridge/README.md",
-    "ComfyUI-Bridge/MMH3PromptBridge/LICENSE",
-}
+ALLOWED_BRIDGE_FILES = set(BRIDGE_REQUIRED_FILES)
 REQUIRED_RUNTIME_DLLS = (
     "msvcp140.dll",
     "vcruntime140.dll",
@@ -121,7 +119,7 @@ def audit_release(root: Path) -> dict[str, int | str]:
             *COMBINED_REQUIRED_FILES,
         ]
     else:
-        required_files = list(APPLICATION_REQUIRED_FILES)
+        required_files = [*APPLICATION_REQUIRED_FILES, *BRIDGE_REQUIRED_FILES]
     for relative in required_files:
         if not (root / relative).is_file():
             errors.append(f"required file missing: {relative}")
@@ -166,21 +164,20 @@ def audit_release(root: Path) -> dict[str, int | str]:
                     break
                 overlap = searchable[-longest_marker:]
 
-    if combined_distribution:
-        bridge_root = root / "ComfyUI-Bridge" / "MMH3PromptBridge"
-        bridge_files = {
-            path.relative_to(root).as_posix()
-            for path in bridge_root.rglob("*")
-            if path.is_file()
-        }
-        unexpected_bridge_files = bridge_files - ALLOWED_BRIDGE_FILES
-        if unexpected_bridge_files:
-            errors.extend(
-                f"unexpected Bridge file included: {relative}"
-                for relative in sorted(unexpected_bridge_files)
-            )
-        if (bridge_root / "data").exists():
-            errors.append("Bridge runtime data directory is included")
+    bridge_root = root / "ComfyUI-Bridge" / "MMH3PromptBridge"
+    bridge_files = {
+        path.relative_to(root).as_posix()
+        for path in bridge_root.rglob("*")
+        if path.is_file()
+    }
+    unexpected_bridge_files = bridge_files - ALLOWED_BRIDGE_FILES
+    if unexpected_bridge_files:
+        errors.extend(
+            f"unexpected Bridge file included: {relative}"
+            for relative in sorted(unexpected_bridge_files)
+        )
+    if (bridge_root / "data").exists():
+        errors.append("Bridge runtime data directory is included")
 
     for variant in ("cpu", "vulkan"):
         runtime = application_root / "_internal" / "runtime" / variant

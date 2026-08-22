@@ -13,6 +13,7 @@ ZIP filename: {{ZIP_FILENAME}}
 Build type: Windows x64 portable / PyInstaller onedir
 Supported architecture: Windows x64
 Source commit: {{SOURCE_COMMIT}}
+Source state: {{SOURCE_STATE}}
 Source branch: {{SOURCE_BRANCH}}
 Python version: {{PYTHON_VERSION}}
 PyInstaller version: {{PYINSTALLER_VERSION}}

@@ -1,5 +1,46 @@
 # Changelog
 
+## 2.0.0 — 2026-08-22
+
+First stable Local Prompt Studio release, consolidating the v2 community-test series into a portable local Prompt, Chat, image-analysis, and ComfyUI workflow.
+
+### Product and prompt architecture
+
+- Completed the product transition to **Local Prompt Studio** while preserving the existing MMH3 Prompt Bridge name and protocol compatibility.
+- Added Profile- and Skill-based prompt generation with five self-contained model renderers: MiniMax H3, Wan 2.2, LTX-2.3, Krea 2, and Anima.
+- Added profile/task targets, Faithful/Balanced/Creative transformation styles, optional automatic quality tags, Prompt History, and English/Japanese UI locales.
+- Added exact Literal Content and Protected Terms handling, including paired `[speech:xx]...[/speech]` and `[text:xx]...[/text]` syntax.
+- Added adaptive Anima Natural/Tag/Hybrid handling with separate Positive and Negative Prompt editing.
+
+### Local AI workflows
+
+- Added session-based AI Chat using the shared Prompt model or a separate Chat GGUF, with one application-managed model resident at a time.
+- Added optional model-specific mmproj configuration, local VLM image analysis, Drag & Drop image attachment, and Prompt Reference Analysis.
+- Added editable Prompt Transfer previews and append-only transfer to Request, Overall Supplement, Start Image Supplement, and End Image Supplement where supported.
+- Added responsive Prompt and Settings layouts, compact system details, IME-aware text editing, and explicit model unload/reload.
+
+### Prompt fidelity and translation editing
+
+- Removed semantic-category hard rejection that could reject valid generated text, while retaining exact Literal Content and Protected Terms validation.
+- Strengthened MiniMax H3 intent preservation for visual medium, camera/cut intent, action order, and every explicitly stated temporal interval without overriding Skill/Profile syntax authority.
+- Added a localized Request input guide for timing, fixed camera, cuts, speech, and visible text.
+- Added an H3 visual-style selector for Unspecified, 2D Animation, Live Action, and 3D CG, with safe visible insertion at the beginning of Request.
+- Added a bidirectional Original/Japanese Translation Editor with Structure Protection, protected-span highlighting, manual translation updates, optional debounced Auto translate, and stale-response protection.
+
+### Portable runtime, integration, and privacy
+
+- Preserved Windows 10/11 x64 portable operation with bundled llama.cpp b9637 CPU and Vulkan runtimes; Git, Python, and an installer are not required.
+- Kept settings, optional history, logs, downloaded Skill data, and protected ComfyUI credentials inside the extracted application folder for delete-the-folder removal.
+- Preserved optional ComfyUI text delivery through MMH3 Prompt Bridge without workflow modification, `/prompt` calls, queueing, or automatic generation.
+- Kept GGUF, mmproj, MiniMax H3 Prompt Skill content, user data, Prompt text, image bytes, and credentials out of the release package and normal application logs.
+
+### Known limitations
+
+- GGUF and mmproj files are not bundled; users provide compatible local files.
+- MiniMax H3 requires its Prompt Skill, obtained separately from the application UI when needed.
+- MMH3 Prompt Bridge is optional and must be copied to the ComfyUI `custom_nodes` folder for integration.
+- Generated image/video quality and literal rendering or pronunciation depend on the selected target model and workflow.
+- Automatic model downloads, cloud inference, automatic ComfyUI workflow editing, and automatic ComfyUI queueing are not included.
 ## 2.0.0-beta.5 — 2026-08-17
 
 Community test pre-release for local AI Chat, optional VLM image analysis, and reusable Prompt transfer.

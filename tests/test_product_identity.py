@@ -17,9 +17,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def test_local_prompt_studio_identity_and_version():
     assert PRODUCT_NAME == "Local Prompt Studio"
     assert INTERNAL_APPLICATION_ID == "local_prompt_studio"
-    assert APP_VERSION == "2.0.0-beta.5"
-    assert APP_DISPLAY_VERSION == "v2.0.0-beta.5"
-    assert APP_RELEASE_DATE == "2026-08-17"
+    assert APP_VERSION == "2.0.0"
+    assert APP_DISPLAY_VERSION == "v2.0.0"
+    assert APP_RELEASE_DATE == "2026-08-22"
     assert REPOSITORY_URL == "https://github.com/tarou61300/Local-Prompt-Studio"
 
 
@@ -41,7 +41,9 @@ def test_repository_identity_is_used_by_current_user_facing_surfaces():
 
     assert REPOSITORY_URL in readme
     assert "Repository: {{REPOSITORY_URL}}" in manifest_template
+    assert "Source state: {{SOURCE_STATE}}" in manifest_template
     assert '{{REPOSITORY_URL}}", $RepositoryUrl' in build_script
+    assert '{{SOURCE_STATE}}", $SourceState' in build_script
     assert "Pair with Local Prompt Studio" in bridge_frontend
 
     for locale_name in ("en-US.json", "ja-JP.json"):

@@ -62,10 +62,17 @@ if (
 ) {
     throw "Windows version metadata is inconsistent."
 }
-$SourceCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim()
+$BaseSourceCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim()
 $SourceBranch = (& git -C $ProjectRoot branch --show-current).Trim()
-if (-not $SourceCommit -or -not $SourceBranch) {
+if (-not $BaseSourceCommit -or -not $SourceBranch) {
     throw "Git source metadata could not be read."
+}
+$SourceCommit = $BaseSourceCommit
+$SourceState = "Clean committed source"
+$SourceStatus = @(& git -C $ProjectRoot status --porcelain --untracked-files=all)
+if ($SourceStatus.Count -gt 0) {
+    $SourceCommit = "PENDING_RELEASE_PREP_COMMIT"
+    $SourceState = "Uncommitted release-preparation candidate based on $BaseSourceCommit"
 }
 $PythonVersion = (& $Python -c "import platform; print(platform.python_version())").Trim()
 $PyInstallerVersion = (& $Python -m PyInstaller --version).Trim()
@@ -152,20 +159,20 @@ if ($IsPrerelease) {
     foreach ($Name in $DocumentationFiles) {
         Copy-Item -LiteralPath (Join-Path $ProjectRoot $Name) -Destination $DistributionRoot -Force
     }
-    $BridgeSourceRoot = Resolve-WorkspaceChild (
-        Join-Path $ProjectRoot "comfyui_extension\MMH3PromptBridge"
-    )
-    $BridgeRoot = Resolve-WorkspaceChild (
-        Join-Path $DistributionRoot "ComfyUI-Bridge\MMH3PromptBridge"
-    )
-    $BridgeJsRoot = Resolve-WorkspaceChild (Join-Path $BridgeRoot "js")
-    New-Item -ItemType Directory -Path $BridgeJsRoot -Force | Out-Null
-    foreach ($Name in @("__init__.py", "README.md", "LICENSE")) {
-        Copy-Item -LiteralPath (Join-Path $BridgeSourceRoot $Name) -Destination $BridgeRoot -Force
-    }
-    Copy-Item -LiteralPath (Join-Path $BridgeSourceRoot "js\mmh3_bridge.js") `
-        -Destination $BridgeJsRoot -Force
 }
+$BridgeSourceRoot = Resolve-WorkspaceChild (
+    Join-Path $ProjectRoot "comfyui_extension\MMH3PromptBridge"
+)
+$BridgeRoot = Resolve-WorkspaceChild (
+    Join-Path $DistributionRoot "ComfyUI-Bridge\MMH3PromptBridge"
+)
+$BridgeJsRoot = Resolve-WorkspaceChild (Join-Path $BridgeRoot "js")
+New-Item -ItemType Directory -Path $BridgeJsRoot -Force | Out-Null
+foreach ($Name in @("__init__.py", "README.md", "LICENSE")) {
+    Copy-Item -LiteralPath (Join-Path $BridgeSourceRoot $Name) -Destination $BridgeRoot -Force
+}
+Copy-Item -LiteralPath (Join-Path $BridgeSourceRoot "js\mmh3_bridge.js") `
+    -Destination $BridgeJsRoot -Force
 $DataRoot = Resolve-WorkspaceChild (Join-Path $ApplicationRoot "data")
 $LicenseRoot = Resolve-WorkspaceChild (Join-Path $ApplicationRoot "licenses")
 New-Item -ItemType Directory -Path $DataRoot -Force | Out-Null
@@ -234,12 +241,7 @@ $CpuSourceUrl = (Get-Content -LiteralPath (Join-Path $ProjectRoot "runtime\cpu\L
 $VulkanSourceUrl = (Get-Content -LiteralPath (Join-Path $ProjectRoot "runtime\vulkan\LLAMA_CPP_SOURCE_URL.txt") -Raw).Trim()
 $CpuAssetName = [System.IO.Path]::GetFileName($CpuSourceUrl)
 $VulkanAssetName = [System.IO.Path]::GetFileName($VulkanSourceUrl)
-$DistributionContents = if ($IsPrerelease) {
-    "Portable application, ComfyUI Prompt Bridge v$BridgeVersion source, user documentation, and required licenses"
-}
-else {
-    "Portable application, user documentation, and required licenses"
-}
+$DistributionContents = "Portable application, ComfyUI Prompt Bridge v$BridgeVersion source, user documentation, and required licenses"
 $Manifest = Get-Content -LiteralPath $ManifestTemplatePath -Raw
 $Manifest = $Manifest.Replace("{{APP_VERSION}}", $Version)
 $Manifest = $Manifest.Replace("{{REPOSITORY_URL}}", $RepositoryUrl)
@@ -247,6 +249,7 @@ $Manifest = $Manifest.Replace("{{ZIP_FILENAME}}", (Split-Path $ZipPath -Leaf))
 $Manifest = $Manifest.Replace("{{RELEASE_DATE}}", $ReleaseDate)
 $Manifest = $Manifest.Replace("{{RELEASE_KIND}}", $ReleaseKind)
 $Manifest = $Manifest.Replace("{{SOURCE_COMMIT}}", $SourceCommit)
+$Manifest = $Manifest.Replace("{{SOURCE_STATE}}", $SourceState)
 $Manifest = $Manifest.Replace("{{SOURCE_BRANCH}}", $SourceBranch)
 $Manifest = $Manifest.Replace("{{PYTHON_VERSION}}", $PythonVersion)
 $Manifest = $Manifest.Replace("{{PYINSTALLER_VERSION}}", $PyInstallerVersion)

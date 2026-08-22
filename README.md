@@ -1,10 +1,12 @@
-# Local Prompt Studio v2.0.0-beta.5
+# Local Prompt Studio v2.0.0
 
-**Windows x64 portable beta release candidate**
+**Windows x64 portable stable release**
 
-Release date: 2026-08-17
+Release date: 2026-08-22
 
 Repository: [https://github.com/tarou61300/Local-Prompt-Studio](https://github.com/tarou61300/Local-Prompt-Studio)
+
+Download: [Latest release](https://github.com/tarou61300/Local-Prompt-Studio/releases/latest)
 
 Local Prompt Studioは、ローカルGGUFモデルを使うプロファイル駆動型Prompt変換ツールです。
 対応する動画モデルプロファイルはMiniMax H3、Wan 2.2、LTX-2.3です。
@@ -14,7 +16,7 @@ UI言語はEnglishと日本語を選択でき、入力言語とは独立して�
 いない場合も、従来のローカルMiniMax H3 Prompt生成をそのまま利用できます。既存の
 MMH3 Prompt Bridge v1.2との後方互換性も維持します。
 
-beta.5では、従来のPrompt生成に加えてローカルLLMによるAI Chatを追加しました。Prompt生成と
+v2.0.0では、従来のPrompt生成に加えてローカルLLMによるAI Chatを追加しました。Prompt生成と
 同じGGUFを共有するか、AI Chat専用GGUFを選択できます。アプリが常駐させるモデルは1つだけで、
 用途を切り替えると既存のllama-server管理機構が必要なモデルへ安全に切り替えます。読み込み済み
 モデルは「モデルをアンロード」から停止でき、次回のChatまたはPrompt生成時に再読み込みします。
@@ -23,6 +25,16 @@ beta.5では、従来のPrompt生成に加えてローカルLLMによるAI Chat�
 **Prompt Reference Analysis（Prompt参照用解析）**をローカルVLMで利用できます。参照用解析は
 モデル非依存の準構造化情報を生成し、編集プレビューからRequest、全体、開始画像、終了画像の補足へ
 追記できます。Requestと各補足の役割はPrompt生成LLMと選択Rendererまで分離して渡されます。
+
+Prompt生成では、意味カテゴリ語に対する誤検出しやすいhard rejectionを廃止し、Literal Contentと
+Protected Termsの厳密保持を維持したまま、Renderer instructionによるintent preservationを強化しました。
+MiniMax H3では、明示されたvisual medium、camera/cut、開始・終了を含むtemporal intervalを保持し、
+時間表記や構造は現在のSkill/Profileをauthorityとして扱います。
+
+Request付近の入力ガイドから時間・カメラ・カット・発話・表示文字の例を追記できます。MiniMax H3では
+映像スタイルを未指定／2Dアニメーション／実写／3D CGから選び、選択内容をRequest先頭へ可視的に
+追加できます。生成済みPromptはTranslation EditorでOriginalと日本語訳を並べて編集でき、構造保護、
+保護範囲highlight、手動翻訳更新、任意の自動翻訳に対応します。
 
 ## Profile architecture
 
@@ -54,8 +66,8 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `Local-Prompt-Studio-v2.0.0-beta.5-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
-2. 展開したフォルダ内の`LocalPromptStudio/LocalPromptStudio.exe`を起動します。
+1. `Local-Prompt-Studio-v2.0.0-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+2. 展開した`Local-Prompt-Studio-v2.0.0-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
 
 既存v1.xリリースは上書きせず、別フォルダへ展開してください。
 
@@ -87,14 +99,14 @@ Skillフォルダを選んだ場合は読み取りに使用できますが、ア
 - AI回答の転送時は不要な挨拶等を整理し、転送内容をユーザーが編集してから各入力欄へ追記できます。
 - Chat本文、画像base64、Request、生成Promptは通常ログへ記録しません。
 
-## beta.5の既知の制限
+## 既知の制限
 
 - GGUFモデルは同梱されません。ユーザーが互換GGUFを別途用意して選択する必要があります。
 - MMH3 Prompt BridgeによるComfyUI連携は任意機能で、ComfyUI側へBridgeを別途導入する必要があります。
 - 実際に生成される画像・動画の品質は、対象モデル、workflow、sampler等の設定に依存します。
 - Literal ContentはPrompt文字列の完全一致を検証しますが、対象モデルによる描画・発音の成功までは保証しません。
 
-## ComfyUI連携（任意・コミュニティテスト）
+## ComfyUI連携（任意）
 
 Local Prompt StudioはComfyUIなしでも利用できます。連携を試す場合、配布物に含まれる
 `ComfyUI-Bridge/MMH3PromptBridge` フォルダを、次の場所へフォルダごとコピーしてください。
