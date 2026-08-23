@@ -49,7 +49,13 @@ from core.localization import Localization
 from core.model_manager import inspect_model
 from core.profile_loader import ProfileLoader
 from core.profile_models import LoadedProfile
-from core.prompt_engine import H3Reference, PromptEngine, PromptSettings, REFERENCE_LIMITS
+from core.prompt_engine import (
+    H3Reference,
+    PromptEngine,
+    PromptSettings,
+    REFERENCE_LIMITS,
+    parse_task_schema_validation_error,
+)
 from core.prompt_translation import PromptTranslationService
 from core.renderers import (
     ANIMA_HYBRID_OUTPUT_INVALID,
@@ -196,6 +202,27 @@ def comfyui_send_error_message(code: str) -> str:
     return COMFYUI_SEND_ERROR_MESSAGES.get(
         code,
         "The text could not be sent to ComfyUI.",
+    )
+
+
+def task_schema_validation_user_message(
+    localization: Localization,
+    message: str,
+) -> str | None:
+    details = parse_task_schema_validation_error(message)
+    if details is None:
+        return None
+    task, fields = details
+    fields_section = ""
+    if fields:
+        fields_section = "\n\n" + localization.tr(
+            "error.task_schema_validation_fields",
+            fields=", ".join(fields),
+        )
+    return localization.tr(
+        "error.task_schema_validation",
+        task=task,
+        fields_section=fields_section,
     )
 
 
@@ -2149,7 +2176,13 @@ class MainWindow(QMainWindow):
     def _generation_error(self, message: str) -> None:
         self._invalidate_generation_output()
         self.status_label.setText("エラー")
-        if message == LITERAL_CONTENT_NOT_PRESERVED:
+        schema_message = task_schema_validation_user_message(
+            self.localization,
+            message,
+        )
+        if schema_message is not None:
+            message = schema_message
+        elif message == LITERAL_CONTENT_NOT_PRESERVED:
             message = self.tr("error.literal_not_preserved")
         elif message == PROTECTED_TERM_NOT_PRESERVED:
             message = self.tr("error.protected_not_preserved")

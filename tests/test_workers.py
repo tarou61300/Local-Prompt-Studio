@@ -412,3 +412,47 @@ def test_context_size_does_not_change_ref2va_route_at_final_api_boundary():
         "- integrated_multimodal_description:"
     ) in system
     assert final_messages[1] == {"role": "user", "content": request}
+
+
+def test_task_schema_violation_never_emits_generation_result():
+    skill_path = Path(__file__).parent / "fixtures" / "skills" / "h3-prompt-writing"
+    engine = PromptEngine(SkillManager(skill_path))
+
+    class MixedSchemaServer:
+        def generate(self, payload, timeout):
+            return """subject_definitions:
+Subject.
+summary:
+Summary.
+retention_analysis:
+Retain appearance.
+integrated_multimodal_description:
+I2VA visual description.
+overall_soundscape:
+Scene audio.
+non_diegetic_music:
+No music."""
+
+    worker = GenerationThread(
+        engine=engine,
+        server=MixedSchemaServer(),
+        config=AppConfig(),
+        request_text=(
+            "Ref2VAとして処理してください。\n"
+            "subject_definitions, summary, retention_analysis を使ってください。"
+        ),
+        settings=PromptSettings(mode="I2VA"),
+        mock_mode=True,
+    )
+    results = []
+    errors = []
+    worker.result_ready.connect(results.append)
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    assert results == []
+    assert errors == [
+        "Selected Task schema validation failed: I2VA; "
+        "fields=subject_definitions,summary,retention_analysis"
+    ]

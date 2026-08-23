@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from core.prompt_engine import H3Reference, PromptEngine, PromptSettings, clean_model_output
+from core.prompt_engine import (
+    H3Reference,
+    PromptEngine,
+    PromptSettings,
+    clean_model_output,
+    parse_task_schema_validation_error,
+)
 from core.skill_manager import SkillManager
 
 
@@ -152,6 +158,117 @@ def _external_skill_block(system: str) -> str:
 def _assert_schema_order(block: str, fields: tuple[str, ...]) -> None:
     positions = [block.index(f"- {field}:") for field in fields]
     assert positions == sorted(positions)
+
+
+def test_i2va_schema_lock_accepts_exact_ordered_fields(engine):
+    generated = """integrated_multimodal_description:
+I2VA visual description.
+overall_soundscape:
+Scene audio.
+non_diegetic_music:
+No music."""
+
+    result = engine.finalize_output(
+        "A subject moves.", PromptSettings(mode="I2VA"), generated
+    )
+
+    assert result.positive == generated
+
+
+def test_i2va_schema_lock_rejects_mixed_ref2va_fields(engine):
+    generated = """subject_definitions:
+Subject.
+summary:
+Summary.
+retention_analysis:
+Retain appearance.
+integrated_multimodal_description:
+I2VA visual description.
+overall_soundscape:
+Scene audio.
+non_diegetic_music:
+No music."""
+
+    with pytest.raises(
+        ValueError, match="Selected Task schema validation failed: I2VA"
+    ) as exc_info:
+        engine.finalize_output("A subject moves.", PromptSettings(mode="I2VA"), generated)
+
+    assert parse_task_schema_validation_error(str(exc_info.value)) == (
+        "I2VA",
+        ("subject_definitions", "summary", "retention_analysis"),
+    )
+
+
+def test_ref2va_schema_lock_accepts_exact_ordered_fields(engine):
+    generated = """subject_definitions:
+Subject.
+summary:
+Summary.
+retention_analysis:
+Retain appearance.
+detailed_description:
+Detailed motion.
+overall_soundscape:
+Scene audio.
+non_diegetic_music:
+No music."""
+
+    result = engine.finalize_output(
+        "A subject moves.", PromptSettings(mode="Ref2VA"), generated
+    )
+
+    assert result.positive == generated
+
+
+def test_ref2va_schema_lock_rejects_i2va_fields(engine):
+    generated = """integrated_multimodal_description:
+I2VA visual description.
+overall_soundscape:
+Scene audio.
+non_diegetic_music:
+No music."""
+
+    with pytest.raises(
+        ValueError, match="Selected Task schema validation failed: Ref2VA"
+    ) as exc_info:
+        engine.finalize_output("A subject moves.", PromptSettings(mode="Ref2VA"), generated)
+
+    assert parse_task_schema_validation_error(str(exc_info.value)) == (
+        "Ref2VA",
+        ("integrated_multimodal_description",),
+    )
+
+
+def test_schema_lock_does_not_treat_field_name_in_prose_as_header(engine):
+    generated = """integrated_multimodal_description:
+The phrase subject_definitions appears here only as ordinary prose.
+overall_soundscape:
+Scene audio.
+non_diegetic_music:
+No music."""
+
+    result = engine.finalize_output(
+        "A subject moves.", PromptSettings(mode="I2VA"), generated
+    )
+
+    assert "subject_definitions appears" in result.positive
+
+
+def test_schema_lock_rejects_wrong_field_order(engine):
+    generated = """overall_soundscape:
+Scene audio.
+integrated_multimodal_description:
+I2VA visual description.
+non_diegetic_music:
+No music."""
+
+    with pytest.raises(
+        ValueError, match="Selected Task schema validation failed: I2VA"
+    ) as exc_info:
+        engine.finalize_output("A subject moves.", PromptSettings(mode="I2VA"), generated)
+
+    assert parse_task_schema_validation_error(str(exc_info.value)) == ("I2VA", ())
 
 
 def test_ref2va_route_cannot_be_hijacked_by_i2va_request_language(engine):

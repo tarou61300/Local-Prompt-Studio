@@ -10,7 +10,11 @@ from .profile_loader import ProfileLoader
 from .profile_models import LoadedProfile, ProfileVariant
 from .protected_terms import normalize_protected_terms
 from .renderers import RenderResult, RendererAnalysis, RendererContext, RendererRegistry
-from .skill_manager import SkillManager
+from .skill_manager import (
+    BASE_SCHEMA_FIELDS,
+    REFERENCE_SCHEMA_FIELDS,
+    SkillManager,
+)
 
 
 H3_MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "Ref2VA")
@@ -18,6 +22,37 @@ PROCESSING_MODES = ("Faithful", "Balanced", "Creative")
 REFERENCE_LIMITS = {"Picture": 9, "Video": 3, "Audio": 3}
 TEMPERATURES = {"Faithful": 0.35, "Balanced": 0.55, "Creative": 0.75}
 DEFAULT_MAX_OUTPUT_TOKENS = 1536
+TASK_SCHEMA_VALIDATION_FAILED = "Selected Task schema validation failed"
+_H3_TASK_SCHEMAS = {
+    "I2VA": BASE_SCHEMA_FIELDS,
+    "Ref2VA": REFERENCE_SCHEMA_FIELDS,
+}
+_H3_SCHEMA_FIELDS = tuple(dict.fromkeys((*BASE_SCHEMA_FIELDS, *REFERENCE_SCHEMA_FIELDS)))
+_H3_SCHEMA_FIELD_RE = re.compile(
+    rf"^[ \t]*(?P<field>{'|'.join(_H3_SCHEMA_FIELDS)})[ \t]*:",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
+_TASK_SCHEMA_ERROR_RE = re.compile(
+    rf"^{re.escape(TASK_SCHEMA_VALIDATION_FAILED)}: "
+    rf"(?P<task>{'|'.join(re.escape(task) for task in _H3_TASK_SCHEMAS)})"
+    r"(?:; fields=(?P<fields>[a-z0-9_,]+))?$"
+)
+
+
+def parse_task_schema_validation_error(
+    message: str,
+) -> tuple[str, tuple[str, ...]] | None:
+    """Return safe Task Schema Lock details from its stable error message."""
+    match = _TASK_SCHEMA_ERROR_RE.fullmatch(message)
+    if match is None:
+        return None
+    fields = tuple(
+        field
+        for field in (match.group("fields") or "").split(",")
+        if field in _H3_SCHEMA_FIELDS
+    )
+    return match.group("task"), tuple(dict.fromkeys(fields))
+
 
 @dataclass(frozen=True, slots=True)
 class H3Reference:
@@ -157,8 +192,11 @@ class PromptEngine:
         context = self._renderer_context(settings)
         semantic_source = self._semantic_source(request, context)
         analysis = self._analyze_roles(renderer, request, context)
+        cleaned = clean_model_output(generated)
+        if self.profile.manifest.renderer == "minimax_h3":
+            self._validate_h3_task_schema(cleaned, settings.mode)
         return renderer.render(
-            clean_model_output(generated),
+            cleaned,
             self.variant,
             analysis.literals,
             normalize_protected_terms(settings.protected_terms),
@@ -166,6 +204,25 @@ class PromptEngine:
             source_request=semantic_source,
             auto_quality_tags=settings.auto_quality_tags,
         )
+
+    @staticmethod
+    def _validate_h3_task_schema(generated: str, mode: str) -> None:
+        expected = _H3_TASK_SCHEMAS.get(mode)
+        if expected is None:
+            return
+        expected_fields = tuple(field.casefold() for field in expected)
+        actual = tuple(
+            match.group("field").casefold()
+            for match in _H3_SCHEMA_FIELD_RE.finditer(generated)
+        )
+        if actual != expected_fields:
+            unexpected = tuple(
+                dict.fromkeys(field for field in actual if field not in expected_fields)
+            )
+            field_details = f"; fields={','.join(unexpected)}" if unexpected else ""
+            raise ValueError(
+                f"{TASK_SCHEMA_VALIDATION_FAILED}: {mode}{field_details}"
+            )
 
     @staticmethod
     def _semantic_source(request: str, context: RendererContext) -> str:

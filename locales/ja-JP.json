@@ -112,6 +112,8 @@
   "error.h3_skill_required": "MiniMax H3にはPrompt Skillが必要です。生成前に初回セットアップまたは設定から導入してください。",
   "error.literal_not_preserved": "Literal Contentが正確に保持されなかったため、出力を受理しませんでした。",
   "error.protected_not_preserved": "Protected Termが正確に保持されなかったため、出力を受理しませんでした。",
+  "error.task_schema_validation": "Taskと生成結果の形式が一致しませんでした。\n\n選択中のTask: {task}\n\n生成されたPromptに、選択中のTaskとは異なる形式が含まれていたため、\n誤ったPromptが使用されないよう出力を停止しました。\n\n左側の「対象プロファイル」で選択しているTaskが目的に合っているか確認してください。\n\nまた、Request内に別のTaskや出力形式を指定する指示が含まれている場合は、\nその指示を削除または修正して、もう一度生成してください。{fields_section}",
+  "error.task_schema_validation_fields": "検出された不一致:\n{fields}",
   "warning.prompt_long": "Promptがこのプロファイルの推奨より長くなっています。ユーザー内容は保持されました。",
   "warning.prompt_short": "Promptがこのプロファイルの推奨より短くなっています。ユーザー内容は保持されました。",
   "warning.prompt_hard_maximum": "Promptがこのプロファイルに記載された技術上限を超えています。ユーザー内容は保持されました。",
