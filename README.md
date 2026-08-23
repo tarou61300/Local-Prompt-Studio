@@ -1,8 +1,8 @@
-# Local Prompt Studio v2.1.0
+# Local Prompt Studio v2.1.1
 
 **Windows x64 portable stable release**
 
-Release date: 2026-08-23
+Release date: 2026-08-24
 
 Repository: [https://github.com/tarou61300/Local-Prompt-Studio](https://github.com/tarou61300/Local-Prompt-Studio)
 
@@ -55,6 +55,12 @@ UIにRenderer選択はなく、Profile切替時に内部で自動選択されま
 従来の行頭`[speech:ja] ...` / `[text:en] ...`も後方互換で認識します。生成後は本文の完全一致を
 検証し、marker自体は出力しません。`length_guidance`は助言のみで、切り詰め、padding、圧縮用の再生成は行いません。
 
+Target Profileで選択したTaskが生成modeの唯一の決定元です。Request本文は生成したい内容として扱われ、
+「開始画像」「first frame」「Ref2VAとして処理」など別Taskを示唆する記述が含まれても、選択Taskを変更・再判定しません。
+I2VA / Ref2VAでは生成後にもTask Schema Lockを適用し、モデルが選択Taskと異なるschemaを返した場合は、
+完成Promptとして採用せずCopy / Sendを無効のままにします。画面には選択Task、不一致field、TaskまたはRequestの確認方法を表示します。
+Request本文の自動変更、Taskの自動変更、schemaの自動修復、自動retryは行いません。
+
 AnimaはNatural / Tag / Hybridを入力から自動判定し、Base v1.0、Aesthetic v1.1、Turbo v1.0を選択できます。
 Aestheticを含む全Anima Variantで、「品質タグを自動追加」がONの場合に自動付与する固定componentは品質系だけです。OFFの場合は品質componentを自動付与せず、ユーザーが明示した品質タグはどちらの場合も保持します。`safe` / `sensitive` / `nsfw` / `explicit`、
 `score_*`、artist、character/copyright、age/demographic、year/era系タグは、ユーザーが明示した場合だけ保持します。AnimaではPositiveとNegativeを
@@ -73,8 +79,8 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `Local-Prompt-Studio-v2.1.0-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
-2. 展開した`Local-Prompt-Studio-v2.1.0-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
+1. `Local-Prompt-Studio-v2.1.1-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+2. 展開した`Local-Prompt-Studio-v2.1.1-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
 
 既存v1.xリリースは上書きせず、別フォルダへ展開してください。
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.1.1 — 2026-08-24
+
+Task-specific Skill routing and output schema validation patch release.
+
+### Fixed
+
+- Made the Task selected in Target Profile the authoritative and sole generation mode.
+- Prevented Request text from overriding or reclassifying the selected Task, including phrases such as `starting image`, `first frame`, or `process as Ref2VA`.
+- Excluded generic mode auto-detection and non-selected Task schema sections from the runtime Skill material.
+- Ensured that selected Ref2VA generation consistently uses the Ref2VA guide and its six-section `subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, `overall_soundscape`, and `non_diegetic_music` schema.
+- Ensured that I2VA and other selected Tasks retain their own guide and schema even when Request text names Ref2VA fields or another mode.
+- Added a Task Schema Lock for I2VA and Ref2VA output. If the model returns fields or field ordering for a different Task, Local Prompt Studio rejects the result instead of exposing it as a completed Prompt.
+- Added localized Task/schema mismatch guidance that identifies the selected Task and known mismatched fields, explains why output was stopped, and directs users to check the Target Profile Task and any conflicting Request instructions.
+- Kept Request text unchanged and did not add automatic Task switching, schema repair, or retry behavior.
+- Added regression coverage for conflicting Request text, Task switching, Skill reload, Context size changes, final API prompt assembly, AI Chat, and rejected-output Copy/Send state.
+
+### Compatibility
+
+- Kept Prompt generation behavior outside Task routing, AI Chat, Profiles/Renderers, portable storage, themes, and MMH3 Prompt Bridge protocol unchanged.
+
 ## 2.1.0 — 2026-08-23
 
 Stable theme and visibility update for Local Prompt Studio.
