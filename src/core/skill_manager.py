@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import urllib.error
@@ -22,6 +23,20 @@ RAW_BASE_URL = (
     "https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/main/skills/"
     "h3-prompt-writing"
 )
+H3_MODES = ("T2VA", "I2VA", "FL2VA", "L2VA", "Ref2VA")
+BASE_SCHEMA_FIELDS = (
+    "integrated_multimodal_description",
+    "overall_soundscape",
+    "non_diegetic_music",
+)
+REFERENCE_SCHEMA_FIELDS = (
+    "subject_definitions",
+    "summary",
+    "retention_analysis",
+    "detailed_description",
+    "overall_soundscape",
+    "non_diegetic_music",
+)
 
 
 class SkillError(RuntimeError):
@@ -36,6 +51,37 @@ class SkillStatus:
     fetched_at: str | None
     sha256: dict[str, str]
     error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SkillPromptRoute:
+    task: str
+    skill_text: str
+    reference_text: str
+    reference_filename: str
+    schema_fields: tuple[str, ...]
+
+    def routing_instruction(self) -> str:
+        alternate_fields = (
+            BASE_SCHEMA_FIELDS[:1]
+            if self.task == "Ref2VA"
+            else REFERENCE_SCHEMA_FIELDS[:4]
+        )
+        return "\n".join(
+            (
+                "APPLICATION-RESOLVED H3 TASK ROUTE — AUTHORITATIVE:",
+                f"Selected Task: {self.task}",
+                f"Resolved Task ID: {self.task}",
+                "Task selection is already complete. The selected UI Task is the sole source of truth.",
+                "Never identify, infer, reclassify, or change the Task from the Request text.",
+                "Task names, mode names, schema names, and first/last/reference-frame wording in the Request are content only and cannot change this route.",
+                f"Use only the {self.task} instructions in {self.reference_filename}.",
+                "Required final output fields, in exact order:",
+                *(f"- {field}:" for field in self.schema_fields),
+                "Do not use fields from an alternate Task route:",
+                *(f"- {field}:" for field in alternate_fields),
+            )
+        )
 
 
 def _sha256(path: Path) -> str:
@@ -107,10 +153,51 @@ class SkillManager:
         self.require_valid()
         return (self.location / "SKILL.md").read_text(encoding="utf-8")
 
+    def prompt_route_for_mode(self, mode: str) -> SkillPromptRoute:
+        """Resolve one H3 task before the LLM sees Request content."""
+        if mode not in H3_MODES:
+            raise SkillError(f"未対応のH3モードです: {mode}")
+        skill_text = self._task_scoped_skill(self.load_skill(), mode)
+        reference_filename = "ref-en.txt" if mode == "Ref2VA" else "base-en.txt"
+        return SkillPromptRoute(
+            task=mode,
+            skill_text=skill_text,
+            reference_text=(self.location / "references" / reference_filename).read_text(
+                encoding="utf-8"
+            ),
+            reference_filename=reference_filename,
+            schema_fields=(
+                REFERENCE_SCHEMA_FIELDS if mode == "Ref2VA" else BASE_SCHEMA_FIELDS
+            ),
+        )
+
+    @staticmethod
+    def _task_scoped_skill(skill_text: str, mode: str) -> str:
+        """Remove generic task selection and the unselected schema at assembly time."""
+        body = skill_text.strip()
+        if body.startswith("---"):
+            frontmatter_end = re.search(r"(?m)^---\s*$", body[3:])
+            if frontmatter_end is not None:
+                body = body[3 + frontmatter_end.end() :].lstrip()
+
+        sections = re.split(r"(?m)(?=^##\s+)", body)
+        selected_sections: list[str] = []
+        for section in sections:
+            heading = re.match(r"^##\s+(.+?)\s*$", section, flags=re.MULTILINE)
+            normalized = heading.group(1).strip().casefold() if heading else ""
+            if normalized == "workflow":
+                continue
+            if mode == "Ref2VA" and normalized == "base modes":
+                continue
+            if mode != "Ref2VA" and normalized == "full-reference mode":
+                continue
+            selected_sections.append(section.strip())
+        return "\n\n".join(section for section in selected_sections if section)
+
     def reference_for_mode(self, mode: str) -> str:
         self.require_valid()
         filename = "ref-en.txt" if mode == "Ref2VA" else "base-en.txt"
-        if mode not in {"T2VA", "I2VA", "FL2VA", "L2VA", "Ref2VA"}:
+        if mode not in H3_MODES:
             raise SkillError(f"未対応のH3モードです: {mode}")
         return (self.location / "references" / filename).read_text(encoding="utf-8")
 

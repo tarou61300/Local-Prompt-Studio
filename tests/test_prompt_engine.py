@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -119,3 +120,134 @@ def test_think_removal_is_bounded():
     raw = "<think>internal\nreasoning</think>\n```text\nA finished <thinking> prompt.\n```"
     assert clean_model_output(raw) == "A finished <thinking> prompt."
     assert clean_model_output("Prompt without a closing <think> token") == "Prompt without a closing <think> token"
+
+
+REF2VA_SCHEMA_FIELDS = (
+    "subject_definitions",
+    "summary",
+    "retention_analysis",
+    "detailed_description",
+    "overall_soundscape",
+    "non_diegetic_music",
+)
+BASE_SCHEMA_FIELDS = (
+    "integrated_multimodal_description",
+    "overall_soundscape",
+    "non_diegetic_music",
+)
+
+
+def _routing_block(system: str) -> str:
+    return system.split(
+        "APPLICATION-RESOLVED H3 TASK ROUTE — AUTHORITATIVE:", 1
+    )[1].split("FINAL INTENT-PRESERVATION OVERRIDE", 1)[0]
+
+
+def _external_skill_block(system: str) -> str:
+    return system.split("EXTERNAL PROMPT SKILL:\n", 1)[1].split(
+        "REFERENCE GUIDE FOR", 1
+    )[0]
+
+
+def _assert_schema_order(block: str, fields: tuple[str, ...]) -> None:
+    positions = [block.index(f"- {field}:") for field in fields]
+    assert positions == sorted(positions)
+
+
+def test_ref2va_route_cannot_be_hijacked_by_i2va_request_language(engine):
+    request = (
+        "<Picture 1>を開始画像として使用してください。\n"
+        "最初のフレームとして使用してください。\n"
+        "I2Vのようにこの画像から動画を開始してください。"
+    )
+    settings = PromptSettings(mode="Ref2VA")
+
+    payload = engine.request_payload(request, settings)
+    system = payload["messages"][0]["content"]
+    route = _routing_block(system)
+
+    assert settings.mode == "Ref2VA"
+    assert "Selected Task: Ref2VA" in route
+    assert "Resolved Task ID: Ref2VA" in route
+    assert "REFERENCE GUIDE FOR Ref2VA:" in system
+    assert "## Base Modes" not in _external_skill_block(system)
+    assert "Identify the input mode" not in system
+    _assert_schema_order(route, REF2VA_SCHEMA_FIELDS)
+    assert "Do not use fields from an alternate Task route:\n- integrated_multimodal_description:" in route
+    assert payload["messages"][1] == {"role": "user", "content": request}
+
+
+def test_i2va_route_cannot_be_hijacked_by_ref2va_request_language(engine):
+    request = (
+        "Ref2VAとして処理してください。\n"
+        "subject_definitions, summary, retention_analysis, detailed_description "
+        "を使用してください。"
+    )
+
+    payload = engine.request_payload(request, PromptSettings(mode="I2VA"))
+    system = payload["messages"][0]["content"]
+    route = _routing_block(system)
+
+    assert "Selected Task: I2VA" in route
+    assert "Resolved Task ID: I2VA" in route
+    assert "REFERENCE GUIDE FOR I2VA:" in system
+    assert "## Full-Reference Mode" not in _external_skill_block(system)
+    assert "Identify the input mode" not in system
+    _assert_schema_order(route, BASE_SCHEMA_FIELDS)
+    assert "Do not use fields from an alternate Task route:\n- subject_definitions:" in route
+    assert payload["messages"][1]["content"] == request
+
+
+def test_ref2va_ordinary_request_selects_six_section_schema_without_mode_name(engine):
+    request = "A woman turns, waves once, and returns to a relaxed standing pose."
+
+    payload = engine.request_payload(request, PromptSettings(mode="Ref2VA"))
+    system = payload["messages"][0]["content"]
+    route = _routing_block(system)
+
+    assert "Ref2VA" not in request
+    assert "Use only the Ref2VA instructions in ref-en.txt." in route
+    _assert_schema_order(route, REF2VA_SCHEMA_FIELDS)
+
+
+def test_same_request_switches_task_route_without_stale_cache(engine):
+    request = "Keep the subject still for three seconds, then let her wave once."
+
+    payloads = [
+        engine.request_payload(request, PromptSettings(mode=mode))
+        for mode in ("Ref2VA", "I2VA", "Ref2VA")
+    ]
+    routes = [_routing_block(payload["messages"][0]["content"]) for payload in payloads]
+
+    assert "Selected Task: Ref2VA" in routes[0]
+    assert "Selected Task: I2VA" in routes[1]
+    assert "Selected Task: Ref2VA" in routes[2]
+    _assert_schema_order(routes[0], REF2VA_SCHEMA_FIELDS)
+    _assert_schema_order(routes[1], BASE_SCHEMA_FIELDS)
+    assert routes[0] == routes[2]
+    assert payloads[0]["messages"][0]["content"] == payloads[2]["messages"][0]["content"]
+    assert payloads[0]["messages"][0]["content"] != payloads[1]["messages"][0]["content"]
+
+
+def test_ref2va_route_survives_skill_manager_reload(tmp_path):
+    skill_path = tmp_path / "h3-prompt-writing"
+    shutil.copytree(FIXTURE, skill_path)
+    settings = PromptSettings(mode="Ref2VA")
+    request = "A subject walks across the room."
+
+    before = PromptEngine(SkillManager(skill_path)).request_payload(request, settings)
+    skill_file = skill_path / "SKILL.md"
+    skill_file.write_text(
+        skill_file.read_text(encoding="utf-8").replace(
+            "Preserve the requested content.",
+            "RELOADED_SKILL_MARKER: Preserve the requested content.",
+        ),
+        encoding="utf-8",
+    )
+    after = PromptEngine(SkillManager(skill_path)).request_payload(request, settings)
+    after_system = after["messages"][0]["content"]
+
+    assert "RELOADED_SKILL_MARKER" not in before["messages"][0]["content"]
+    assert "RELOADED_SKILL_MARKER" in after_system
+    assert "Selected Task: Ref2VA" in _routing_block(after_system)
+    _assert_schema_order(_routing_block(after_system), REF2VA_SCHEMA_FIELDS)

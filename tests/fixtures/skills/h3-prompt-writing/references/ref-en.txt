@@ -1,3 +1,5 @@
 Development reference guide fixture for Ref2VA.
 Use reference tags such as <Picture 1>, <Video 1>, and <Audio 1> exactly.
+Use these fields in order: subject_definitions, summary, retention_analysis,
+detailed_description, overall_soundscape, non_diegetic_music.
 

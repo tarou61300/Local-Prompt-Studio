@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,7 +21,8 @@ from core.comfyui_bridge import (
 )
 from core.config_manager import AppConfig
 from core.inference_backends import BACKEND_VULKAN, GPU_LAYERS_AUTO
-from core.prompt_engine import PromptSettings
+from core.prompt_engine import PromptEngine, PromptSettings
+from core.skill_manager import SkillManager
 
 
 BASE_URL = "http://127.0.0.1:8188"
@@ -361,3 +363,52 @@ def test_separate_chat_model_failure_never_falls_back_to_prompt_model(monkeypatc
 
     assert validated == ["missing-chat.gguf"]
     assert errors == ["CHAT_MODEL_LOAD_FAILED"]
+
+
+def test_context_size_does_not_change_ref2va_route_at_final_api_boundary():
+    skill_path = Path(__file__).parent / "fixtures" / "skills" / "h3-prompt-writing"
+    engine = PromptEngine(SkillManager(skill_path))
+    request = (
+        "<Picture 1>を開始画像としてI2VAのように処理し、"
+        "integrated_multimodal_descriptionを使用してください。"
+    )
+
+    class RecordingServer:
+        def __init__(self):
+            self.payloads = []
+
+        def generate(self, payload, timeout):
+            self.payloads.append(deepcopy(payload))
+            return "Finished H3 prompt."
+
+    server = RecordingServer()
+    for context_size in (4096, 32768):
+        GenerationThread(
+            engine=engine,
+            server=server,
+            config=AppConfig(context_size=context_size),
+            request_text=request,
+            settings=PromptSettings(mode="Ref2VA"),
+            mock_mode=True,
+        ).run()
+
+    assert len(server.payloads) == 2
+    assert server.payloads[0] == server.payloads[1]
+    final_messages = server.payloads[-1]["messages"]
+    system = final_messages[0]["content"]
+    assert "Selected Task: Ref2VA" in system
+    assert "Resolved Task ID: Ref2VA" in system
+    for field in (
+        "subject_definitions",
+        "summary",
+        "retention_analysis",
+        "detailed_description",
+        "overall_soundscape",
+        "non_diegetic_music",
+    ):
+        assert f"- {field}:" in system
+    assert (
+        "Do not use fields from an alternate Task route:\n"
+        "- integrated_multimodal_description:"
+    ) in system
+    assert final_messages[1] == {"role": "user", "content": request}

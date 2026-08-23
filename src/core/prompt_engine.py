@@ -126,10 +126,12 @@ class PromptEngine:
                 continue
             if self.skill_manager is None:
                 raise ValueError("PROFILE_EXTERNAL_DEPENDENCY_MISSING")
+            route = self.skill_manager.prompt_route_for_mode(settings.mode)
             blocks.extend(
                 (
-                    f"EXTERNAL PROMPT SKILL:\n{self.skill_manager.load_skill()}",
-                    f"REFERENCE GUIDE FOR {settings.mode}:\n{self.skill_manager.reference_for_mode(settings.mode)}",
+                    f"EXTERNAL PROMPT SKILL:\n{route.skill_text}",
+                    f"REFERENCE GUIDE FOR {route.task}:\n{route.reference_text}",
+                    route.routing_instruction(),
                 )
             )
         return tuple(blocks)

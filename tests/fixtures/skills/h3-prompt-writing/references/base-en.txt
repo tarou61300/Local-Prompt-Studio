@@ -1,3 +1,5 @@
 Development base guide fixture for T2VA, I2VA, FL2VA, and L2VA.
 Describe subject, action, setting, camera, timing, motion, and audio as applicable.
+Use these fields in order: integrated_multimodal_description, overall_soundscape,
+non_diegetic_music.
 
