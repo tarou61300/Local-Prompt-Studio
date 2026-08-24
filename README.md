@@ -1,8 +1,8 @@
-# Local Prompt Studio v2.1.1
+# Local Prompt Studio v2.1.2
 
 **Windows x64 portable stable release**
 
-Release date: 2026-08-24
+Release date: 2026-08-25
 
 Repository: [https://github.com/tarou61300/Local-Prompt-Studio](https://github.com/tarou61300/Local-Prompt-Studio)
 
@@ -54,6 +54,10 @@ UIにRenderer選択はなく、Profile切替時に内部で自動選択されま
 `[speech:ja]おかえりなさい。[/speech]`と`[text:en]OPEN[/text]`で、複数行blockにも対応します。
 従来の行頭`[speech:ja] ...` / `[text:en] ...`も後方互換で認識します。生成後は本文の完全一致を
 検証し、marker自体は出力しません。`length_guidance`は助言のみで、切り詰め、padding、圧縮用の再生成は行いません。
+Literal Content validationに失敗した場合、v2.1.2では検出総数、Missing数、Request／各補足の発生元、
+paired／legacy／quoteの検出方式、文字数、SHA-256由来の短い識別IDを表示します。Literal本文自体は
+診断表示、signal、通常ログへ格納しません。この診断追加は案内改善のみであり、Literal検出条件と
+完全一致validationは従来どおりです。
 
 Target Profileで選択したTaskが生成modeの唯一の決定元です。Request本文は生成したい内容として扱われ、
 「開始画像」「first frame」「Ref2VAとして処理」など別Taskを示唆する記述が含まれても、選択Taskを変更・再判定しません。
@@ -79,8 +83,8 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `Local-Prompt-Studio-v2.1.1-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
-2. 展開した`Local-Prompt-Studio-v2.1.1-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
+1. `Local-Prompt-Studio-v2.1.2-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+2. 展開した`Local-Prompt-Studio-v2.1.2-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
 
 既存v1.xリリースは上書きせず、別フォルダへ展開してください。
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.1.2 — 2026-08-25
+
+Literal Content validation diagnostics patch release.
+
+### Improved
+
+- Improved the guidance shown when Literal Content exact-preservation validation rejects a generated result.
+- Added the total number of detected Literals and the number missing from the generated result.
+- Identified whether each missing Literal originated from Request, Common supplement, Start supplement, or End supplement.
+- Reported the existing paired, legacy, or quote detection type for each missing Literal.
+- Added the character count and an anonymous eight-character identifier derived from the Literal body's SHA-256 hash.
+- Kept Literal text itself out of the diagnostic display, worker signal, and normal application logs.
+- Added English and Japanese guidance directing users to check Request and supplement fields, including collapsed supplements.
+
+### Compatibility
+
+- Did not relax or otherwise change Literal Content detection or exact-preservation validation.
+- Kept paired and legacy marker behavior, quote detection, Unicode and whitespace handling, Request content, Task/Skill routing, and retry behavior unchanged.
+
 ## 2.1.1 — 2026-08-24
 
 Task-specific Skill routing and output schema validation patch release.
