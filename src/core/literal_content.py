@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 
@@ -36,6 +37,25 @@ class LiteralContent:
     text: str
     line_number: int
     source: str = "explicit"
+    source_role: str = "request"
+
+
+@dataclass(frozen=True, slots=True)
+class LiteralDiagnosticItem:
+    source_role: str
+    detection_type: str
+    character_count: int
+    short_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class LiteralValidationDiagnostics:
+    detected_count: int
+    missing: tuple[LiteralDiagnosticItem, ...]
+
+    @property
+    def missing_count(self) -> int:
+        return len(self.missing)
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,3 +186,23 @@ def missing_literal_contents(
     output: str, literals: tuple[LiteralContent, ...]
 ) -> tuple[LiteralContent, ...]:
     return tuple(literal for literal in literals if literal.text not in output)
+
+
+def build_literal_validation_diagnostics(
+    literals: tuple[LiteralContent, ...],
+    missing: tuple[LiteralContent, ...],
+) -> LiteralValidationDiagnostics:
+    """Build non-sensitive failure metadata without retaining Literal bodies."""
+
+    return LiteralValidationDiagnostics(
+        detected_count=len(literals),
+        missing=tuple(
+            LiteralDiagnosticItem(
+                source_role=literal.source_role,
+                detection_type=literal.source,
+                character_count=len(literal.text),
+                short_hash=hashlib.sha256(literal.text.encode("utf-8")).hexdigest()[:8],
+            )
+            for literal in missing
+        ),
+    )

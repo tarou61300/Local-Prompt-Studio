@@ -7,6 +7,9 @@ from typing import Protocol
 
 from .literal_content import (
     LiteralContent,
+    LiteralDiagnosticItem,
+    LiteralValidationDiagnostics,
+    build_literal_validation_diagnostics,
     missing_literal_contents,
     parse_literal_content,
     quoted_content_candidates,
@@ -22,6 +25,11 @@ PROTECTED_TERM_NOT_PRESERVED = "PROTECTED_TERM_NOT_PRESERVED"
 DANBOORU_OUTPUT_INVALID = "DANBOORU_OUTPUT_INVALID"
 ANIMA_HYBRID_OUTPUT_INVALID = "ANIMA_HYBRID_OUTPUT_INVALID"
 UNKNOWN_RENDERER = "UNKNOWN_RENDERER"
+_LITERAL_DIAGNOSTIC_PREFIX = f"{LITERAL_CONTENT_NOT_PRESERVED}; diagnostic="
+_LITERAL_SOURCE_ROLES = frozenset(
+    {"request", "common_supplement", "start_supplement", "end_supplement"}
+)
+_LITERAL_DETECTION_TYPES = frozenset({"paired", "legacy", "quote"})
 
 _ANIMA_SECTION_ORDER = (
     "quality_meta_year_safety",
@@ -49,6 +57,89 @@ class TransformationError(RuntimeError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
+        self.literal_diagnostics: LiteralValidationDiagnostics | None = None
+
+
+def serialize_transformation_error(error: TransformationError) -> str:
+    """Serialize only safe metadata needed by the GUI error boundary."""
+
+    details = getattr(error, "literal_diagnostics", None)
+    if error.code != LITERAL_CONTENT_NOT_PRESERVED or details is None:
+        return error.code
+    payload = {
+        "detected_count": details.detected_count,
+        "missing": [
+            {
+                "source_role": item.source_role,
+                "detection_type": item.detection_type,
+                "character_count": item.character_count,
+                "short_hash": item.short_hash,
+            }
+            for item in details.missing
+        ],
+    }
+    return _LITERAL_DIAGNOSTIC_PREFIX + json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def is_literal_validation_error(message: str) -> bool:
+    return message == LITERAL_CONTENT_NOT_PRESERVED or message.startswith(
+        _LITERAL_DIAGNOSTIC_PREFIX
+    )
+
+
+def parse_literal_validation_error(
+    message: str,
+) -> LiteralValidationDiagnostics | None:
+    """Parse allow-listed diagnostic metadata without accepting Literal text."""
+
+    if not message.startswith(_LITERAL_DIAGNOSTIC_PREFIX):
+        return None
+    try:
+        raw = json.loads(message.removeprefix(_LITERAL_DIAGNOSTIC_PREFIX))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    detected_count = raw.get("detected_count")
+    missing = raw.get("missing")
+    if type(detected_count) is not int or detected_count < 1:
+        return None
+    if not isinstance(missing, list) or not missing or detected_count < len(missing):
+        return None
+    parsed: list[LiteralDiagnosticItem] = []
+    for item in missing:
+        if not isinstance(item, dict):
+            return None
+        source_role = item.get("source_role")
+        detection_type = item.get("detection_type")
+        character_count = item.get("character_count")
+        short_hash = item.get("short_hash")
+        if (
+            source_role not in _LITERAL_SOURCE_ROLES
+            or detection_type not in _LITERAL_DETECTION_TYPES
+            or type(character_count) is not int
+            or character_count < 0
+            or not isinstance(short_hash, str)
+            or re.fullmatch(r"[0-9a-f]{8}", short_hash) is None
+        ):
+            return None
+        parsed.append(
+            LiteralDiagnosticItem(
+                source_role=source_role,
+                detection_type=detection_type,
+                character_count=character_count,
+                short_hash=short_hash,
+            )
+        )
+    return LiteralValidationDiagnostics(
+        detected_count=detected_count,
+        missing=tuple(parsed),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,8 +261,14 @@ def _validate_preservation(
     literals: tuple[LiteralContent, ...],
     protected_terms: tuple[ProtectedTerm, ...],
 ) -> None:
-    if missing_literal_contents(positive, literals):
-        raise TransformationError(LITERAL_CONTENT_NOT_PRESERVED)
+    missing_literals = missing_literal_contents(positive, literals)
+    if missing_literals:
+        error = TransformationError(LITERAL_CONTENT_NOT_PRESERVED)
+        error.literal_diagnostics = build_literal_validation_diagnostics(
+            literals,
+            missing_literals,
+        )
+        raise error
     if missing_protected_terms(positive, protected_terms):
         raise TransformationError(PROTECTED_TERM_NOT_PRESERVED)
 

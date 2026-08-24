@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import threading
 from typing import Any
@@ -27,6 +28,34 @@ from core.prompt_translation import (
     TRANSLATION_EMPTY_RESPONSE,
     TRANSLATION_STRUCTURE_NOT_PRESERVED,
 )
+from core.renderers import (
+    TransformationError,
+    serialize_transformation_error,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def generation_error_message(exc: Exception) -> str:
+    if not isinstance(exc, TransformationError):
+        return str(exc) or "生成中に不明なエラーが発生しました。"
+    details = getattr(exc, "literal_diagnostics", None)
+    if details is not None:
+        items = "; ".join(
+            (
+                f"{item.source_role}/{item.detection_type}/"
+                f"{item.character_count}/{item.short_hash}"
+            )
+            for item in details.missing
+        )
+        _LOGGER.warning(
+            "Literal Content validation failed "
+            "(detected=%d, missing=%d, items=%s)",
+            details.detected_count,
+            details.missing_count,
+            items,
+        )
+    return serialize_transformation_error(exc)
 
 
 class ComfyUITestThread(QThread):
@@ -181,7 +210,7 @@ class GenerationThread(QThread):
             if self.isInterruptionRequested():
                 self.error_occurred.emit("生成はユーザーによってキャンセルされました。")
             else:
-                self.error_occurred.emit(str(exc) or "生成中に不明なエラーが発生しました。")
+                self.error_occurred.emit(generation_error_message(exc))
 
 
 class TranslationThread(QThread):

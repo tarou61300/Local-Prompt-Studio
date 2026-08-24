@@ -60,10 +60,11 @@ from core.prompt_translation import PromptTranslationService
 from core.renderers import (
     ANIMA_HYBRID_OUTPUT_INVALID,
     DANBOORU_OUTPUT_INVALID,
-    LITERAL_CONTENT_NOT_PRESERVED,
     PROTECTED_TERM_NOT_PRESERVED,
     RenderResult,
     RendererRegistry,
+    is_literal_validation_error,
+    parse_literal_validation_error,
 )
 from core.skill_manager import SkillManager
 from core.system_memory import (
@@ -223,6 +224,39 @@ def task_schema_validation_user_message(
         "error.task_schema_validation",
         task=task,
         fields_section=fields_section,
+    )
+
+
+def literal_validation_user_message(
+    localization: Localization,
+    message: str,
+) -> str | None:
+    if not is_literal_validation_error(message):
+        return None
+    details = parse_literal_validation_error(message)
+    if details is None:
+        return localization.tr("error.literal_not_preserved")
+    items = []
+    for index, item in enumerate(details.missing, start=1):
+        items.append(
+            localization.tr(
+                "error.literal_diagnostic_item",
+                index=index,
+                source_role=localization.tr(
+                    f"error.literal_source.{item.source_role}"
+                ),
+                detection_type=localization.tr(
+                    f"error.literal_detection.{item.detection_type}"
+                ),
+                character_count=item.character_count,
+                short_hash=item.short_hash,
+            )
+        )
+    return localization.tr(
+        "error.literal_not_preserved_diagnostic",
+        detected_count=details.detected_count,
+        missing_count=details.missing_count,
+        items="\n\n".join(items),
     )
 
 
@@ -2180,10 +2214,14 @@ class MainWindow(QMainWindow):
             self.localization,
             message,
         )
+        literal_message = literal_validation_user_message(
+            self.localization,
+            message,
+        )
         if schema_message is not None:
             message = schema_message
-        elif message == LITERAL_CONTENT_NOT_PRESERVED:
-            message = self.tr("error.literal_not_preserved")
+        elif literal_message is not None:
+            message = literal_message
         elif message == PROTECTED_TERM_NOT_PRESERVED:
             message = self.tr("error.protected_not_preserved")
         elif message == DANBOORU_OUTPUT_INVALID:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -240,6 +240,40 @@ class PromptEngine:
         )
         return "\n\n".join(blocks)
 
+    @staticmethod
+    def _semantic_source_role_ranges(
+        request: str,
+        context: RendererContext,
+    ) -> tuple[tuple[str, int, int], ...]:
+        """Map combined-source line numbers to their UI input role."""
+
+        blocks = [
+            ("request", "REQUEST", request),
+            ("common_supplement", "OVERALL_SUPPLEMENT", context.overall_supplement),
+            ("start_supplement", "START_IMAGE_SUPPLEMENT", context.start_frame_note),
+            ("end_supplement", "END_IMAGE_SUPPLEMENT", context.end_frame_note),
+        ]
+        active_blocks = [blocks[0], *(block for block in blocks[1:] if block[2])]
+        ranges: list[tuple[str, int, int]] = []
+        block_start_line = 1
+        for role, _label, value in active_blocks:
+            content_start_line = block_start_line + 1
+            ranges.append(
+                (role, content_start_line, content_start_line + value.count("\n"))
+            )
+            block_start_line += 3 + value.count("\n")
+        return tuple(ranges)
+
+    @staticmethod
+    def _literal_source_role(
+        line_number: int,
+        ranges: tuple[tuple[str, int, int], ...],
+    ) -> str:
+        for role, first_line, last_line in ranges:
+            if first_line <= line_number <= last_line:
+                return role
+        return "request"
+
     @classmethod
     def _analyze_roles(cls, renderer: Any, request: str, context: RendererContext) -> RendererAnalysis:
         """Let Request select renderer mode while preserving literals in every role."""
@@ -248,8 +282,18 @@ class PromptEngine:
         if semantic_source == request:
             return request_analysis
         all_roles_analysis = renderer.analyze_request(semantic_source)
+        role_ranges = cls._semantic_source_role_ranges(request, context)
         return RendererAnalysis(
-            literals=all_roles_analysis.literals,
+            literals=tuple(
+                replace(
+                    literal,
+                    source_role=cls._literal_source_role(
+                        literal.line_number,
+                        role_ranges,
+                    ),
+                )
+                for literal in all_roles_analysis.literals
+            ),
             input_mode=request_analysis.input_mode,
         )
 
