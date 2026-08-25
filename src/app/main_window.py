@@ -1522,6 +1522,7 @@ class MainWindow(QMainWindow):
                 "CHAT_IMAGE_UNSUPPORTED_FORMAT": "chat.error.image_format",
                 "CHAT_IMAGE_READ_FAILED": "chat.error.image_read",
                 "CHAT_IMAGE_DECODE_FAILED": "chat.error.image_decode",
+                "CHAT_IMAGE_ANIMATED_WEBP_UNSUPPORTED": "chat.error.animated_webp",
             }.get(exc.code, "chat.error.image_decode")
             self.chat_page.set_status(self.tr(key), error=True)
             return

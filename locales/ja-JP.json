@@ -224,6 +224,7 @@
   "chat.error.image_format": "対応している画像形式はPNG、JPEG、WebPです。",
   "chat.error.image_read": "画像ファイルを読み込めませんでした。",
   "chat.error.image_decode": "画像をデコードできませんでした。ファイルが破損していないか確認してください。",
+  "chat.error.animated_webp": "アニメーションWebPには対応していません。静止WebP、PNG、JPEG画像を使用してください。",
   "chat.error.image_unsupported": "llama.cppが、このモデルとmmprojでは画像入力をサポートしていないと報告しました。",
   "chat.error.image_request": "画像を解析できませんでした。画像を無視したText送信は行っていません。",
   "chat.error.reference_output": "Prompt参照用解析の出力形式が不正でした。",

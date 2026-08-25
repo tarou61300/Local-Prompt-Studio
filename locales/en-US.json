@@ -224,6 +224,7 @@
   "chat.error.image_format": "Supported image formats are PNG, JPEG, and WebP.",
   "chat.error.image_read": "Could not read the image file.",
   "chat.error.image_decode": "Could not decode the image. Check that the file is not damaged.",
+  "chat.error.animated_webp": "Animated WebP is not supported. Please use a static WebP, PNG, or JPEG image.",
   "chat.error.image_unsupported": "llama.cpp reported that image input is unsupported by this model and mmproj.",
   "chat.error.image_request": "The image could not be analyzed. The image was not ignored or sent as text-only.",
   "chat.error.reference_output": "The Prompt Reference Analysis output was invalid.",

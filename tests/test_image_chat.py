@@ -10,6 +10,8 @@ import time
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+from PySide6.QtGui import QColor, QImage, QImageWriter
 from PySide6.QtWidgets import QApplication
 
 from app.chat_page import ChatPage
@@ -40,14 +42,26 @@ def _wait_until(app: QApplication, predicate, timeout: float = 5.0) -> None:
     assert predicate()
 
 
-def _write_image(path: Path, kind: str = "png") -> bytes:
-    data = {
-        "png": b"\x89PNG\r\n\x1a\n" + b"test-png",
-        "jpeg": b"\xff\xd8\xff\xe0" + b"test-jpeg",
-        "webp": b"RIFF\x10\x00\x00\x00WEBP" + b"test-webp",
-    }[kind]
-    path.write_bytes(data)
-    return data
+def _write_image(
+    path: Path,
+    kind: str = "png",
+    *,
+    size: tuple[int, int] = (16, 12),
+    alpha: int = 255,
+) -> bytes:
+    image = QImage(*size, QImage.Format.Format_ARGB32)
+    image.fill(QColor(40, 120, 220, alpha))
+    encoded = QByteArray()
+    buffer = QBuffer(encoded)
+    assert buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    writer = QImageWriter(buffer, kind.encode("ascii"))
+    writer.setQuality(75)
+    assert writer.write(image), writer.errorString()
+    del writer
+    buffer.close()
+    payload = bytes(encoded)
+    path.write_bytes(payload)
+    return payload
 
 
 @pytest.mark.parametrize(
@@ -56,7 +70,7 @@ def _write_image(path: Path, kind: str = "png") -> bytes:
         (".png", "png", "image/png"),
         (".jpg", "jpeg", "image/jpeg"),
         (".jpeg", "jpeg", "image/jpeg"),
-        (".webp", "webp", "image/webp"),
+        (".webp", "webp", "image/png"),
     ),
 )
 def test_supported_images_are_memory_only_and_use_magic_mime(tmp_path, suffix, kind, mime):
@@ -66,11 +80,17 @@ def test_supported_images_are_memory_only_and_use_magic_mime(tmp_path, suffix, k
     attachment = ChatImageAttachment.from_file(image_path)
     data_url = attachment.data_url()
 
+    payload_bytes = base64.b64decode(data_url.split(",", 1)[1])
     assert attachment.filename == image_path.name
     assert attachment.mime_type == mime
-    assert attachment.size_bytes == len(original)
+    assert attachment.size_bytes == len(payload_bytes)
     assert attachment.source_path == str(image_path.resolve())
-    assert base64.b64decode(data_url.split(",", 1)[1]) == original
+    if kind == "webp":
+        assert payload_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+        assert payload_bytes != original
+    else:
+        assert payload_bytes == original
+    assert image_path.read_bytes() == original
     assert attachment.source_path not in repr(attachment)
     assert "base64" not in repr(attachment)
     assert list(tmp_path.iterdir()) == [image_path]
@@ -85,6 +105,140 @@ def test_image_extension_and_content_must_agree(tmp_path):
         ChatImageAttachment.from_file(mismatched)
     with pytest.raises(ChatImageError, match="CHAT_IMAGE_UNSUPPORTED_FORMAT"):
         ChatImageAttachment.from_file(unsupported)
+
+
+ANIMATED_WEBP_BYTES = base64.b64decode(
+    "UklGRhgBAABXRUJQVlA4WAoAAAASAAAAAwAAAwAAQU5JTQYAAAD/////AABBTk1G"
+    "cgAAAAAAAAAAAAMAAAMAAPQBAABWUDhMWgAAAC8DwAAAZ6CobSMmvfE//lQnDQVt"
+    "JCnHIOXR87t5UaS0kRQod5Jg6b+qw36FwPwH8HmQKT0L3NgJFMpBVy36b+6EAwe"
+    "FkKxQ76PynFJIJ4QQQsgyov/xvmxNA0FOTUZyAAAAAAAAAAAAAwAAAwAA9AEAAFZ"
+    "QOExaAAAALwPAAABnoKhtIya98T/+VCcNBW0kKccg5dHzu3lRpLSRFCh3kmDpv6r"
+    "DfoXA/AfweZApPQvc2AkUykFXLfpv7oQDB4WQrFDvo/KcUkgnhBBCyDKi//G+bE0D"
+)
+
+
+def test_transparent_static_webp_normalizes_to_png_payload_and_preserves_alpha(tmp_path):
+    image_path = tmp_path / "transparent.webp"
+    original = _write_image(image_path, "webp", alpha=64)
+
+    attachment = ChatImageAttachment.from_file(image_path)
+    decoded = QImage()
+    assert decoded.loadFromData(attachment.image_bytes)
+    payload = ChatEngine().request_payload(
+        [{"role": "user", "content": "Describe it.", "image": attachment}]
+    )
+    image_url = payload["messages"][-1]["content"][0]["image_url"]["url"]
+
+    assert attachment.mime_type == "image/png"
+    assert attachment.image_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+    assert image_url.startswith("data:image/png;base64,")
+    assert decoded.hasAlphaChannel()
+    assert decoded.pixelColor(0, 0).alpha() == 64
+    assert image_path.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [image_path]
+
+
+def test_animated_webp_is_explicitly_rejected_in_both_locales(tmp_path):
+    image_path = tmp_path / "animated.webp"
+    image_path.write_bytes(ANIMATED_WEBP_BYTES)
+
+    with pytest.raises(
+        ChatImageError,
+        match="CHAT_IMAGE_ANIMATED_WEBP_UNSUPPORTED",
+    ):
+        ChatImageAttachment.from_file(image_path)
+
+    assert "アニメーションWebPには対応していません" in Localization(
+        PROJECT_ROOT / "locales", "ja-JP"
+    ).tr("chat.error.animated_webp")
+    assert "Animated WebP is not supported" in Localization(
+        PROJECT_ROOT / "locales", "en-US"
+    ).tr("chat.error.animated_webp")
+    assert image_path.read_bytes() == ANIMATED_WEBP_BYTES
+
+
+@pytest.mark.parametrize(
+    ("locale_id", "expected"),
+    (
+        ("ja-JP", "アニメーションWebPには対応していません"),
+        ("en-US", "Animated WebP is not supported"),
+    ),
+)
+def test_animated_webp_attachment_error_is_localized_in_main_window(
+    tmp_path, locale_id, expected
+):
+    app = _app()
+    image_path = tmp_path / "animated.webp"
+    image_path.write_bytes(ANIMATED_WEBP_BYTES)
+    model = tmp_path / "model.gguf"
+    mmproj = tmp_path / "mmproj.gguf"
+    model.write_bytes(b"GGUF")
+    mmproj.write_bytes(b"GGUF")
+    manager = ConfigManager(tmp_path / "data")
+    config = AppConfig(model_path=str(model), ui_locale=locale_id)
+    config.set_mmproj_for_model(model, mmproj)
+    manager.save(config)
+    localization = Localization(PROJECT_ROOT / "locales", locale_id)
+    window = MainWindow(
+        project_root=PROJECT_ROOT,
+        config_manager=manager,
+        server_url="http://127.0.0.1:54321",
+        dev_skill_path=SKILL_FIXTURE,
+        localization=localization,
+    )
+    try:
+        window._attach_chat_image(str(image_path))
+        assert window.chat_page.attachment is None
+        assert expected in window.chat_page.status_label.text()
+    finally:
+        window.close()
+        app.processEvents()
+
+
+@pytest.mark.parametrize(
+    "contents",
+    (
+        b"not an image",
+        b"RIFF\x10\x00\x00\x00WEBPbroken-webp",
+    ),
+)
+def test_corrupt_or_extension_only_webp_fails_safely(tmp_path, contents):
+    image_path = tmp_path / "broken.webp"
+    image_path.write_bytes(contents)
+
+    with pytest.raises(ChatImageError, match="CHAT_IMAGE_DECODE_FAILED"):
+        ChatImageAttachment.from_file(image_path)
+
+
+@pytest.mark.parametrize(
+    ("size", "is_wide"),
+    (((1600, 400), True), ((400, 1600), False)),
+)
+def test_webp_preview_preserves_large_image_aspect_ratio(tmp_path, size, is_wide):
+    app = _app()
+    image_path = tmp_path / ("wide large.webp" if is_wide else "tall large.webp")
+    _write_image(image_path, "webp", size=size)
+    page = ChatPage(Localization(PROJECT_ROOT / "locales", "ja-JP").tr)
+    page.show()
+    try:
+        page.set_attachment(ChatImageAttachment.from_file(image_path))
+        app.processEvents()
+        preview = page.attachment_thumbnail.pixmap()
+        assert preview is not None
+        assert not preview.isNull()
+        assert preview.width() <= 96
+        assert preview.height() <= 72
+        assert (preview.width() > preview.height()) is is_wide
+    finally:
+        page.close()
+
+
+@pytest.mark.parametrize("locale_id", ("ja-JP", "en-US"))
+def test_image_picker_filter_includes_webp(locale_id):
+    image_filter = Localization(PROJECT_ROOT / "locales", locale_id).tr(
+        "chat.image.filter"
+    )
+    assert image_filter.endswith("(*.png *.jpg *.jpeg *.webp)")
 
 
 def test_chat_engine_builds_b9637_image_url_payload_and_retains_image_context(tmp_path):
