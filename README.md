@@ -1,4 +1,4 @@
-# Local Prompt Studio v2.1.2
+# Local Prompt Studio v2.2.0
 
 **Windows x64 portable stable release**
 
@@ -25,6 +25,9 @@ Local Prompt Studio 2.xでは、従来のPrompt生成に加えてローカルLLM
 **Prompt Reference Analysis（Prompt参照用解析）**をローカルVLMで利用できます。参照用解析は
 モデル非依存の準構造化情報を生成し、編集プレビューからRequest、全体、開始画像、終了画像の補足へ
 追記できます。Requestと各補足の役割はPrompt生成LLMと選択Rendererまで分離して渡されます。
+
+AI Chatの画像添付はPNG、JPG／JPEG、静止WebPに対応します。Animated WebPは非対応で、
+静止WebP、PNG、JPEGを使用するよう画面に案内します。
 
 Prompt生成では、意味カテゴリ語に対する誤検出しやすいhard rejectionを廃止し、Literal Contentと
 Protected Termsの厳密保持を維持したまま、Renderer instructionによるintent preservationを強化しました。
@@ -83,8 +86,8 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `Local-Prompt-Studio-v2.1.2-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
-2. 展開した`Local-Prompt-Studio-v2.1.2-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
+1. `Local-Prompt-Studio-v2.2.0-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+2. 展開した`Local-Prompt-Studio-v2.2.0-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
 
 既存v1.xリリースは上書きせず、別フォルダへ展開してください。
 

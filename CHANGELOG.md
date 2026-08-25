@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.2.0 — 2026-08-25
+
+Static WebP image analysis update for AI Chat.
+
+### Added
+
+- Added direct selection of static `.webp` image files for AI Chat preview and local Vision analysis.
+- Decoded WebP inputs and normalized them to PNG entirely in memory before using the existing Vision payload path.
+- Preserved transparency in static WebP images when encoding the internal PNG representation.
+- Explicitly rejected animated WebP images with localized English and Japanese guidance instead of silently analyzing the first frame.
+- Added safe errors for damaged or mislabeled WebP files without modifying the source image.
+
+### Compatibility
+
+- Kept original WebP files unchanged and did not create temporary PNG files on disk.
+- Did not send `image/webp` payloads to llama-server or mmproj; normalized WebP inputs use the existing `image/png` path.
+- Kept the existing PNG, JPG, and JPEG Vision paths unchanged.
+- Used the existing PySide6/Qt image support and added no runtime dependency.
+
 ## 2.1.2 — 2026-08-25
 
 Literal Content validation diagnostics patch release.
