@@ -81,6 +81,9 @@ BANNED_SUFFIXES = {".gguf", ".log"}
 BANNED_FILENAMES = {
     "config.json",
     "history.sqlite3",
+    "prompt_library.sqlite3",
+    "prompt_library.sqlite3-wal",
+    "prompt_library.sqlite3-shm",
     "comfyui_credentials.dat",
     "bridge.json",
     ".gitkeep",

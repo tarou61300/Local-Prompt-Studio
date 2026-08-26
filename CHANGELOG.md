@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.0.0 — 2026-08-27
+
+Prompt Library major release.
+
+### Added
+
+- Added Prompt Library as a third main application mode.
+- Added saving of completed prompts with Title, Model, Task, and Tags.
+- Added prompt search by Model, Task, multiple AND-matched Tags, and optional Title.
+- Added favorite Tags for quick access.
+- Added Tag search and reuse of existing Tags across the Library.
+- Added metadata editing for Title and Tags without modifying stored Prompt content.
+- Added safe Prompt deletion with confirmation.
+- Added single and multi-Prompt clipboard copy.
+- Added 50-item pagination and lazy Prompt loading for large libraries.
+- Added independent local SQLite storage for each user's Prompt Library, separate from History.
+
+### Data integrity and scale
+
+- Stored Prompt text is preserved exactly, including whitespace and line breaks.
+- Editing does not modify Prompt text, Model, Task, or UUID.
+- Prompt Library data is created locally only when the Library is first opened.
+- Tested with up to 20,000 stored prompts.
+
 ## 2.2.0 — 2026-08-25
 
 Static WebP image analysis update for AI Chat.

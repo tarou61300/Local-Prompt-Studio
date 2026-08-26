@@ -17,9 +17,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def test_local_prompt_studio_identity_and_version():
     assert PRODUCT_NAME == "Local Prompt Studio"
     assert INTERNAL_APPLICATION_ID == "local_prompt_studio"
-    assert APP_VERSION == "2.2.0"
-    assert APP_DISPLAY_VERSION == "v2.2.0"
-    assert APP_RELEASE_DATE == "2026-08-25"
+    assert APP_VERSION == "3.0.0"
+    assert APP_DISPLAY_VERSION == "v3.0.0"
+    assert APP_RELEASE_DATE == "2026-08-27"
     assert REPOSITORY_URL == "https://github.com/tarou61300/Local-Prompt-Studio"
 
 
@@ -57,3 +57,23 @@ def test_repository_identity_is_used_by_current_user_facing_surfaces():
             repository=REPOSITORY_URL,
         )
         assert REPOSITORY_URL in about
+
+
+def test_prompt_library_user_database_is_documented_ignored_and_banned_from_release():
+    portable_readme = (
+        PROJECT_ROOT / "packaging" / "PORTABLE_DATA_README.txt"
+    ).read_text(encoding="utf-8")
+    gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
+    audit_script = (PROJECT_ROOT / "scripts" / "audit_release.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "<repository>/.dev-data/prompt_library.sqlite3" in portable_readme
+    assert "prompt_library.sqlite3*" in gitignore
+    for filename in (
+        "prompt_library.sqlite3",
+        "prompt_library.sqlite3-wal",
+        "prompt_library.sqlite3-shm",
+    ):
+        assert filename in portable_readme
+        assert f'"{filename}"' in audit_script

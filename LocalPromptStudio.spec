@@ -56,6 +56,18 @@ a = Analysis(
     excludes=[],
     noarchive=False,
 )
+a.exclude_system_libraries()
+host_runtime_dlls = {
+    "icudt78.dll",
+    "icuuc.dll",
+    "ucrtbase.dll",
+}
+a.binaries = [
+    entry
+    for entry in a.binaries
+    if entry[0].lower() not in host_runtime_dlls
+    and not entry[0].lower().startswith("api-ms-win-")
+]
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

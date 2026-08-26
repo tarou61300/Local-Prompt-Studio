@@ -17,6 +17,7 @@ htmlcov/
 /data/
 config.json
 history.sqlite3*
+prompt_library.sqlite3*
 *.log*
 *.tmp
 *.gguf

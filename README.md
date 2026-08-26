@@ -1,8 +1,8 @@
-# Local Prompt Studio v2.2.0
+# Local Prompt Studio v3.0.0
 
 **Windows x64 portable stable release**
 
-Release date: 2026-08-25
+Release date: 2026-08-27
 
 Repository: [https://github.com/tarou61300/Local-Prompt-Studio](https://github.com/tarou61300/Local-Prompt-Studio)
 
@@ -16,7 +16,7 @@ UI言語はEnglishと日本語を選択でき、入力言語とは独立して�
 いない場合も、従来のローカルMiniMax H3 Prompt生成をそのまま利用できます。既存の
 MMH3 Prompt Bridge v1.2との後方互換性も維持します。
 
-Local Prompt Studio 2.xでは、従来のPrompt生成に加えてローカルLLMによるAI Chatを利用できます。Prompt生成と
+Local Prompt Studioでは、Prompt Generation、AI Chat、Prompt Libraryの3つのメインモードを利用できます。Prompt生成と
 同じGGUFを共有するか、AI Chat専用GGUFを選択できます。アプリが常駐させるモデルは1つだけで、
 用途を切り替えると既存のllama-server管理機構が必要なモデルへ安全に切り替えます。読み込み済み
 モデルは「モデルをアンロード」から停止でき、次回のChatまたはPrompt生成時に再読み込みします。
@@ -28,6 +28,11 @@ Local Prompt Studio 2.xでは、従来のPrompt生成に加えてローカルLLM
 
 AI Chatの画像添付はPNG、JPG／JPEG、静止WebPに対応します。Animated WebPは非対応で、
 静止WebP、PNG、JPEGを使用するよう画面に案内します。
+
+Prompt Libraryには完成したPromptをTitle、Model、Task、Tagsとともに保存できます。Model、Task、複数の
+AND条件Tags、任意のTitleで検索でき、Favorite Tags、既存Tagの検索と再利用、Title/Tags metadata編集、
+単一・複数Promptのコピー、安全な削除に対応します。Prompt本文は保存時の内容を完全に維持し、metadata編集では
+Prompt本文、Model、Task、UUIDを変更しません。LibraryはHistoryとは独立したローカルSQLite databaseを使用します。
 
 Prompt生成では、意味カテゴリ語に対する誤検出しやすいhard rejectionを廃止し、Literal Contentと
 Protected Termsの厳密保持を維持したまま、Renderer instructionによるintent preservationを強化しました。
@@ -86,8 +91,8 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `Local-Prompt-Studio-v2.2.0-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
-2. 展開した`Local-Prompt-Studio-v2.2.0-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
+1. `Local-Prompt-Studio-v3.0.0-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+2. 展開した`Local-Prompt-Studio-v3.0.0-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
 
 既存v1.xリリースは上書きせず、別フォルダへ展開してください。
 
@@ -204,6 +209,7 @@ Cancel、timeout、アプリ終了時には、このアプリが起動したllam
 - アプリログ: `data/local-prompt-studio.log`
 - llama-serverログ: `data/llama-server/`
 - 履歴（初期状態OFF）: `data/history.sqlite3`
+- Prompt Library: `data/prompt_library.sqlite3`（Prompt Libraryを初めて開いた時に作成）
 - 取得したSkill: `data/skills/h3-prompt-writing/`
 - ComfyUIペアリング資格情報: `data/comfyui_credentials.dat`（Windows DPAPI CurrentUserで保護）
 

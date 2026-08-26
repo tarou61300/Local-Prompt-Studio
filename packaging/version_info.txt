@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(2, 2, 0, 0),
-    prodvers=(2, 2, 0, 0),
+    filevers=(3, 0, 0, 0),
+    prodvers=(3, 0, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,12 +16,12 @@ VSVersionInfo(
         [
           StringStruct(u'CompanyName', u'Local Prompt Studio Community'),
           StringStruct(u'FileDescription', u'Local Prompt Studio'),
-          StringStruct(u'FileVersion', u'2.2.0.0'),
+          StringStruct(u'FileVersion', u'3.0.0.0'),
           StringStruct(u'InternalName', u'LocalPromptStudio'),
           StringStruct(u'LegalCopyright', u'Copyright (c) 2026 Local Prompt Studio contributors'),
           StringStruct(u'OriginalFilename', u'LocalPromptStudio.exe'),
           StringStruct(u'ProductName', u'Local Prompt Studio'),
-          StringStruct(u'ProductVersion', u'2.2.0')
+          StringStruct(u'ProductVersion', u'3.0.0')
         ]
       )
     ]),
