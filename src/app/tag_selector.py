@@ -5,6 +5,7 @@ from collections.abc import Callable
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QScrollArea,
@@ -26,11 +27,19 @@ class TagSelector(QWidget):
     """Bounded, reusable tag chooser backed by PromptLibraryManager queries."""
 
     selection_changed = Signal()
+    favorite_changed = Signal(int, bool)
     error_occurred = Signal(str)
 
-    def __init__(self, tr: Callable[..., str], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        tr: Callable[..., str],
+        parent: QWidget | None = None,
+        *,
+        allow_favorite_edit: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.tr = tr
+        self.allow_favorite_edit = allow_favorite_edit
         self.setStyleSheet(
             """
             QToolButton:checked {
@@ -47,6 +56,7 @@ class TagSelector(QWidget):
         self._selected: dict[int, TagRecord] = {}
         self._candidate_buttons: dict[int, QToolButton] = {}
 
+        self._favorite_buttons: dict[int, QToolButton] = {}
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(6)
@@ -117,6 +127,15 @@ class TagSelector(QWidget):
     def set_manager(self, manager: PromptLibraryManager) -> None:
         self._manager = manager
 
+    def set_selected_tags(self, tags: tuple[TagRecord, ...]) -> None:
+        self._selected = {tag.id: tag for tag in tags}
+        self._render_selected()
+        self._sync_candidate_checks()
+        self.selection_changed.emit()
+
+    def refresh_candidates(self) -> None:
+        self._reload_candidates()
+
     def set_target(self, model_id: str, task_id: str) -> None:
         self._model_id = model_id
         self._task_id = task_id
@@ -145,6 +164,9 @@ class TagSelector(QWidget):
 
     def candidate_button(self, tag_id: int) -> QToolButton | None:
         return self._candidate_buttons.get(tag_id)
+
+    def favorite_button(self, tag_id: int) -> QToolButton | None:
+        return self._favorite_buttons.get(tag_id)
 
     def selected_button(self, tag_id: int) -> QToolButton | None:
         return self.selected_widget.findChild(
@@ -187,6 +209,7 @@ class TagSelector(QWidget):
         self._clear_grid(self.favorite_layout)
         self._clear_grid(self.other_layout)
         self._candidate_buttons.clear()
+        self._favorite_buttons.clear()
         favorite_count = 0
         other_count = 0
         for candidate in candidates:
@@ -197,8 +220,7 @@ class TagSelector(QWidget):
             button.setProperty("tag_id", candidate.tag.id)
             button.setCheckable(True)
             button.setChecked(candidate.tag.id in self._selected)
-            prefix = "★ " if candidate.is_favorite else ""
-            button.setText(f"{prefix}{candidate.tag.name}")
+            button.setText(candidate.tag.name)
             button.setToolTip(candidate.tag.name)
             button.setSizePolicy(
                 QSizePolicy.Policy.Maximum,
@@ -210,11 +232,40 @@ class TagSelector(QWidget):
                 )
             )
             self._candidate_buttons[candidate.tag.id] = button
+            candidate_widget: QWidget = button
+            if self.allow_favorite_edit:
+                candidate_widget = QWidget()
+                candidate_layout = QHBoxLayout(candidate_widget)
+                candidate_layout.setContentsMargins(0, 0, 0, 0)
+                candidate_layout.setSpacing(2)
+                favorite_button = QToolButton()
+                favorite_button.setObjectName(
+                    f"prompt_library_favorite_tag_{candidate.tag.id}"
+                )
+                favorite_button.setText("★" if candidate.is_favorite else "☆")
+                favorite_button.setToolTip(
+                    self.tr(
+                        "library.remove_favorite"
+                        if candidate.is_favorite
+                        else "library.add_favorite"
+                    )
+                )
+                favorite_button.clicked.connect(
+                    lambda _checked=False,
+                    tag_id=candidate.tag.id,
+                    favorite=candidate.is_favorite: self._toggle_favorite(
+                        tag_id, not favorite
+                    )
+                )
+                self._favorite_buttons[candidate.tag.id] = favorite_button
+                candidate_layout.addWidget(favorite_button)
+                candidate_layout.addWidget(button)
+                candidate_layout.addStretch()
             if candidate.is_favorite:
                 index = favorite_count
                 favorite_count += 1
                 self.favorite_layout.addWidget(
-                    button,
+                    candidate_widget,
                     index // 4,
                     index % 4,
                     Qt.AlignmentFlag.AlignLeft,
@@ -223,7 +274,7 @@ class TagSelector(QWidget):
                 index = other_count
                 other_count += 1
                 self.other_layout.addWidget(
-                    button,
+                    candidate_widget,
                     index // 4,
                     index % 4,
                     Qt.AlignmentFlag.AlignLeft,
@@ -234,6 +285,17 @@ class TagSelector(QWidget):
         self.other_label.setVisible(other_count > 0)
         self.other_widget.setVisible(other_count > 0)
 
+
+    def _toggle_favorite(self, tag_id: int, favorite: bool) -> None:
+        if self._manager is None or not self.allow_favorite_edit:
+            return
+        try:
+            self._manager.set_tag_favorite(tag_id, favorite)
+        except PromptLibraryError as exc:
+            self.error_occurred.emit(exc.code)
+            return
+        self._reload_candidates()
+        self.favorite_changed.emit(tag_id, favorite)
     def _candidate_toggled(self, tag: TagRecord, checked: bool) -> None:
         if checked:
             self._selected[tag.id] = tag

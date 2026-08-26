@@ -15,6 +15,7 @@ PROMPT_LIBRARY_SCHEMA_VERSION = 1
 PROMPT_LIBRARY_PAGE_SIZE = 50
 INITIAL_TAG_CANDIDATE_LIMIT = 100
 SEARCH_TAG_CANDIDATE_LIMIT = 50
+GLOBAL_TAG_CANDIDATE_LIMIT = 20
 
 _MODEL_ID = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _TASK_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_]{1,31}$")
@@ -801,6 +802,58 @@ class PromptLibraryManager:
             raise
         except (OSError, sqlite3.Error) as exc:
             raise PromptLibraryDatabaseError("PROMPT_LIBRARY_DATABASE_OPERATION_FAILED") from exc
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def search_existing_tags(
+        self,
+        query: str,
+        *,
+        limit: int = GLOBAL_TAG_CANDIDATE_LIMIT,
+    ) -> tuple[TagCandidate, ...]:
+        """Search every stored tag, including tags that are currently unused."""
+
+        validated_limit = _validate_limit(limit, GLOBAL_TAG_CANDIDATE_LIMIT)
+        normalized_query = _normalize_tag_query(query)
+        escaped = _escape_like(normalized_query)
+        prefix_pattern = f"{escaped}%"
+        contains_pattern = f"%{escaped}%"
+        connection: sqlite3.Connection | None = None
+        try:
+            connection = self._open_connection()
+            rows = connection.execute(
+                """SELECT t.*,
+                          CASE WHEN pref.tag_id IS NULL THEN 0 ELSE 1 END
+                              AS is_favorite,
+                          COUNT(DISTINCT pt.prompt_id) AS usage_count,
+                          CASE
+                            WHEN t.normalized_name = ? THEN 0
+                            WHEN t.normalized_name LIKE ? ESCAPE '\\' THEN 1
+                            ELSE 2
+                          END AS match_rank
+                   FROM tags AS t
+                   LEFT JOIN prompt_tags AS pt ON pt.tag_id = t.id
+                   LEFT JOIN tag_preferences AS pref ON pref.tag_id = t.id
+                   WHERE t.normalized_name LIKE ? ESCAPE '\\'
+                   GROUP BY t.id
+                   ORDER BY match_rank, is_favorite DESC, usage_count DESC,
+                            t.normalized_name, t.id
+                   LIMIT ?""",
+                (
+                    normalized_query,
+                    prefix_pattern,
+                    contains_pattern,
+                    validated_limit,
+                ),
+            ).fetchall()
+            return tuple(self._candidate_from_row(row) for row in rows)
+        except PromptLibraryError:
+            raise
+        except (OSError, sqlite3.Error) as exc:
+            raise PromptLibraryDatabaseError(
+                "PROMPT_LIBRARY_DATABASE_OPERATION_FAILED"
+            ) from exc
         finally:
             if connection is not None:
                 connection.close()

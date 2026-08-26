@@ -206,7 +206,10 @@ def test_tag_candidates_favorites_toggle_and_full_database_search(tmp_path) -> N
     assert page.tag_selector.favorite_label.isHidden() is False
     favorite_button = page.tag_selector.candidate_button(by_name["tag000"].id)
     assert favorite_button is not None
-    assert favorite_button.text().startswith("★ ")
+    assert favorite_button.text() == "tag000"
+    favorite_toggle = page.tag_selector.favorite_button(by_name["tag000"].id)
+    assert favorite_toggle is not None
+    assert favorite_toggle.text() == "★"
     assert page.tag_selector.candidate_button(by_name["tag100"].id) is None
 
     page.tag_selector.search_edit.setText("ＴＡＧ１００")

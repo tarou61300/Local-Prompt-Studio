@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
@@ -35,6 +36,7 @@ from core.prompt_library_manager import (
 )
 
 from .tag_selector import TagSelector
+from .prompt_library_dialog import PromptLibraryEntryDialog
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,6 +194,14 @@ class PromptLibraryPage(QWidget):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(8)
 
+        library_actions = QHBoxLayout()
+        self.new_button = QPushButton(self.tr("library.new_prompt"))
+        self.new_button.setObjectName("prompt_library_new")
+        self.new_button.clicked.connect(self.open_new_prompt)
+        library_actions.addWidget(self.new_button)
+        library_actions.addStretch()
+        root.addLayout(library_actions)
+
         filters = QGroupBox(self.tr("library.filters"))
         filters.setObjectName("prompt_library_filters")
         filters_layout = QVBoxLayout(filters)
@@ -212,7 +222,7 @@ class PromptLibraryPage(QWidget):
         target_form.addRow(self.tr("library.task"), self.task_combo)
         filters_layout.addLayout(target_form)
 
-        self.tag_selector = TagSelector(self.tr)
+        self.tag_selector = TagSelector(self.tr, allow_favorite_edit=True)
         self.tag_selector.setObjectName("prompt_library_tag_selector")
         self.tag_selector.error_occurred.connect(self._show_database_error)
         filters_layout.addWidget(self.tag_selector)
@@ -292,6 +302,14 @@ class PromptLibraryPage(QWidget):
         self.copy_checked_button.setObjectName("prompt_library_copy_checked")
         self.copy_checked_button.clicked.connect(self.copy_checked_prompts)
         actions.addWidget(self.copy_checked_button)
+        self.edit_button = QPushButton(self.tr("library.edit"))
+        self.edit_button.setObjectName("prompt_library_edit")
+        self.edit_button.clicked.connect(self.edit_selected_prompt)
+        actions.addWidget(self.edit_button)
+        self.delete_button = QPushButton(self.tr("library.delete"))
+        self.delete_button.setObjectName("prompt_library_delete")
+        self.delete_button.clicked.connect(self.delete_selected_prompt)
+        actions.addWidget(self.delete_button)
         actions.addStretch()
         results_layout.addLayout(actions)
 
@@ -369,6 +387,79 @@ class PromptLibraryPage(QWidget):
             if self._database_created_on_activate
             else self.tr("library.ready")
         )
+
+    def create_new_prompt_dialog(self) -> PromptLibraryEntryDialog | None:
+        if not self._ensure_manager():
+            return None
+        assert self.manager is not None
+        return PromptLibraryEntryDialog(
+            self.tr,
+            manager=self.manager,
+            profiles=self._profiles,
+            initial_model_id=str(self.model_combo.currentData() or ""),
+            initial_task_id=str(self.task_combo.currentData() or ""),
+            parent=self,
+        )
+
+    def open_new_prompt(self) -> None:
+        dialog = self.create_new_prompt_dialog()
+        if dialog is None or not dialog.exec():
+            return
+        self._refresh_after_mutation(self.tr("library.saved_successfully"))
+
+    def create_edit_prompt_dialog(
+        self,
+        record: PromptRecord,
+    ) -> PromptLibraryEntryDialog:
+        assert self.manager is not None
+        return PromptLibraryEntryDialog(
+            self.tr,
+            manager=self.manager,
+            profiles=self._profiles,
+            record=record,
+            parent=self,
+        )
+
+    def edit_selected_prompt(self) -> None:
+        summary = self._current_summary()
+        if summary is None:
+            return
+        record = self._load_prompt(summary.id)
+        if record is None:
+            return
+        dialog = self.create_edit_prompt_dialog(record)
+        if not dialog.exec():
+            return
+        self._refresh_after_mutation(self.tr("library.updated_successfully"))
+
+    def delete_selected_prompt(self) -> None:
+        summary = self._current_summary()
+        if summary is None or not self._ensure_manager():
+            return
+        answer = QMessageBox.question(
+            self,
+            self.tr("library.confirm_delete_title"),
+            self.tr("library.confirm_delete", title=summary.title),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        assert self.manager is not None
+        try:
+            self.manager.delete_prompt(summary.id)
+        except PromptLibraryError as exc:
+            self._show_database_error(exc.code)
+            return
+        self._refresh_after_mutation(self.tr("library.deleted_successfully"))
+
+    def _refresh_after_mutation(self, feedback: str) -> None:
+        self.tag_selector.refresh_candidates()
+        if self._criteria is None:
+            self._clear_results(self.tr("library.ready"))
+        else:
+            self._load_page(self._current_page)
+        self.feedback_label.setText(feedback)
 
     def search(self) -> None:
         if not self._ensure_manager():
@@ -499,6 +590,18 @@ class PromptLibraryPage(QWidget):
                 title=self._criteria.title,
                 page=page,
             )
+            last_page = max(
+                1,
+                math.ceil(result.total_count / result.page_size),
+            )
+            if page > last_page:
+                result = self.manager.search_prompts(
+                    model_id=self._criteria.model_id,
+                    task_id=self._criteria.task_id,
+                    tag_ids=self._criteria.tag_ids,
+                    title=self._criteria.title,
+                    page=last_page,
+                )
         except PromptLibraryError as exc:
             self._show_database_error(exc.code)
             return
@@ -583,6 +686,8 @@ class PromptLibraryPage(QWidget):
         has_current = self._current_summary() is not None
         self.show_button.setEnabled(has_current)
         self.copy_button.setEnabled(has_current)
+        self.edit_button.setEnabled(has_current)
+        self.delete_button.setEnabled(has_current)
         self.copy_checked_button.setEnabled(
             bool(self.results_model.checked_prompt_ids())
         )
