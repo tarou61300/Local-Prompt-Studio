@@ -49,6 +49,8 @@ def test_main_window_constructs_without_model(tmp_path):
             dev_skill_path=FIXTURE,
         )
         assert window.windowTitle() == "Local Prompt Studio v2.2.0"
+        assert window.main_tabs.count() == 3
+        assert window.main_tabs.currentIndex() == 0
         assert window.profile_category.currentData() == "video"
         assert window.profile_model.currentData() == "minimax_h3"
         assert window.profile_variant.currentData() == "base"

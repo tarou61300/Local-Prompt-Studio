@@ -64,11 +64,12 @@ def test_fixed_tabs_dynamic_prompt_title_and_state_survive_navigation(tmp_path):
     app = _app()
     window, server = _window(tmp_path)
     try:
-        assert window.main_tabs.count() == 2
+        assert window.main_tabs.count() == 3
         assert window.main_tabs.tabsClosable() is False
         assert window.main_tabs.tabText(0) == "MiniMax H3 / T2VA"
         assert window.main_tabs.tabToolTip(0) == "MiniMax H3 / T2VA"
         assert window.main_tabs.tabText(1) == window.tr("tabs.ai_chat")
+        assert window.main_tabs.tabText(2) == window.tr("tabs.prompt_library")
 
         window.request_text.setPlainText("request stays")
         window.common_note.setPlainText("supplement stays")
@@ -99,7 +100,7 @@ def test_browser_like_tab_style_is_compact_and_workspace_remains_usable(tmp_path
         tab_bar = window.main_tabs.tabBar()
         assert tab_bar.objectName() == "main_mode_tab_bar"
         assert window.main_tabs.currentIndex() == 0
-        assert tab_bar.count() == 2
+        assert tab_bar.count() == 3
         style = window.main_tabs.styleSheet()
         assert "border: 1px solid palette(mid)" in style
         assert "border-bottom-color: palette(window)" in style

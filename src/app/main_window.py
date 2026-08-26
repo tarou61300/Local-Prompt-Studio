@@ -84,6 +84,7 @@ from core.version import (
 
 from .chat_page import ChatMessageWidget, ChatPage
 from .ime_aware_text_edit import ImeAwarePlaceholderPlainTextEdit
+from .prompt_library_page import PromptLibraryPage
 from .prompt_translation_dialog import PromptTranslationDialog
 from .request_guide import request_guide_entries
 from .settings_dialog import SettingsDialog
@@ -859,6 +860,12 @@ class MainWindow(QMainWindow):
 
         self.chat_page = ChatPage(self.tr)
         self.chat_page.setObjectName("ai_chat_page")
+        self.prompt_library_page = PromptLibraryPage(
+            self.tr,
+            data_dir=self.config_manager.data_dir,
+            profiles=self._available_profiles(),
+        )
+        self.prompt_library_page.setObjectName("prompt_library_page")
         self.main_tabs = QTabWidget()
         self.main_tabs.setObjectName("main_mode_tabs")
         self.main_tabs.tabBar().setObjectName("main_mode_tab_bar")
@@ -866,6 +873,11 @@ class MainWindow(QMainWindow):
         self.main_tabs.setStyleSheet(MAIN_MODE_TABS_STYLE)
         self.main_tabs.addTab(self.prompt_page, "")
         self.main_tabs.addTab(self.chat_page, self.tr("tabs.ai_chat"))
+        self.main_tabs.addTab(
+            self.prompt_library_page,
+            self.tr("tabs.prompt_library"),
+        )
+        self.main_tabs.currentChanged.connect(self._main_tab_changed)
         root.addWidget(self.main_tabs, 1)
         self.setCentralWidget(central)
         self.output_text.textChanged.connect(self._update_send_button_state)
@@ -1152,6 +1164,10 @@ class MainWindow(QMainWindow):
         profile_name = self.profile.manifest.name if self.profile else "—"
         task_name = self.mode.currentText()
         return f"{profile_name} / {task_name}" if task_name else profile_name
+
+    def _main_tab_changed(self, index: int) -> None:
+        if index == 2:
+            self.prompt_library_page.activate()
 
     def _sync_prompt_target_ui(self) -> None:
         if not hasattr(self, "main_tabs"):
