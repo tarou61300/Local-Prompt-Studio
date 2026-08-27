@@ -210,6 +210,8 @@ Cancel、timeout、アプリ終了時には、このアプリが起動したllam
 - llama-serverログ: `data/llama-server/`
 - 履歴（初期状態OFF）: `data/history.sqlite3`
 - Prompt Library: `data/prompt_library.sqlite3`（Prompt Libraryを初めて開いた時に作成）
+- Prompt Library Dataset registry: `data/prompt_library_datasets.json`
+- 追加Prompt Library Dataset: `data/prompt_library_datasets/<dataset-id>/prompt_library.sqlite3`
 - 取得したSkill: `data/skills/h3-prompt-writing/`
 - ComfyUIペアリング資格情報: `data/comfyui_credentials.dat`（Windows DPAPI CurrentUserで保護）
 

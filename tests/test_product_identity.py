@@ -70,6 +70,8 @@ def test_prompt_library_user_database_is_documented_ignored_and_banned_from_rele
 
     assert "<repository>/.dev-data/prompt_library.sqlite3" in portable_readme
     assert "prompt_library.sqlite3*" in gitignore
+    assert "prompt_library_datasets.json" in gitignore
+    assert "prompt_library_datasets/" in gitignore
     for filename in (
         "prompt_library.sqlite3",
         "prompt_library.sqlite3-wal",
@@ -77,3 +79,7 @@ def test_prompt_library_user_database_is_documented_ignored_and_banned_from_rele
     ):
         assert filename in portable_readme
         assert f'"{filename}"' in audit_script
+    assert "prompt_library_datasets.json" in portable_readme
+    assert "prompt_library_datasets/" in portable_readme
+    assert "prompt_library_datasets.json" in audit_script
+    assert "prompt_library_datasets" in audit_script

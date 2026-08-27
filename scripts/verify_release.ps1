@@ -272,6 +272,9 @@ public static class ReleaseWindowSearch
         foreach ($Relative in @(
             "config.json",
             "history.sqlite3",
+            "prompt_library.sqlite3",
+            "prompt_library_datasets.json",
+            "prompt_library_datasets",
             "comfyui_credentials.dat",
             "skills"
         )) {

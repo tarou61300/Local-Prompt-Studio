@@ -18,6 +18,8 @@ htmlcov/
 config.json
 history.sqlite3*
 prompt_library.sqlite3*
+prompt_library_datasets.json
+prompt_library_datasets/
 *.log*
 *.tmp
 *.gguf

@@ -11,10 +11,12 @@ from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -28,6 +30,13 @@ from PySide6.QtWidgets import (
 )
 
 from core.profile_models import LoadedProfile
+from core.prompt_library_datasets import (
+    DEFAULT_DATASET_ID,
+    PromptLibraryDataset,
+    PromptLibraryDatasetError,
+    PromptLibraryDatasetRegistry,
+    validate_prompt_library_database,
+)
 from core.prompt_library_manager import (
     PromptLibraryError,
     PromptLibraryManager,
@@ -230,6 +239,9 @@ class PromptLibraryPage(QWidget):
         data_dir: Path,
         profiles: Iterable[LoadedProfile],
         manager_factory: Callable[[Path], PromptLibraryManager] = PromptLibraryManager,
+        dataset_registry_factory: Callable[
+            [Path], PromptLibraryDatasetRegistry
+        ] = PromptLibraryDatasetRegistry,
         tag_rows: int = 5,
         result_rows: int = 5,
         detail_minimum_lines: int = 10,
@@ -240,6 +252,13 @@ class PromptLibraryPage(QWidget):
         self.data_dir = Path(data_dir)
         self._manager_factory = manager_factory
         self.manager: PromptLibraryManager | None = None
+        self.dataset_registry: PromptLibraryDatasetRegistry | None = None
+        self._dataset_registry_error: str | None = None
+        self._changing_dataset = False
+        try:
+            self.dataset_registry = dataset_registry_factory(self.data_dir)
+        except PromptLibraryDatasetError as exc:
+            self._dataset_registry_error = exc.code
         self._profiles = tuple(profiles)
         self._profiles_by_id = {
             profile.manifest.id: profile for profile in self._profiles
@@ -277,11 +296,38 @@ class PromptLibraryPage(QWidget):
         root.addWidget(self.outer_scroll)
 
         library_actions = QHBoxLayout()
+        self.dataset_label = QLabel(self.tr("library.dataset.label"))
+        library_actions.addWidget(self.dataset_label)
+        self.dataset_combo = QComboBox()
+        self.dataset_combo.setObjectName("prompt_library_dataset")
+        self.dataset_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        library_actions.addWidget(self.dataset_combo, 1)
+        self.new_dataset_button = QPushButton(
+            self.tr("library.dataset.new")
+        )
+        self.new_dataset_button.setObjectName("prompt_library_dataset_new")
+        self.new_dataset_button.clicked.connect(self.create_dataset)
+        library_actions.addWidget(self.new_dataset_button)
+        self.load_dataset_button = QPushButton(
+            self.tr("library.dataset.load")
+        )
+        self.load_dataset_button.setObjectName("prompt_library_dataset_load")
+        self.load_dataset_button.clicked.connect(self.load_dataset)
+        library_actions.addWidget(self.load_dataset_button)
+        self.export_dataset_button = QPushButton(
+            self.tr("library.dataset.export")
+        )
+        self.export_dataset_button.setObjectName("prompt_library_dataset_export")
+        self.export_dataset_button.clicked.connect(self.export_dataset)
+        library_actions.addWidget(self.export_dataset_button)
+        library_actions.addStretch()
         self.new_button = QPushButton(self.tr("library.new_prompt"))
         self.new_button.setObjectName("prompt_library_new")
         self.new_button.clicked.connect(self.open_new_prompt)
         library_actions.addWidget(self.new_button)
-        library_actions.addStretch()
         content_layout.addLayout(library_actions)
 
         filters = QGroupBox(self.tr("library.filters"))
@@ -444,6 +490,8 @@ class PromptLibraryPage(QWidget):
         content_layout.addWidget(self.feedback_label)
         content_layout.addStretch()
 
+        self._populate_datasets()
+        self.dataset_combo.currentIndexChanged.connect(self._dataset_changed)
         self._populate_models()
         self.model_combo.currentIndexChanged.connect(self._model_changed)
         self.task_combo.currentIndexChanged.connect(self._task_changed)
@@ -463,20 +511,191 @@ class PromptLibraryPage(QWidget):
     def activate(self) -> None:
         if self.manager is not None:
             return
-        database_path = self.data_dir / "prompt_library.sqlite3"
-        self._database_created_on_activate = not database_path.exists()
-        try:
-            self.manager = self._manager_factory(self.data_dir)
-            self.tag_selector.set_manager(self.manager)
-            self._set_tag_target()
-        except PromptLibraryError as exc:
-            self.manager = None
-            self._show_database_error(exc.code)
+        if self.dataset_registry is None:
+            record = PromptLibraryDataset(
+                id=DEFAULT_DATASET_ID,
+                display_name="Default",
+                data_dir=self.data_dir,
+                is_default=True,
+            )
+        else:
+            record = self.dataset_registry.active_dataset()
+        if not self._use_dataset(record, persist=False):
             return
-        self._clear_results(
-            self.tr("library.no_prompts")
-            if self._database_created_on_activate
-            else self.tr("library.ready")
+        if self._dataset_registry_error is not None:
+            self._show_dataset_error(self._dataset_registry_error, dialog=False)
+
+    def _populate_datasets(self, selected_id: str | None = None) -> None:
+        active_id = selected_id or DEFAULT_DATASET_ID
+        if self.dataset_registry is not None:
+            active_id = selected_id or self.dataset_registry.active_dataset_id
+            datasets = self.dataset_registry.datasets()
+        else:
+            datasets = (
+                PromptLibraryDataset(
+                    id=DEFAULT_DATASET_ID,
+                    display_name="Default",
+                    data_dir=self.data_dir,
+                    is_default=True,
+                ),
+            )
+        self.dataset_combo.blockSignals(True)
+        self.dataset_combo.clear()
+        for dataset in datasets:
+            label = (
+                self.tr("library.dataset.default")
+                if dataset.is_default
+                else dataset.display_name
+            )
+            self.dataset_combo.addItem(label, dataset.id)
+        index = self.dataset_combo.findData(active_id)
+        self.dataset_combo.setCurrentIndex(max(0, index))
+        self.dataset_combo.blockSignals(False)
+        enabled = self.dataset_registry is not None
+        self.dataset_combo.setEnabled(enabled)
+        self.new_dataset_button.setEnabled(enabled)
+        self.load_dataset_button.setEnabled(enabled)
+        self.export_dataset_button.setEnabled(enabled and self.manager is not None)
+
+    def _use_dataset(
+        self,
+        record: PromptLibraryDataset,
+        *,
+        persist: bool,
+    ) -> bool:
+        database_existed = record.database_path.exists()
+        try:
+            if database_existed:
+                validate_prompt_library_database(record.database_path)
+            elif not record.is_default:
+                raise PromptLibraryDatasetError("PROMPT_LIBRARY_DATASET_INVALID")
+            candidate_manager = self._manager_factory(record.data_dir)
+            if persist and self.dataset_registry is not None:
+                self.dataset_registry.set_active(record.id)
+        except PromptLibraryDatasetError as exc:
+            self._show_dataset_error(exc.code)
+            return False
+        except PromptLibraryError as exc:
+            self._show_database_error(exc.code)
+            return False
+
+        self._changing_dataset = True
+        try:
+            self.manager = candidate_manager
+            self._database_created_on_activate = not database_existed
+            self.tag_selector.set_manager(candidate_manager)
+            self.title_search.clear()
+            self._criteria = None
+            self._set_tag_target()
+            self._clear_results(
+                self.tr("library.no_prompts")
+                if self._database_created_on_activate
+                else self.tr("library.ready")
+            )
+        finally:
+            self._changing_dataset = False
+        self.export_dataset_button.setEnabled(self.dataset_registry is not None)
+        return True
+
+    def _dataset_changed(self, _index: int) -> None:
+        if self._changing_dataset or self.dataset_registry is None:
+            return
+        dataset_id = str(self.dataset_combo.currentData() or "")
+        if not dataset_id or dataset_id == self.dataset_registry.active_dataset_id:
+            return
+        previous_id = self.dataset_registry.active_dataset_id
+        try:
+            record = self.dataset_registry.dataset(dataset_id)
+        except PromptLibraryDatasetError as exc:
+            self._show_dataset_error(exc.code)
+            return
+        if not self._use_dataset(record, persist=True):
+            self._populate_datasets(previous_id)
+            return
+        self.feedback_label.setText(
+            self.tr("library.dataset.switched", name=self.dataset_combo.currentText())
+        )
+
+    def create_dataset(self) -> None:
+        if self.dataset_registry is None:
+            return
+        name, accepted = QInputDialog.getText(
+            self,
+            self.tr("library.dataset.new"),
+            self.tr("library.dataset.name"),
+        )
+        if not accepted:
+            return
+        try:
+            record = self.dataset_registry.create_dataset(name)
+        except PromptLibraryDatasetError as exc:
+            self._show_dataset_error(exc.code)
+            return
+        self._populate_datasets(record.id)
+        if self._use_dataset(record, persist=False):
+            self.feedback_label.setText(
+                self.tr("library.dataset.created", name=record.display_name)
+            )
+
+    def load_dataset(self) -> None:
+        if self.dataset_registry is None:
+            return
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            self.tr("library.dataset.load"),
+            "",
+            self.tr("library.dataset.file_filter"),
+        )
+        if not path:
+            return
+        name, accepted = QInputDialog.getText(
+            self,
+            self.tr("library.dataset.load"),
+            self.tr("library.dataset.name"),
+            text=Path(path).stem,
+        )
+        if not accepted:
+            return
+        try:
+            record = self.dataset_registry.import_dataset(path, name)
+        except PromptLibraryDatasetError as exc:
+            self._show_dataset_error(exc.code)
+            return
+        self._populate_datasets(record.id)
+        if self._use_dataset(record, persist=False):
+            self.feedback_label.setText(
+                self.tr("library.dataset.loaded", name=record.display_name)
+            )
+
+    def export_dataset(self) -> None:
+        if self.dataset_registry is None or self.manager is None:
+            return
+        path, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            self.tr("library.dataset.export"),
+            "prompt-library.sqlite3",
+            self.tr("library.dataset.file_filter"),
+        )
+        if not path:
+            return
+        destination = Path(path)
+        if destination.exists():
+            answer = QMessageBox.question(
+                self,
+                self.tr("library.dataset.export"),
+                self.tr("library.dataset.confirm_overwrite"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            exported = self.dataset_registry.export_dataset(destination)
+        except PromptLibraryDatasetError as exc:
+            self._show_dataset_error(exc.code)
+            return
+        self.feedback_label.setText(
+            self.tr("library.dataset.exported", path=str(exported))
         )
 
     def create_new_prompt_dialog(self) -> PromptLibraryEntryDialog | None:
@@ -597,6 +816,8 @@ class PromptLibraryPage(QWidget):
         self.detail_prompt.set_minimum_lines(self._detail_minimum_lines)
 
     def _tag_selection_changed(self) -> None:
+        if self._changing_dataset:
+            return
         if not self.tag_selector.selected_tag_ids():
             self._criteria = None
             self._clear_results(self.tr("library.ready"))
@@ -824,6 +1045,22 @@ class PromptLibraryPage(QWidget):
             bool(self.results_model.checked_prompt_ids())
         )
 
+    def _show_dataset_error(self, code: str, *, dialog: bool = True) -> None:
+        message_key = {
+            "PROMPT_LIBRARY_DATASET_NAME_EMPTY": "library.dataset.error.name_empty",
+            "PROMPT_LIBRARY_DATASET_NAME_INVALID": "library.dataset.error.name_invalid",
+            "PROMPT_LIBRARY_DATASET_NAME_DUPLICATE": "library.dataset.error.name_duplicate",
+            "PROMPT_LIBRARY_DATASET_UNSUPPORTED_VERSION": "library.dataset.error.unsupported",
+            "PROMPT_LIBRARY_DATASET_SAME_PATH": "library.dataset.error.same_path",
+        }.get(code, "library.dataset.error.invalid")
+        message = self.tr(message_key)
+        self.feedback_label.setText(message)
+        if dialog:
+            QMessageBox.warning(
+                self,
+                self.tr("library.dataset.error.title"),
+                message,
+            )
     def _show_database_error(self, _code: str) -> None:
         self.results_model.set_items(())
         self._clear_detail()
