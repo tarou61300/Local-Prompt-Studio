@@ -36,6 +36,7 @@ class TagSelector(QWidget):
         parent: QWidget | None = None,
         *,
         allow_favorite_edit: bool = False,
+        visible_rows: int = 5,
     ) -> None:
         super().__init__(parent)
         self.tr = tr
@@ -55,6 +56,7 @@ class TagSelector(QWidget):
         self._task_id = ""
         self._selected: dict[int, TagRecord] = {}
         self._candidate_buttons: dict[int, QToolButton] = {}
+        self._visible_rows = max(1, int(visible_rows))
 
         self._favorite_buttons: dict[int, QToolButton] = {}
         root = QVBoxLayout(self)
@@ -87,8 +89,6 @@ class TagSelector(QWidget):
         self.candidate_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self.candidate_scroll.setMinimumHeight(120)
-        self.candidate_scroll.setMaximumHeight(220)
         self.candidate_scroll.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Preferred,
@@ -123,6 +123,36 @@ class TagSelector(QWidget):
 
         self._render_selected()
         self._render_candidates(())
+        self.set_visible_rows(self._visible_rows)
+
+    def set_visible_rows(self, rows: int) -> None:
+        self._visible_rows = max(1, int(rows))
+        sample = next(iter(self._candidate_buttons.values()), None)
+        if sample is None:
+            sample = QToolButton()
+            sample.setText("Tag")
+        row_height = max(sample.sizeHint().height(), self.fontMetrics().height())
+        margins = self.candidate_root.contentsMargins()
+        label_height = max(
+            self.favorite_label.sizeHint().height(),
+            self.other_label.sizeHint().height(),
+        )
+        grid_spacing = max(
+            self.favorite_layout.verticalSpacing(),
+            self.other_layout.verticalSpacing(),
+            0,
+        )
+        height = (
+            2 * self.candidate_scroll.frameWidth()
+            + margins.top()
+            + margins.bottom()
+            + 2 * label_height
+            + 3 * self.candidate_root.spacing()
+            + self._visible_rows * row_height
+            + max(0, self._visible_rows - 1) * grid_spacing
+        )
+        self.candidate_scroll.setMinimumHeight(height)
+        self.candidate_scroll.setMaximumHeight(height)
 
     def set_manager(self, manager: PromptLibraryManager) -> None:
         self._manager = manager
@@ -284,7 +314,7 @@ class TagSelector(QWidget):
         self.favorite_widget.setVisible(has_favorites)
         self.other_label.setVisible(other_count > 0)
         self.other_widget.setVisible(other_count > 0)
-
+        self.set_visible_rows(self._visible_rows)
 
     def _toggle_favorite(self, tag_id: int, favorite: bool) -> None:
         if self._manager is None or not self.allow_favorite_edit:
@@ -296,6 +326,7 @@ class TagSelector(QWidget):
             return
         self._reload_candidates()
         self.favorite_changed.emit(tag_id, favorite)
+
     def _candidate_toggled(self, tag: TagRecord, checked: bool) -> None:
         if checked:
             self._selected[tag.id] = tag

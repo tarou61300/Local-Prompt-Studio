@@ -39,6 +39,9 @@ from core.config_manager import (
     ConfigManager,
     CONTEXT_PRESETS,
     PORTABLE_WRITE_ERROR,
+    PROMPT_LIBRARY_DETAIL_LINES_RANGE,
+    PROMPT_LIBRARY_RESULT_ROWS_RANGE,
+    PROMPT_LIBRARY_TAG_ROWS_RANGE,
     normalize_model_path_key,
 )
 from core.inference_backends import (
@@ -377,6 +380,43 @@ class SettingsDialog(QDialog):
         locale_index = self.ui_locale.findData(self.config.ui_locale)
         self.ui_locale.setCurrentIndex(max(0, locale_index))
         form.addRow(self.tr("settings.language"), self.ui_locale)
+
+        self.prompt_library_group = QGroupBox(
+            self.tr("settings.prompt_library.title")
+        )
+        self.prompt_library_group.setObjectName("prompt_library_display_settings")
+        prompt_library_form = QFormLayout(self.prompt_library_group)
+        self.prompt_library_tag_rows = QSpinBox()
+        self.prompt_library_tag_rows.setObjectName("prompt_library_tag_rows")
+        self.prompt_library_tag_rows.setRange(*PROMPT_LIBRARY_TAG_ROWS_RANGE)
+        self.prompt_library_tag_rows.setValue(self.config.prompt_library_tag_rows)
+        prompt_library_form.addRow(
+            self.tr("settings.prompt_library.tag_rows"),
+            self.prompt_library_tag_rows,
+        )
+        self.prompt_library_result_rows = QSpinBox()
+        self.prompt_library_result_rows.setObjectName("prompt_library_result_rows")
+        self.prompt_library_result_rows.setRange(*PROMPT_LIBRARY_RESULT_ROWS_RANGE)
+        self.prompt_library_result_rows.setValue(
+            self.config.prompt_library_result_rows
+        )
+        prompt_library_form.addRow(
+            self.tr("settings.prompt_library.result_rows"),
+            self.prompt_library_result_rows,
+        )
+        self.prompt_library_detail_lines = QSpinBox()
+        self.prompt_library_detail_lines.setObjectName(
+            "prompt_library_detail_lines"
+        )
+        self.prompt_library_detail_lines.setRange(*PROMPT_LIBRARY_DETAIL_LINES_RANGE)
+        self.prompt_library_detail_lines.setValue(
+            self.config.prompt_library_detail_lines
+        )
+        prompt_library_form.addRow(
+            self.tr("settings.prompt_library.detail_lines"),
+            self.prompt_library_detail_lines,
+        )
+        layout.addWidget(self.prompt_library_group)
 
         comfyui_group = QGroupBox("ComfyUI Integration")
         comfyui_form = QFormLayout(comfyui_group)
@@ -882,6 +922,9 @@ class SettingsDialog(QDialog):
         self.history_enabled.setChecked(default.history_enabled)
         self.theme.setCurrentIndex(self.theme.findData(default.theme))
         self.ui_locale.setCurrentIndex(self.ui_locale.findData(default.ui_locale))
+        self.prompt_library_tag_rows.setValue(default.prompt_library_tag_rows)
+        self.prompt_library_result_rows.setValue(default.prompt_library_result_rows)
+        self.prompt_library_detail_lines.setValue(default.prompt_library_detail_lines)
         self.comfyui_url.setText(default.comfyui_url)
         self.use_prompt_model_for_chat.setChecked(default.use_prompt_model_for_chat)
         self.chat_model_path.setText(default.chat_model_path)
@@ -931,6 +974,9 @@ class SettingsDialog(QDialog):
         config.skill_location = self.skill_location.text().strip()
         config.history_enabled = self.history_enabled.isChecked()
         config.theme = str(self.theme.currentData())
+        config.prompt_library_tag_rows = self.prompt_library_tag_rows.value()
+        config.prompt_library_result_rows = self.prompt_library_result_rows.value()
+        config.prompt_library_detail_lines = self.prompt_library_detail_lines.value()
         previous_locale = config.ui_locale
         config.ui_locale = str(self.ui_locale.currentData())
         config.comfyui_url = normalized_comfyui_url

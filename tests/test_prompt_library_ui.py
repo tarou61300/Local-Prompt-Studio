@@ -12,8 +12,9 @@ from PySide6.QtWidgets import QApplication
 
 from app.main_window import MainWindow
 from app.prompt_library_page import PromptLibraryPage
+from app.settings_dialog import SettingsDialog
 from app.theme import apply_application_theme
-from core.config_manager import ConfigManager, THEME_DARK, THEME_NORMAL
+from core.config_manager import AppConfig, ConfigManager, THEME_DARK, THEME_NORMAL
 from core.localization import Localization
 from core.profile_loader import ProfileLoader
 from core.prompt_library_manager import (
@@ -59,6 +60,9 @@ def _page(
     locale_id: str = "ja-JP",
     data_dir: Path | None = None,
     manager_factory=PromptLibraryManager,
+    tag_rows: int = 5,
+    result_rows: int = 5,
+    detail_minimum_lines: int = 10,
 ) -> PromptLibraryPage:
     localization = Localization(PROJECT_ROOT / "locales", locale_id)
     page = PromptLibraryPage(
@@ -66,6 +70,9 @@ def _page(
         data_dir=data_dir or (tmp_path / "library-data"),
         profiles=_profiles(tmp_path),
         manager_factory=manager_factory,
+        tag_rows=tag_rows,
+        result_rows=result_rows,
+        detail_minimum_lines=detail_minimum_lines,
     )
     return page
 
@@ -233,8 +240,9 @@ def test_tag_candidates_favorites_toggle_and_full_database_search(tmp_path) -> N
     page.close()
 
 
-def test_search_is_explicit_and_supports_zero_one_and_and_tags_and_title(
+def test_tag_selection_auto_searches_once_and_zero_tags_requires_manual_search(
     tmp_path,
+    monkeypatch,
 ) -> None:
     app = _app()
     data_dir = tmp_path / "data"
@@ -259,45 +267,62 @@ def test_search_is_explicit_and_supports_zero_one_and_and_tags_and_title(
         tags=("woman", "park"),
     )
     tags = {tag.normalized_name: tag for tag in both.tags}
-    page = _page(tmp_path, data_dir=data_dir)
+    search_calls: list[dict[str, object]] = []
+    original_search = manager.search_prompts
+
+    def counted_search(**kwargs):
+        search_calls.append(dict(kwargs))
+        return original_search(**kwargs)
+
+    monkeypatch.setattr(manager, "search_prompts", counted_search)
+    page = _page(
+        tmp_path,
+        data_dir=data_dir,
+        manager_factory=lambda _data_dir: manager,
+    )
     page.activate()
     _select_target(page, "minimax_h3", "T2VA")
 
     assert page.results_model.rowCount() == 0
-    woman_button = page.tag_selector.candidate_button(tags["woman"].id)
-    woman_button.click()
-    assert page.results_model.rowCount() == 0
-    page.search_button.click()
-    assert page.results_model.rowCount() == 2
+    assert search_calls == []
+    page.title_search.setText("Street")
+    page.tag_selector.candidate_button(tags["woman"].id).click()
+    assert [item.id for item in page.results_model.items] == [woman_only.id]
+    assert len(search_calls) == 1
+    assert search_calls[-1]["title"] == "Street"
+    assert search_calls[-1]["page"] == 1
+
+    page.title_search.clear()
+    page.tag_selector.candidate_button(tags["park"].id).click()
+    assert [item.id for item in page.results_model.items] == [both.id]
+    assert len(search_calls) == 2
+    assert search_calls[-1]["tag_ids"] == (
+        tags["woman"].id,
+        tags["park"].id,
+    )
+
+    page.tag_selector.candidate_button(tags["park"].id).click()
     assert {item.id for item in page.results_model.items} == {
         both.id,
         woman_only.id,
     }
+    assert len(search_calls) == 3
 
-    park_button = page.tag_selector.candidate_button(tags["park"].id)
-    park_button.click()
-    assert page.results_model.rowCount() == 2
-    page.search_button.click()
-    assert [item.id for item in page.results_model.items] == [both.id]
+    favorite_button = page.tag_selector.favorite_button(tags["woman"].id)
+    assert favorite_button is not None
+    favorite_button.click()
+    assert len(search_calls) == 3
 
-    page.title_search.setText("park")
-    page.search_button.click()
-    assert [item.id for item in page.results_model.items] == [both.id]
-
-    model_id = page.model_combo.currentData()
-    task_id = page.task_combo.currentData()
-    page.clear_button.click()
-    assert page.model_combo.currentData() == model_id
-    assert page.task_combo.currentData() == task_id
+    page.tag_selector.candidate_button(tags["woman"].id).click()
     assert page.tag_selector.selected_tag_ids() == ()
-    assert page.title_search.text() == ""
     assert page.results_model.rowCount() == 0
+    assert len(search_calls) == 3
 
     page.search_button.click()
     assert page.results_model.rowCount() == 2
+    assert len(search_calls) == 4
     page.close()
     app.processEvents()
-
 
 def test_results_are_bounded_paginated_and_page_change_clears_state(tmp_path) -> None:
     app = _app()
@@ -387,13 +412,17 @@ def test_detail_and_single_multiple_clipboard_copy_load_exact_bodies_lazily(
     page.results_table.selectRow(0)
     selected = page.results_model.items[0]
     expected = {first.id: first.prompt_text, second.id: second.prompt_text}
-    page.show_button.click()
     assert get_calls == [selected.id]
     assert page.detail_prompt.isReadOnly()
     assert page.detail_prompt.toPlainText() == expected[selected.id]
 
+    page.results_table.selectRow(1)
+    second_selected = page.results_model.items[1]
+    assert get_calls == [selected.id, second_selected.id]
+    assert page.detail_prompt.toPlainText() == expected[second_selected.id]
+
     page.copy_button.click()
-    assert QApplication.clipboard().text() == expected[selected.id]
+    assert QApplication.clipboard().text() == expected[second_selected.id]
     assert "TITLE MUST NOT BE COPIED" not in QApplication.clipboard().text()
 
     for row in range(2):
@@ -512,4 +541,78 @@ def test_prompt_library_layout_remains_usable_at_supported_small_sizes(tmp_path)
             assert page.copy_checked_button.isVisibleTo(page)
     finally:
         page.close()
+        app.processEvents()
+
+def test_prompt_library_display_defaults_auto_height_and_outer_scroll(tmp_path) -> None:
+    app = _app()
+    page = _page(tmp_path)
+    page.show()
+    try:
+        app.processEvents()
+        assert page.tag_selector._visible_rows == 5
+        assert page._result_rows == 5
+        assert page.detail_prompt.minimum_lines == 10
+        assert page.outer_scroll.widgetResizable()
+        assert (
+            page.outer_scroll.horizontalScrollBarPolicy()
+            == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        assert (
+            page.detail_prompt.verticalScrollBarPolicy()
+            == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        tag_height = page.tag_selector.candidate_scroll.minimumHeight()
+        result_height = page.results_table.minimumHeight()
+        detail_height = page.detail_prompt.minimumHeight()
+
+        page.detail_prompt.setPlainText("one\ntwo\nthree")
+        app.processEvents()
+        assert page.detail_prompt.minimumHeight() >= detail_height
+        short_height = page.detail_prompt.minimumHeight()
+        page.detail_prompt.setPlainText("\n".join(f"line {i}" for i in range(20)))
+        app.processEvents()
+        assert page.detail_prompt.minimumHeight() > short_height
+
+        page.apply_display_settings(8, 9, 12)
+        app.processEvents()
+        assert page.tag_selector.candidate_scroll.minimumHeight() > tag_height
+        assert page.results_table.minimumHeight() > result_height
+        assert page.detail_prompt.minimum_lines == 12
+    finally:
+        page.close()
+        app.processEvents()
+
+
+def test_prompt_library_display_settings_persist_and_localize(tmp_path) -> None:
+    app = _app()
+    manager = ConfigManager(tmp_path / "data")
+    manager.save(AppConfig())
+    ja = Localization(PROJECT_ROOT / "locales", "ja-JP")
+    dialog = SettingsDialog(manager, PROJECT_ROOT, localization=ja)
+    try:
+        assert dialog.prompt_library_tag_rows.value() == 5
+        assert dialog.prompt_library_result_rows.value() == 5
+        assert dialog.prompt_library_detail_lines.value() == 10
+        assert dialog.prompt_library_group.title() == "Prompt Library"
+        dialog.prompt_library_tag_rows.setValue(7)
+        dialog.prompt_library_result_rows.setValue(8)
+        dialog.prompt_library_detail_lines.setValue(14)
+        dialog.accept()
+    finally:
+        dialog.close()
+        app.processEvents()
+
+    loaded = manager.load()
+    assert loaded.prompt_library_tag_rows == 7
+    assert loaded.prompt_library_result_rows == 8
+    assert loaded.prompt_library_detail_lines == 14
+    en = Localization(PROJECT_ROOT / "locales", "en-US")
+    reopened = SettingsDialog(manager, PROJECT_ROOT, localization=en)
+    try:
+        assert reopened.prompt_library_tag_rows.value() == 7
+        assert reopened.prompt_library_result_rows.value() == 8
+        assert reopened.prompt_library_detail_lines.value() == 14
+        assert en.tr("settings.prompt_library.result_rows") == "Result rows"
+    finally:
+        reopened.close()
         app.processEvents()

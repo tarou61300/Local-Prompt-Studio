@@ -11,6 +11,9 @@ from core.config_manager import (
     CONFIG_VERSION,
     DEFAULT_COMFYUI_URL,
     DEFAULT_CONTEXT_SIZE,
+    DEFAULT_PROMPT_LIBRARY_DETAIL_LINES,
+    DEFAULT_PROMPT_LIBRARY_RESULT_ROWS,
+    DEFAULT_PROMPT_LIBRARY_TAG_ROWS,
     THEME_DARK,
     THEME_NORMAL,
     normalize_model_path_key,
@@ -45,7 +48,7 @@ def test_settings_save_and_load(tmp_path):
 
 
 def test_default_context_is_8192():
-    assert CONFIG_VERSION == 7
+    assert CONFIG_VERSION == 8
     assert AppConfig().context_size == 8192
     assert DEFAULT_CONTEXT_SIZE == 8192
     assert AppConfig().comfyui_url == DEFAULT_COMFYUI_URL
@@ -59,6 +62,12 @@ def test_default_context_is_8192():
     assert AppConfig().chat_model_path == ""
     assert AppConfig().model_mmproj_paths == {}
     assert AppConfig().theme == THEME_NORMAL
+    assert AppConfig().prompt_library_tag_rows == DEFAULT_PROMPT_LIBRARY_TAG_ROWS
+    assert AppConfig().prompt_library_result_rows == DEFAULT_PROMPT_LIBRARY_RESULT_ROWS
+    assert (
+        AppConfig().prompt_library_detail_lines
+        == DEFAULT_PROMPT_LIBRARY_DETAIL_LINES
+    )
 
 
 @pytest.mark.parametrize(
@@ -127,7 +136,7 @@ def test_v6_config_migrates_chat_model_defaults_without_losing_values(tmp_path):
 
     loaded = manager.load()
 
-    assert loaded.config_version == 7
+    assert loaded.config_version == CONFIG_VERSION
     assert loaded.model_path == r"D:\Models\Prompt.gguf"
     assert loaded.theme == THEME_DARK
     assert loaded.history_enabled is True
@@ -301,3 +310,25 @@ def test_vulkan_backend_device_and_explicit_layers_round_trip(tmp_path):
     assert loaded.inference_backend == BACKEND_VULKAN
     assert loaded.backend_device == "Vulkan0"
     assert loaded.gpu_layers == 20
+
+def test_prompt_library_display_settings_normalize_and_migrate(tmp_path):
+    manager = ConfigManager(tmp_path)
+    tmp_path.mkdir(exist_ok=True)
+    manager.path.write_text(
+        json.dumps(
+            {
+                "config_version": 7,
+                "prompt_library_tag_rows": 99,
+                "prompt_library_result_rows": 0,
+                "prompt_library_detail_lines": "invalid",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = manager.load()
+
+    assert loaded.config_version == CONFIG_VERSION
+    assert loaded.prompt_library_tag_rows == 15
+    assert loaded.prompt_library_result_rows == 2
+    assert loaded.prompt_library_detail_lines == DEFAULT_PROMPT_LIBRARY_DETAIL_LINES

@@ -14,11 +14,17 @@ PORTABLE_WRITE_ERROR = (
     "この場所には設定を書き込めません。Downloads、Documents、Desktop等の"
     "書き込み可能なフォルダへ解凍してください。"
 )
-CONFIG_VERSION = 7
+CONFIG_VERSION = 8
 THEME_NORMAL = "normal"
 THEME_DARK = "dark"
 DEFAULT_CONTEXT_SIZE = 8192
 DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
+DEFAULT_PROMPT_LIBRARY_TAG_ROWS = 5
+DEFAULT_PROMPT_LIBRARY_RESULT_ROWS = 5
+DEFAULT_PROMPT_LIBRARY_DETAIL_LINES = 10
+PROMPT_LIBRARY_TAG_ROWS_RANGE = (2, 15)
+PROMPT_LIBRARY_RESULT_ROWS_RANGE = (2, 20)
+PROMPT_LIBRARY_DETAIL_LINES_RANGE = (3, 50)
 CONTEXT_PRESETS = (
     (4096, "Low Memory"),
     (8192, "Recommended"),
@@ -53,6 +59,16 @@ def normalize_theme(value: object) -> str:
     return THEME_DARK if normalized == THEME_DARK else THEME_NORMAL
 
 
+def _bounded_int(value: object, default: int, limits: tuple[int, int]) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return min(limits[1], max(limits[0], parsed))
+
+
 @dataclass(slots=True)
 class AppConfig:
     config_version: int = CONFIG_VERSION
@@ -74,6 +90,9 @@ class AppConfig:
     use_prompt_model_for_chat: bool = True
     chat_model_path: str = ""
     model_mmproj_paths: dict[str, str] = field(default_factory=dict)
+    prompt_library_tag_rows: int = DEFAULT_PROMPT_LIBRARY_TAG_ROWS
+    prompt_library_result_rows: int = DEFAULT_PROMPT_LIBRARY_RESULT_ROWS
+    prompt_library_detail_lines: int = DEFAULT_PROMPT_LIBRARY_DETAIL_LINES
 
     def normalized(self) -> "AppConfig":
         self.inference_backend = normalize_backend_id(self.inference_backend)
@@ -108,6 +127,21 @@ class AppConfig:
                 if model_key and normalized_path:
                     normalized_mmproj[model_key] = normalized_path
         self.model_mmproj_paths = normalized_mmproj
+        self.prompt_library_tag_rows = _bounded_int(
+            self.prompt_library_tag_rows,
+            DEFAULT_PROMPT_LIBRARY_TAG_ROWS,
+            PROMPT_LIBRARY_TAG_ROWS_RANGE,
+        )
+        self.prompt_library_result_rows = _bounded_int(
+            self.prompt_library_result_rows,
+            DEFAULT_PROMPT_LIBRARY_RESULT_ROWS,
+            PROMPT_LIBRARY_RESULT_ROWS_RANGE,
+        )
+        self.prompt_library_detail_lines = _bounded_int(
+            self.prompt_library_detail_lines,
+            DEFAULT_PROMPT_LIBRARY_DETAIL_LINES,
+            PROMPT_LIBRARY_DETAIL_LINES_RANGE,
+        )
         return self
 
     def effective_chat_model_path(self) -> str:
@@ -166,6 +200,19 @@ class ConfigManager:
                 raw.setdefault("use_prompt_model_for_chat", True)
                 raw.setdefault("chat_model_path", "")
                 raw.setdefault("model_mmproj_paths", {})
+            if stored_version < 8:
+                raw.setdefault(
+                    "prompt_library_tag_rows",
+                    DEFAULT_PROMPT_LIBRARY_TAG_ROWS,
+                )
+                raw.setdefault(
+                    "prompt_library_result_rows",
+                    DEFAULT_PROMPT_LIBRARY_RESULT_ROWS,
+                )
+                raw.setdefault(
+                    "prompt_library_detail_lines",
+                    DEFAULT_PROMPT_LIBRARY_DETAIL_LINES,
+                )
             raw["config_version"] = CONFIG_VERSION
             allowed = {item.name for item in fields(AppConfig)}
             values = {key: value for key, value in raw.items() if key in allowed}

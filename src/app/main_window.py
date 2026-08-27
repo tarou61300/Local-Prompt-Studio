@@ -864,6 +864,9 @@ class MainWindow(QMainWindow):
             self.tr,
             data_dir=self.config_manager.data_dir,
             profiles=self._available_profiles(),
+            tag_rows=self.config.prompt_library_tag_rows,
+            result_rows=self.config.prompt_library_result_rows,
+            detail_minimum_lines=self.config.prompt_library_detail_lines,
         )
         self.prompt_library_page.setObjectName("prompt_library_page")
         self.main_tabs = QTabWidget()
@@ -2449,6 +2452,11 @@ class MainWindow(QMainWindow):
             self.skill_manager = SkillManager(
                 self.config.skill_location
                 or self.config_manager.data_dir / "skills" / "h3-prompt-writing"
+            )
+            self.prompt_library_page.apply_display_settings(
+                self.config.prompt_library_tag_rows,
+                self.config.prompt_library_result_rows,
+                self.config.prompt_library_detail_lines,
             )
             self._refresh_readiness()
             self._refresh_memory_display()

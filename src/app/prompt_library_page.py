@@ -5,7 +5,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, Signal
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -19,8 +20,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
-    QSplitter,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -160,6 +161,65 @@ class PromptLibraryTableModel(QAbstractTableModel):
         )
 
 
+class AutoHeightPlainTextEdit(QPlainTextEdit):
+    """Read-only prompt viewer whose height follows its wrapped document."""
+
+    def __init__(self, minimum_lines: int = 10, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._minimum_lines = max(1, int(minimum_lines))
+        self._height_timer = QTimer(self)
+        self._height_timer.setSingleShot(True)
+        self._height_timer.timeout.connect(self._update_height)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.textChanged.connect(self._schedule_height_update)
+        self._schedule_height_update()
+
+    @property
+    def minimum_lines(self) -> int:
+        return self._minimum_lines
+
+    def set_minimum_lines(self, lines: int) -> None:
+        self._minimum_lines = max(1, int(lines))
+        self._schedule_height_update()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        width_changed = event.oldSize().width() != event.size().width()
+        super().resizeEvent(event)
+        if width_changed:
+            self._schedule_height_update()
+
+    def _schedule_height_update(self) -> None:
+        if not self._height_timer.isActive():
+            self._height_timer.start(0)
+
+    def _update_height(self) -> None:
+        document = self.document()
+        document.setTextWidth(max(1, self.viewport().width()))
+        metrics = self.fontMetrics()
+        margins = self.contentsMargins()
+        extra = (
+            2 * self.frameWidth()
+            + margins.top()
+            + margins.bottom()
+            + 8
+        )
+        minimum_height = math.ceil(metrics.lineSpacing() * self._minimum_lines) + extra
+        layout = document.documentLayout()
+        block = document.begin()
+        document_height = 0.0
+        while block.isValid():
+            document_height += layout.blockBoundingRect(block).height()
+            block = block.next()
+        document_height = math.ceil(document_height) + extra
+        target_height = max(minimum_height, document_height)
+        if self.minimumHeight() != target_height:
+            self.setMinimumHeight(target_height)
+        if self.maximumHeight() != target_height:
+            self.setMaximumHeight(target_height)
+
+
 class PromptLibraryPage(QWidget):
     """Search-and-copy UI for completed prompts stored in the library DB."""
 
@@ -170,6 +230,9 @@ class PromptLibraryPage(QWidget):
         data_dir: Path,
         profiles: Iterable[LoadedProfile],
         manager_factory: Callable[[Path], PromptLibraryManager] = PromptLibraryManager,
+        tag_rows: int = 5,
+        result_rows: int = 5,
+        detail_minimum_lines: int = 10,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -189,10 +252,29 @@ class PromptLibraryPage(QWidget):
         self._page_count = 1
         self._database_created_on_activate = False
         self._detail_record: PromptRecord | None = None
+        self._tag_rows = max(1, int(tag_rows))
+        self._result_rows = max(1, int(result_rows))
+        self._detail_minimum_lines = max(1, int(detail_minimum_lines))
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(8)
+        root.setContentsMargins(0, 0, 0, 0)
+        self.outer_scroll = QScrollArea()
+        self.outer_scroll.setObjectName("prompt_library_outer_scroll")
+        self.outer_scroll.setWidgetResizable(True)
+        self.outer_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.outer_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.scroll_content = QWidget()
+        self.scroll_content.setObjectName("prompt_library_scroll_content")
+        self.scroll_content.setMinimumWidth(0)
+        content_layout = QVBoxLayout(self.scroll_content)
+        content_layout.setContentsMargins(8, 8, 8, 8)
+        content_layout.setSpacing(8)
+        self.outer_scroll.setWidget(self.scroll_content)
+        root.addWidget(self.outer_scroll)
 
         library_actions = QHBoxLayout()
         self.new_button = QPushButton(self.tr("library.new_prompt"))
@@ -200,7 +282,7 @@ class PromptLibraryPage(QWidget):
         self.new_button.clicked.connect(self.open_new_prompt)
         library_actions.addWidget(self.new_button)
         library_actions.addStretch()
-        root.addLayout(library_actions)
+        content_layout.addLayout(library_actions)
 
         filters = QGroupBox(self.tr("library.filters"))
         filters.setObjectName("prompt_library_filters")
@@ -222,7 +304,11 @@ class PromptLibraryPage(QWidget):
         target_form.addRow(self.tr("library.task"), self.task_combo)
         filters_layout.addLayout(target_form)
 
-        self.tag_selector = TagSelector(self.tr, allow_favorite_edit=True)
+        self.tag_selector = TagSelector(
+            self.tr,
+            allow_favorite_edit=True,
+            visible_rows=self._tag_rows,
+        )
         self.tag_selector.setObjectName("prompt_library_tag_selector")
         self.tag_selector.error_occurred.connect(self._show_database_error)
         filters_layout.addWidget(self.tag_selector)
@@ -243,11 +329,8 @@ class PromptLibraryPage(QWidget):
         self.clear_button.clicked.connect(self.clear_conditions)
         search_row.addWidget(self.clear_button)
         filters_layout.addLayout(search_row)
-        root.addWidget(filters)
+        content_layout.addWidget(filters)
 
-        self.workspace_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.workspace_splitter.setObjectName("prompt_library_workspace_splitter")
-        self.workspace_splitter.setChildrenCollapsible(False)
 
         results_widget = QWidget()
         results_layout = QVBoxLayout(results_widget)
@@ -278,6 +361,10 @@ class PromptLibraryPage(QWidget):
         )
         self.results_table.setAlternatingRowColors(True)
         self.results_table.setWordWrap(False)
+        self.results_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
         self.results_table.verticalHeader().setVisible(False)
         header = self.results_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -285,7 +372,7 @@ class PromptLibraryPage(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        results_layout.addWidget(self.results_table, 1)
+        results_layout.addWidget(self.results_table)
 
         actions = QHBoxLayout()
         self.show_button = QPushButton(self.tr("library.show"))
@@ -328,7 +415,7 @@ class PromptLibraryPage(QWidget):
         self.next_button.clicked.connect(self.next_page)
         pagination.addWidget(self.next_button)
         results_layout.addLayout(pagination)
-        self.workspace_splitter.addWidget(results_widget)
+        content_layout.addWidget(results_widget)
 
         detail_group = QGroupBox(self.tr("library.detail"))
         detail_group.setObjectName("prompt_library_detail")
@@ -342,30 +429,34 @@ class PromptLibraryPage(QWidget):
         self.detail_metadata.setObjectName("prompt_library_detail_metadata")
         self.detail_metadata.setWordWrap(True)
         detail_layout.addWidget(self.detail_metadata)
-        self.detail_prompt = QPlainTextEdit()
+        self.detail_prompt = AutoHeightPlainTextEdit(
+            self._detail_minimum_lines
+        )
         self.detail_prompt.setObjectName("prompt_library_detail_prompt")
         self.detail_prompt.setReadOnly(True)
-        self.detail_prompt.setMinimumHeight(110)
         self.detail_prompt.setStyleSheet("border: 1px solid palette(mid);")
-        detail_layout.addWidget(self.detail_prompt, 1)
-        self.workspace_splitter.addWidget(detail_group)
-        self.workspace_splitter.setStretchFactor(0, 3)
-        self.workspace_splitter.setStretchFactor(1, 2)
-        self.workspace_splitter.setSizes([360, 220])
-        root.addWidget(self.workspace_splitter, 1)
+        detail_layout.addWidget(self.detail_prompt)
+        content_layout.addWidget(detail_group)
 
         self.feedback_label = QLabel()
         self.feedback_label.setObjectName("prompt_library_feedback")
         self.feedback_label.setWordWrap(True)
-        root.addWidget(self.feedback_label)
+        content_layout.addWidget(self.feedback_label)
+        content_layout.addStretch()
 
         self._populate_models()
         self.model_combo.currentIndexChanged.connect(self._model_changed)
         self.task_combo.currentIndexChanged.connect(self._task_changed)
-        self.results_table.selectionModel().selectionChanged.connect(
-            self._update_action_state
-        )
+        self.tag_selector.selection_changed.connect(self._tag_selection_changed)
+        selection_model = self.results_table.selectionModel()
+        selection_model.selectionChanged.connect(self._update_action_state)
+        selection_model.currentRowChanged.connect(self._current_result_changed)
         self.results_model.checked_changed.connect(self._update_action_state)
+        self.apply_display_settings(
+            self._tag_rows,
+            self._result_rows,
+            self._detail_minimum_lines,
+        )
         self._clear_results(self.tr("library.ready"))
         self._update_action_state()
 
@@ -483,6 +574,45 @@ class PromptLibraryPage(QWidget):
         self.title_search.clear()
         self._criteria = None
         self._clear_results(self.tr("library.ready"))
+
+    def apply_display_settings(
+        self,
+        tag_rows: int,
+        result_rows: int,
+        detail_minimum_lines: int,
+    ) -> None:
+        self._tag_rows = max(1, int(tag_rows))
+        self._result_rows = max(1, int(result_rows))
+        self._detail_minimum_lines = max(1, int(detail_minimum_lines))
+        self.tag_selector.set_visible_rows(self._tag_rows)
+        header = self.results_table.horizontalHeader()
+        header_height = max(header.height(), header.sizeHint().height())
+        row_height = max(1, self.results_table.verticalHeader().defaultSectionSize())
+        table_height = (
+            header_height
+            + self._result_rows * row_height
+            + 2 * self.results_table.frameWidth()
+        )
+        self.results_table.setMinimumHeight(table_height)
+        self.detail_prompt.set_minimum_lines(self._detail_minimum_lines)
+
+    def _tag_selection_changed(self) -> None:
+        if not self.tag_selector.selected_tag_ids():
+            self._criteria = None
+            self._clear_results(self.tr("library.ready"))
+            return
+        self.search()
+
+    def _current_result_changed(
+        self,
+        current: QModelIndex,
+        _previous: QModelIndex,
+    ) -> None:
+        if current.isValid():
+            self.show_selected_prompt()
+        else:
+            self._clear_detail()
+        self._update_action_state()
 
     def show_selected_prompt(self) -> None:
         summary = self._current_summary()
@@ -611,6 +741,7 @@ class PromptLibraryPage(QWidget):
         self._current_page = result.page
         self._page_count = max(1, math.ceil(result.total_count / result.page_size))
         self.results_model.set_items(result.items)
+        self.results_table.setCurrentIndex(QModelIndex())
         self.results_table.clearSelection()
         self._clear_detail()
         self.feedback_label.clear()
@@ -648,6 +779,7 @@ class PromptLibraryPage(QWidget):
         self._current_page = 1
         self._page_count = 1
         self.results_model.set_items(())
+        self.results_table.setCurrentIndex(QModelIndex())
         self.results_table.clearSelection()
         self.results_label.setText(self.tr("library.search_results", total=0))
         self.state_label.setText(state)
