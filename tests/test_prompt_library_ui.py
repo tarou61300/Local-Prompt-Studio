@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFrame
 
 from app.main_window import MainWindow
 from app.prompt_library_page import PromptLibraryPage
@@ -217,6 +217,10 @@ def test_tag_candidates_favorites_toggle_and_full_database_search(tmp_path) -> N
     favorite_toggle = page.tag_selector.favorite_button(by_name["tag000"].id)
     assert favorite_toggle is not None
     assert favorite_toggle.text() == "★"
+    assert isinstance(favorite_button.parentWidget(), QFrame)
+    assert favorite_toggle.parentWidget() is favorite_button.parentWidget()
+    assert favorite_button.property("promptLibraryTagSelection") is True
+    assert favorite_toggle.property("promptLibraryFavorite") is True
     assert page.tag_selector.candidate_button(by_name["tag100"].id) is None
 
     page.tag_selector.search_edit.setText("ＴＡＧ１００")
@@ -310,8 +314,17 @@ def test_tag_selection_auto_searches_once_and_zero_tags_requires_manual_search(
 
     favorite_button = page.tag_selector.favorite_button(tags["woman"].id)
     assert favorite_button is not None
+    assert favorite_button.text() == "☆"
+    selected_before_favorite = page.tag_selector.selected_tag_ids()
     favorite_button.click()
     assert len(search_calls) == 3
+    assert page.tag_selector.selected_tag_ids() == selected_before_favorite
+    refreshed_favorite = page.tag_selector.favorite_button(tags["woman"].id)
+    refreshed_tag = page.tag_selector.candidate_button(tags["woman"].id)
+    assert refreshed_favorite is not None
+    assert refreshed_favorite.text() == "★"
+    assert refreshed_tag is not None
+    assert refreshed_tag.isChecked()
 
     page.tag_selector.candidate_button(tags["woman"].id).click()
     assert page.tag_selector.selected_tag_ids() == ()
@@ -605,7 +618,7 @@ def test_prompt_library_tag_flow_is_dense_and_keeps_long_names(tmp_path) -> None
         app.processEvents()
         margins = page.tag_selector.candidate_root.contentsMargins()
         assert (margins.left(), margins.right()) == (3, 3)
-        assert page.tag_selector.other_layout.horizontalSpacing() == 5
+        assert page.tag_selector.other_layout.horizontalSpacing() == 8
 
         wrappers = [
             page.tag_selector.candidate_button(tag.id).parentWidget()

@@ -5,6 +5,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QGridLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLayout,
@@ -28,7 +29,7 @@ from core.prompt_library_manager import (
 class _TagFlowLayout(QLayout):
     """Lay out tag controls at their natural width and wrap as needed."""
 
-    def __init__(self, parent: QWidget | None = None, *, spacing: int = 5) -> None:
+    def __init__(self, parent: QWidget | None = None, *, spacing: int = 8) -> None:
         super().__init__(parent)
         self._items: list[QLayoutItem] = []
         self._spacing = spacing
@@ -124,11 +125,35 @@ class TagSelector(QWidget):
         self.allow_favorite_edit = allow_favorite_edit
         self.setStyleSheet(
             """
-            QToolButton:checked {
+            QToolButton[promptLibraryTagSelection="true"]:checked {
                 border: 1px solid palette(highlight);
                 border-radius: 3px;
                 background: palette(highlight);
                 color: palette(highlighted-text);
+            }
+            QFrame[promptLibraryTagChip="true"] {
+                border: 1px solid palette(mid);
+                border-radius: 4px;
+                background: palette(button);
+            }
+            QFrame[promptLibraryTagChip="true"] QToolButton {
+                border: none;
+                border-radius: 0;
+                background: transparent;
+                padding: 2px 6px;
+            }
+            QFrame[promptLibraryTagChip="true"]
+            QToolButton[promptLibraryTagSelection="true"]:checked {
+                border: none;
+                border-top-left-radius: 3px;
+                border-bottom-left-radius: 3px;
+            }
+            QFrame[promptLibraryTagChip="true"]
+            QToolButton[promptLibraryFavorite="true"] {
+                border-left: 1px solid palette(mid);
+                min-width: 18px;
+                padding-left: 5px;
+                padding-right: 5px;
             }
             """
         )
@@ -323,6 +348,7 @@ class TagSelector(QWidget):
                 f"prompt_library_candidate_tag_{candidate.tag.id}"
             )
             button.setProperty("tag_id", candidate.tag.id)
+            button.setProperty("promptLibraryTagSelection", True)
             button.setCheckable(True)
             button.setChecked(candidate.tag.id in self._selected)
             button.setText(candidate.tag.name)
@@ -339,14 +365,16 @@ class TagSelector(QWidget):
             self._candidate_buttons[candidate.tag.id] = button
             candidate_widget: QWidget = button
             if self.allow_favorite_edit:
-                candidate_widget = QWidget()
+                candidate_widget = QFrame()
+                candidate_widget.setProperty("promptLibraryTagChip", True)
                 candidate_layout = QHBoxLayout(candidate_widget)
                 candidate_layout.setContentsMargins(0, 0, 0, 0)
-                candidate_layout.setSpacing(2)
+                candidate_layout.setSpacing(0)
                 favorite_button = QToolButton()
                 favorite_button.setObjectName(
                     f"prompt_library_favorite_tag_{candidate.tag.id}"
                 )
+                favorite_button.setProperty("promptLibraryFavorite", True)
                 favorite_button.setText("★" if candidate.is_favorite else "☆")
                 favorite_button.setToolTip(
                     self.tr(
@@ -363,8 +391,8 @@ class TagSelector(QWidget):
                     )
                 )
                 self._favorite_buttons[candidate.tag.id] = favorite_button
-                candidate_layout.addWidget(favorite_button)
                 candidate_layout.addWidget(button)
+                candidate_layout.addWidget(favorite_button)
                 candidate_widget.setSizePolicy(
                     QSizePolicy.Policy.Maximum,
                     QSizePolicy.Policy.Fixed,
