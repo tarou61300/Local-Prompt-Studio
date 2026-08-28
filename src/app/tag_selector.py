@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
+    QLayoutItem,
     QLineEdit,
     QScrollArea,
     QSizePolicy,
@@ -23,6 +25,85 @@ from core.prompt_library_manager import (
 )
 
 
+class _TagFlowLayout(QLayout):
+    """Lay out tag controls at their natural width and wrap as needed."""
+
+    def __init__(self, parent: QWidget | None = None, *, spacing: int = 5) -> None:
+        super().__init__(parent)
+        self._items: list[QLayoutItem] = []
+        self._spacing = spacing
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item: QLayoutItem) -> None:  # noqa: N802 - Qt API
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int) -> QLayoutItem | None:  # noqa: N802 - Qt API
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int) -> QLayoutItem | None:  # noqa: N802 - Qt API
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self) -> Qt.Orientation:  # noqa: N802 - Qt API
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - Qt API
+        return self._layout_items(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect: QRect) -> None:  # noqa: N802 - Qt API
+        super().setGeometry(rect)
+        self._layout_items(rect, test_only=False)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:  # noqa: N802 - Qt API
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        return size + QSize(
+            margins.left() + margins.right(),
+            margins.top() + margins.bottom(),
+        )
+
+    def horizontalSpacing(self) -> int:  # noqa: N802 - Qt API
+        return self._spacing
+
+    def verticalSpacing(self) -> int:  # noqa: N802 - Qt API
+        return 4
+
+    def _layout_items(self, rect: QRect, *, test_only: bool) -> int:
+        margins = self.contentsMargins()
+        effective = rect.adjusted(
+            margins.left(),
+            margins.top(),
+            -margins.right(),
+            -margins.bottom(),
+        )
+        x = effective.x()
+        y = effective.y()
+        line_height = 0
+        for item in self._items:
+            item_size = item.sizeHint()
+            next_x = x + item_size.width() + self.horizontalSpacing()
+            if line_height and next_x - self.horizontalSpacing() > effective.right() + 1:
+                x = effective.x()
+                y += line_height + self.verticalSpacing()
+                next_x = x + item_size.width() + self.horizontalSpacing()
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), item_size))
+            x = next_x
+            line_height = max(line_height, item_size.height())
+        return y + line_height - rect.y() + margins.bottom()
+
+
 class TagSelector(QWidget):
     """Bounded, reusable tag chooser backed by PromptLibraryManager queries."""
 
@@ -36,7 +117,7 @@ class TagSelector(QWidget):
         parent: QWidget | None = None,
         *,
         allow_favorite_edit: bool = False,
-        visible_rows: int = 5,
+        visible_rows: int = 3,
     ) -> None:
         super().__init__(parent)
         self.tr = tr
@@ -95,27 +176,21 @@ class TagSelector(QWidget):
         )
         self.candidate_widget = QWidget()
         self.candidate_root = QVBoxLayout(self.candidate_widget)
-        self.candidate_root.setContentsMargins(4, 4, 4, 4)
+        self.candidate_root.setContentsMargins(3, 4, 3, 4)
         self.candidate_root.setSpacing(5)
 
         self.favorite_label = QLabel(self.tr("library.favorites"))
         self.favorite_label.setObjectName("prompt_library_favorites_label")
         self.candidate_root.addWidget(self.favorite_label)
         self.favorite_widget = QWidget()
-        self.favorite_layout = QGridLayout(self.favorite_widget)
-        self.favorite_layout.setContentsMargins(0, 0, 0, 0)
-        self.favorite_layout.setHorizontalSpacing(6)
-        self.favorite_layout.setVerticalSpacing(4)
+        self.favorite_layout = _TagFlowLayout(self.favorite_widget)
         self.candidate_root.addWidget(self.favorite_widget)
 
         self.other_label = QLabel(self.tr("library.tags"))
         self.other_label.setObjectName("prompt_library_other_tags_label")
         self.candidate_root.addWidget(self.other_label)
         self.other_widget = QWidget()
-        self.other_layout = QGridLayout(self.other_widget)
-        self.other_layout.setContentsMargins(0, 0, 0, 0)
-        self.other_layout.setHorizontalSpacing(6)
-        self.other_layout.setVerticalSpacing(4)
+        self.other_layout = _TagFlowLayout(self.other_widget)
         self.candidate_root.addWidget(self.other_widget)
         self.candidate_root.addStretch()
         self.candidate_scroll.setWidget(self.candidate_widget)
@@ -228,7 +303,7 @@ class TagSelector(QWidget):
         self._render_candidates(candidates)
 
     @staticmethod
-    def _clear_grid(layout: QGridLayout) -> None:
+    def _clear_grid(layout: QLayout) -> None:
         while layout.count():
             item = layout.takeAt(0)
             widget = item.widget()
@@ -290,25 +365,16 @@ class TagSelector(QWidget):
                 self._favorite_buttons[candidate.tag.id] = favorite_button
                 candidate_layout.addWidget(favorite_button)
                 candidate_layout.addWidget(button)
-                candidate_layout.addStretch()
+                candidate_widget.setSizePolicy(
+                    QSizePolicy.Policy.Maximum,
+                    QSizePolicy.Policy.Fixed,
+                )
             if candidate.is_favorite:
-                index = favorite_count
                 favorite_count += 1
-                self.favorite_layout.addWidget(
-                    candidate_widget,
-                    index // 4,
-                    index % 4,
-                    Qt.AlignmentFlag.AlignLeft,
-                )
+                self.favorite_layout.addWidget(candidate_widget)
             else:
-                index = other_count
                 other_count += 1
-                self.other_layout.addWidget(
-                    candidate_widget,
-                    index // 4,
-                    index % 4,
-                    Qt.AlignmentFlag.AlignLeft,
-                )
+                self.other_layout.addWidget(candidate_widget)
         has_favorites = favorite_count > 0
         self.favorite_label.setVisible(has_favorites)
         self.favorite_widget.setVisible(has_favorites)

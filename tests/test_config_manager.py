@@ -311,6 +311,42 @@ def test_vulkan_backend_device_and_explicit_layers_round_trip(tmp_path):
     assert loaded.backend_device == "Vulkan0"
     assert loaded.gpu_layers == 20
 
+
+def test_prompt_library_display_defaults_fill_only_missing_keys(tmp_path):
+    manager = ConfigManager(tmp_path)
+    tmp_path.mkdir(exist_ok=True)
+    manager.path.write_text(
+        json.dumps(
+            {
+                "config_version": CONFIG_VERSION,
+                "prompt_library_detail_lines": 12,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    missing_rows = manager.load()
+    assert missing_rows.prompt_library_tag_rows == 3
+    assert missing_rows.prompt_library_result_rows == 3
+    assert missing_rows.prompt_library_detail_lines == 12
+
+    manager.path.write_text(
+        json.dumps(
+            {
+                "config_version": CONFIG_VERSION,
+                "prompt_library_tag_rows": 7,
+                "prompt_library_result_rows": 8,
+                "prompt_library_detail_lines": 14,
+            }
+        ),
+        encoding="utf-8",
+    )
+    explicit = manager.load()
+    assert explicit.prompt_library_tag_rows == 7
+    assert explicit.prompt_library_result_rows == 8
+    assert explicit.prompt_library_detail_lines == 14
+
+
 def test_prompt_library_display_settings_normalize_and_migrate(tmp_path):
     manager = ConfigManager(tmp_path)
     tmp_path.mkdir(exist_ok=True)

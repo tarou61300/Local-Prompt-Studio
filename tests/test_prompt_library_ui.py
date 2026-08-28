@@ -60,8 +60,8 @@ def _page(
     locale_id: str = "ja-JP",
     data_dir: Path | None = None,
     manager_factory=PromptLibraryManager,
-    tag_rows: int = 5,
-    result_rows: int = 5,
+    tag_rows: int = 3,
+    result_rows: int = 3,
     detail_minimum_lines: int = 10,
 ) -> PromptLibraryPage:
     localization = Localization(PROJECT_ROOT / "locales", locale_id)
@@ -549,8 +549,8 @@ def test_prompt_library_display_defaults_auto_height_and_outer_scroll(tmp_path) 
     page.show()
     try:
         app.processEvents()
-        assert page.tag_selector._visible_rows == 5
-        assert page._result_rows == 5
+        assert page.tag_selector._visible_rows == 3
+        assert page._result_rows == 3
         assert page.detail_prompt.minimum_lines == 10
         assert page.outer_scroll.widgetResizable()
         assert (
@@ -583,6 +583,53 @@ def test_prompt_library_display_defaults_auto_height_and_outer_scroll(tmp_path) 
         app.processEvents()
 
 
+def test_prompt_library_tag_flow_is_dense_and_keeps_long_names(tmp_path) -> None:
+    app = _app()
+    data_dir = tmp_path / "data"
+    manager = PromptLibraryManager(data_dir)
+    names = tuple(f"tag-{index}" for index in range(12)) + (
+        "a-deliberately-long-tag-name-for-layout-verification",
+    )
+    created = _create_prompt(
+        manager,
+        title="Dense tags",
+        body="body",
+        tags=names,
+    )
+    page = _page(tmp_path, data_dir=data_dir)
+    page.resize(1000, 800)
+    page.show()
+    page.activate()
+    _select_target(page, "minimax_h3", "T2VA")
+    try:
+        app.processEvents()
+        margins = page.tag_selector.candidate_root.contentsMargins()
+        assert (margins.left(), margins.right()) == (3, 3)
+        assert page.tag_selector.other_layout.horizontalSpacing() == 5
+
+        wrappers = [
+            page.tag_selector.candidate_button(tag.id).parentWidget()
+            for tag in created.tags
+        ]
+        row_counts: dict[int, int] = {}
+        for widget in wrappers:
+            row_y = widget.geometry().y()
+            row_counts[row_y] = row_counts.get(row_y, 0) + 1
+        assert max(row_counts.values()) > 4
+
+        long_tag = next(
+            tag for tag in created.tags if tag.name.startswith("a-deliberately")
+        )
+        long_button = page.tag_selector.candidate_button(long_tag.id)
+        assert long_button is not None
+        assert long_button.text() == long_tag.name
+        assert long_button.width() >= long_button.sizeHint().width()
+        assert page.tag_selector.candidate_scroll.horizontalScrollBar().maximum() == 0
+    finally:
+        page.close()
+        app.processEvents()
+
+
 def test_prompt_library_display_settings_persist_and_localize(tmp_path) -> None:
     app = _app()
     manager = ConfigManager(tmp_path / "data")
@@ -590,8 +637,8 @@ def test_prompt_library_display_settings_persist_and_localize(tmp_path) -> None:
     ja = Localization(PROJECT_ROOT / "locales", "ja-JP")
     dialog = SettingsDialog(manager, PROJECT_ROOT, localization=ja)
     try:
-        assert dialog.prompt_library_tag_rows.value() == 5
-        assert dialog.prompt_library_result_rows.value() == 5
+        assert dialog.prompt_library_tag_rows.value() == 3
+        assert dialog.prompt_library_result_rows.value() == 3
         assert dialog.prompt_library_detail_lines.value() == 10
         assert dialog.prompt_library_group.title() == "Prompt Library"
         dialog.prompt_library_tag_rows.setValue(7)
