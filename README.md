@@ -1,8 +1,8 @@
-# Local Prompt Studio v3.0.0
+# Local Prompt Studio v3.1.0
 
 **Windows x64 portable stable release**
 
-Release date: 2026-08-27
+Release date: 2026-08-28
 
 Repository: [https://github.com/tarou61300/Local-Prompt-Studio](https://github.com/tarou61300/Local-Prompt-Studio)
 
@@ -33,6 +33,13 @@ Prompt Libraryには完成したPromptをTitle、Model、Task、Tagsとともに
 AND条件Tags、任意のTitleで検索でき、Favorite Tags、既存Tagの検索と再利用、Title/Tags metadata編集、
 単一・複数Promptのコピー、安全な削除に対応します。Prompt本文は保存時の内容を完全に維持し、metadata編集では
 Prompt本文、Model、Task、UUIDを変更しません。LibraryはHistoryとは独立したローカルSQLite databaseを使用します。
+
+Tagを選択すると検索結果が自動更新され、複数TagではAND条件が即時反映されます。最後のTagを解除した場合は
+全件を自動表示しません。検索結果rowを選択するとPrompt詳細を表示します。Tags、Results、Prompt詳細の表示行数は
+Settingsから変更でき、既定値はTags 3段、Results 3行、Prompt詳細最低10行です。
+
+Dataset selectorから独立したPrompt Library Datasetを新規作成、読み込み、書き出しできます。従来の
+`data/prompt_library.sqlite3`はDefault Datasetとしてそのまま利用され、Dataset同士は自動結合されません。
 
 Prompt生成では、意味カテゴリ語に対する誤検出しやすいhard rejectionを廃止し、Literal Contentと
 Protected Termsの厳密保持を維持したまま、Renderer instructionによるintent preservationを強化しました。
@@ -91,8 +98,8 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `Local-Prompt-Studio-v3.0.0-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
-2. 展開した`Local-Prompt-Studio-v3.0.0-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
+1. `Local-Prompt-Studio-v3.1.0-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+2. 展開した`Local-Prompt-Studio-v3.1.0-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
 
 既存v1.xリリースは上書きせず、別フォルダへ展開してください。
 

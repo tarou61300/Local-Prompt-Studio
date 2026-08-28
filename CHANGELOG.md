@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.1.0 — 2026-08-28
+
+Prompt Library browsing and dataset management update.
+
+### Prompt Library browsing improvements
+
+- Selecting a Tag now updates search results automatically without requiring the Search button.
+- Selecting multiple Tags immediately refreshes the existing AND search.
+- Clearing the final selected Tag does not automatically display every Prompt.
+- Selecting a result row immediately displays its Prompt details.
+- Made the complete Prompt Library page vertically scrollable.
+- Made Prompt details expand with their content instead of using an internal vertical scrollbar.
+- Added Settings for visible Tag rows, result rows, and minimum Prompt detail lines.
+- Set the defaults to 3 Tag rows, 3 result rows, and a 10-line minimum Prompt detail area.
+- Improved natural-width Tag chips while keeping long Tag names intact.
+- Combined Tag selection and Favorite ☆/★ controls into one visual chip while keeping their actions independent.
+
+### Prompt Library Dataset
+
+- Added switching between multiple independent Prompt Library Datasets.
+- Added creation of new empty Datasets.
+- Added loading of an external Prompt Library Dataset.
+- Added export of the active Dataset as SQLite.
+- Kept Prompts, Tags, Favorites, and active search state isolated between Datasets.
+- Preserved the active Dataset across application restarts.
+- Kept the existing `data/prompt_library.sqlite3` in place as the Default Dataset without moving or replacing it.
+- Datasets are not automatically merged. Dataset merge, Prompt Packs, Categories, and community sharing are not included.
+
 ## 3.0.0 — 2026-08-27
 
 Prompt Library major release.
