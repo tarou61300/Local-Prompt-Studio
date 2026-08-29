@@ -6,7 +6,8 @@
     "en-US": "Fast 8-step Krea 2 profile for high-quality image generation.",
     "ja-JP": "高品質画像を高速生成するKrea 2の8-step推論向けです。",
     "zh-CN": "适用于快速生成高质量图像的Krea 2八步推理Profile。",
-    "ru-RU": "Профиль Krea 2 для быстрой высококачественной генерации изображений за 8 шагов."
+    "ru-RU": "Профиль Krea 2 для быстрой высококачественной генерации изображений за 8 шагов.",
+    "ko-KR": "고품질 이미지를 빠르게 생성하는 8-step Krea 2 프로필입니다."
   },
   "required_prompt": {
     "positive_prefix": [],

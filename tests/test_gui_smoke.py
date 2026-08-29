@@ -1031,6 +1031,37 @@ def test_main_window_uses_persisted_supported_locales(tmp_path):
         assert russian.prompt_style_help.text()
         russian.close()
         app.processEvents()
+
+        korean_manager = ConfigManager(tmp_path / "korean")
+        korean_manager.save(AppConfig(ui_locale="ko-KR"))
+        korean = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=korean_manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        assert korean.generate_button.text() == "프롬프트 생성"
+        assert korean.settings_action.text() == "설정"
+        assert korean.profile_category.currentData() == "video"
+        assert "LLM 모델: 설정되지 않음" in korean.readiness.text()
+        assert korean.duration.suffix() == "초"
+        korean_style_label = korean.processing.parentWidget().layout().labelForField(
+            korean.processing
+        )
+        assert korean_style_label.text() == "프롬프트 변환 스타일"
+        assert korean.auto_quality_tags.text() == "품질 태그 자동 추가"
+        assert korean.system_details_toggle.text() == "자세히"
+        assert korean.system_details_group.title() == "시스템 정보"
+        assert korean.unload_model_button.text() == "모델 언로드"
+        assert "RAM/GPU 메모리" in korean.unload_model_button.toolTip()
+        assert korean.mode_supplement_toggle.text() == "모드 보충"
+        assert "[speech:ko]안녕하세요[/speech]" in korean.literal_hint.text()
+        assert "[text:ko]달빛 카페[/text]" in korean.request_text.toolTip()
+        assert korean.send_comfyui_button.text() == "ComfyUI로 보내기"
+        assert "표준 프롬프트 규칙" in korean.profile_variant_help.text()
+        assert korean.prompt_style_help.text()
+        korean.close()
+        app.processEvents()
     finally:
         mock.shutdown()
         mock.server_close()
@@ -1111,6 +1142,42 @@ def test_localized_combo_display_names_keep_stable_internal_values(tmp_path):
         assert russian.mode.currentData() == "Ref2VA"
         assert russian_settings.mode == "Ref2VA"
         russian.close()
+        app.processEvents()
+
+        korean_manager = ConfigManager(tmp_path / "korean")
+        korean_manager.save(AppConfig(ui_locale="ko-KR"))
+        korean = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=korean_manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        korean.processing.setCurrentIndex(korean.processing.findData("Creative"))
+        korean.camera.setCurrentIndex(korean.camera.findData("Static camera"))
+        korean.shot.setCurrentIndex(korean.shot.findData("Allow cuts"))
+        korean.motion.setCurrentIndex(korean.motion.findData("High"))
+        korean.mode.setCurrentIndex(korean.mode.findData("Ref2VA"))
+        korean._add_reference()
+        korean_kind = korean.references.cellWidget(0, 0)
+        assert isinstance(korean_kind, QComboBox)
+        korean_kind.setCurrentIndex(korean_kind.findData("Video"))
+
+        korean_settings = korean._collect_settings()
+
+        assert korean.processing.currentText() == "창의적으로"
+        assert korean.camera.currentText() == "고정 카메라"
+        assert korean.shot.currentText() == "컷 허용"
+        assert korean.motion.currentText() == "높음"
+        assert korean_kind.currentText() == "비디오"
+        assert korean_settings.processing == "Creative"
+        assert korean_settings.camera == "Static camera"
+        assert korean_settings.shot == "Allow cuts"
+        assert korean_settings.motion == "High"
+        assert korean_settings.references[0].kind == "Video"
+        assert korean.mode.currentText() == "Ref2VA"
+        assert korean.mode.currentData() == "Ref2VA"
+        assert korean_settings.mode == "Ref2VA"
+        korean.close()
         app.processEvents()
     finally:
         mock.shutdown()
@@ -1210,15 +1277,15 @@ def test_settings_language_selection_persists_stable_locale_id(tmp_path, monkeyp
         assert [
             dialog.ui_locale.itemData(index)
             for index in range(dialog.ui_locale.count())
-        ] == ["ja-JP", "en-US", "zh-CN", "ru-RU"]
+        ] == ["ja-JP", "en-US", "zh-CN", "ru-RU", "ko-KR"]
         assert [
             dialog.ui_locale.itemText(index)
             for index in range(dialog.ui_locale.count())
-        ] == ["日本語", "English", "简体中文", "Русский"]
-        dialog.ui_locale.setCurrentIndex(dialog.ui_locale.findData("ru-RU"))
+        ] == ["日本語", "English", "简体中文", "Русский", "한국어"]
+        dialog.ui_locale.setCurrentIndex(dialog.ui_locale.findData("ko-KR"))
         dialog.accept()
-        assert manager.load().ui_locale == "ru-RU"
-        assert manager.path.read_text(encoding="utf-8").count('"ru-RU"') == 1
+        assert manager.load().ui_locale == "ko-KR"
+        assert manager.path.read_text(encoding="utf-8").count('"ko-KR"') == 1
         assert messages
     finally:
         dialog.close()
@@ -1240,6 +1307,7 @@ def test_settings_language_selection_matches_saved_locale_without_changes(
         ("en-US", "English"),
         ("zh-CN", "简体中文"),
         ("ru-RU", "Русский"),
+        ("ko-KR", "한국어"),
     )
     for locale_id, native_name in expected_locales:
         manager = ConfigManager(tmp_path / locale_id)
@@ -1536,6 +1604,7 @@ def test_settings_localizes_unknown_vulkan_memory_classification(
         "en-US": "UMA / discrete classification: unknown",
         "zh-CN": "UMA / discrete分类：未知",
         "ru-RU": "классификация UMA / discrete: неизвестна",
+        "ko-KR": "UMA / discrete 분류: 알 수 없음",
     }
     for locale_id, classification in expected.items():
         manager = ConfigManager(tmp_path / locale_id)

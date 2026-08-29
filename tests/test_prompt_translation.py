@@ -241,6 +241,7 @@ def test_request_guide_is_localized_neutral_and_appends_without_overwrite(tmp_pa
     en_entries = request_guide_entries(_tr("en-US"), profile_id="anima")
     zh_entries = request_guide_entries(_tr("zh-CN"), profile_id="wan_2_2")
     ru_entries = request_guide_entries(_tr("ru-RU"), profile_id="ltx_2_3")
+    ko_entries = request_guide_entries(_tr("ko-KR"), profile_id="minimax_h3")
     assert [entry.key for entry in ja_entries] == [
         "time",
         "fixed_camera",
@@ -251,6 +252,7 @@ def test_request_guide_is_localized_neutral_and_appends_without_overwrite(tmp_pa
     assert [entry.key for entry in en_entries] == [entry.key for entry in ja_entries]
     assert [entry.key for entry in zh_entries] == [entry.key for entry in ja_entries]
     assert [entry.key for entry in ru_entries] == [entry.key for entry in ja_entries]
+    assert [entry.key for entry in ko_entries] == [entry.key for entry in ja_entries]
     assert "[speech:ja]" in next(item.example for item in ja_entries if item.key == "speech")
     assert "[text:ja]" in next(item.example for item in ja_entries if item.key == "visible_text")
     assert "[speech:zh]" in next(
@@ -265,9 +267,15 @@ def test_request_guide_is_localized_neutral_and_appends_without_overwrite(tmp_pa
     assert "[text:ru]" in next(
         item.example for item in ru_entries if item.key == "visible_text"
     )
+    assert "[speech:ko]" in next(
+        item.example for item in ko_entries if item.key == "speech"
+    )
+    assert "[text:ko]" in next(
+        item.example for item in ko_entries if item.key == "visible_text"
+    )
     assert all(
         "[Shot" not in item.example
-        for item in (*ja_entries, *en_entries, *zh_entries, *ru_entries)
+        for item in (*ja_entries, *en_entries, *zh_entries, *ru_entries, *ko_entries)
     )
 
     app = QApplication.instance() or QApplication([])
@@ -297,7 +305,7 @@ def test_translation_editor_cancel_apply_and_reopen_protection(tmp_path):
     mock, url = start_mock_server()
     try:
         manager = ConfigManager(tmp_path)
-        manager.save(AppConfig(ui_locale="ru-RU"))
+        manager.save(AppConfig(ui_locale="ko-KR"))
         window = MainWindow(
             project_root=ROOT,
             config_manager=manager,
@@ -328,7 +336,7 @@ def test_translation_editor_cancel_apply_and_reopen_protection(tmp_path):
         app.processEvents()
         second = window.translation_dialog
         assert second is not None
-        assert second.auto_translate.text() == "Автоперевод"
+        assert second.auto_translate.text() == "자동 번역"
         assert second.structure_protection.isChecked()
         second.structure_protection.setChecked(False)
         second._debounce.stop()
@@ -420,12 +428,36 @@ def test_russian_translation_directions_use_registry_language_names():
     assert "from Russian into English" in to_english.payload["messages"][0]["content"]
 
 
+def test_korean_translation_directions_use_registry_language_names():
+    service = PromptTranslationService()
+    to_korean = service.request_payload(
+        "Synthetic scene.",
+        SOURCE_TO_UI_LOCALE,
+        source_language_code="en",
+        ui_locale_id="ko-KR",
+    )
+    to_english = service.request_payload(
+        "합성 장면.",
+        UI_LOCALE_TO_SOURCE,
+        source_language_code="en",
+        ui_locale_id="ko-KR",
+    )
+
+    assert to_korean.source_language_name == "English"
+    assert to_korean.target_language_name == "Korean"
+    assert "from English into Korean" in to_korean.payload["messages"][0]["content"]
+    assert to_english.source_language_name == "Korean"
+    assert to_english.target_language_name == "English"
+    assert "from Korean into English" in to_english.payload["messages"][0]["content"]
+
+
 @pytest.mark.parametrize(
     ("ui_locale_id", "translated_sentence"),
     [
         ("ja-JP", "架空の場面。"),
         ("zh-CN", "合成场景。"),
         ("ru-RU", "Синтетическая сцена."),
+        ("ko-KR", "합성 장면."),
     ],
 )
 def test_translation_structure_is_preserved_for_each_translation_locale(
@@ -471,7 +503,13 @@ def test_translation_structure_is_preserved_for_each_translation_locale(
 
 @pytest.mark.parametrize(
     ("locale_id", "expected_visible"),
-    [("en-US", False), ("ja-JP", True), ("zh-CN", True), ("ru-RU", True)],
+    [
+        ("en-US", False),
+        ("ja-JP", True),
+        ("zh-CN", True),
+        ("ru-RU", True),
+        ("ko-KR", True),
+    ],
 )
 def test_translation_button_visibility_compares_ui_and_profile_languages(
     tmp_path,
@@ -802,6 +840,13 @@ def test_manual_update_is_immediate_with_auto_translate_on():
             "Автоперевод",
             "Обновить перевод",
             "Источник: исходный промпт",
+        ),
+        (
+            "ko-KR",
+            "번역 및 편집",
+            "자동 번역",
+            "번역 업데이트",
+            "원본: 원본 프롬프트",
         ),
     ],
 )

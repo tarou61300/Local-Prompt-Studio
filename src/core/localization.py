@@ -20,6 +20,7 @@ LOCALE_DEFINITIONS = (
     LocaleDefinition("en-US", "English", "English", "en"),
     LocaleDefinition("zh-CN", "简体中文", "Simplified Chinese", "zh"),
     LocaleDefinition("ru-RU", "Русский", "Russian", "ru"),
+    LocaleDefinition("ko-KR", "한국어", "Korean", "ko"),
 )
 DEFAULT_UI_LOCALE = "ja-JP"
 FALLBACK_LOCALE = "en-US"

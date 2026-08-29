@@ -6,7 +6,8 @@
     "en-US": "Full 22B Dev profile for production-quality two-stage generation.",
     "ja-JP": "高品質な2段階生成向けの22B Devプロファイルです。",
     "zh-CN": "适用于制作级双阶段生成的完整22B Dev Profile。",
-    "ru-RU": "Полный профиль 22B Dev для двухэтапной генерации производственного качества."
+    "ru-RU": "Полный профиль 22B Dev для двухэтапной генерации производственного качества.",
+    "ko-KR": "프로덕션 품질의 2단계 생성을 위한 전체 22B Dev 프로필입니다."
   },
   "required_prompt": {
     "positive_prefix": [],

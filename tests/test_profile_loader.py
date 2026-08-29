@@ -92,6 +92,7 @@ def test_all_builtin_variants_provide_all_supported_locale_descriptions():
         assert variant.description("ja-JP")
         assert variant.description("zh-CN")
         assert variant.description("ru-RU")
+        assert variant.description("ko-KR")
         assert variant.description("unsupported-locale") == variant.description("en-US")
 
 
@@ -235,6 +236,7 @@ def test_custom_variant_without_optional_locale_descriptions_falls_back_to_engli
 
     assert loaded.description("zh-CN") == "Synthetic English description."
     assert loaded.description("ru-RU") == "Synthetic English description."
+    assert loaded.description("ko-KR") == "Synthetic English description."
 
 
 def test_broken_custom_profile_isolated(tmp_path):

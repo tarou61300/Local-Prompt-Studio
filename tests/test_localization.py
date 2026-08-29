@@ -49,6 +49,7 @@ def test_all_supported_locales_load():
     assert Localization(LOCALE_ROOT, "ja-JP").tr("common.generate") == "Promptを生成"
     assert Localization(LOCALE_ROOT, "zh-CN").tr("common.generate") == "生成Prompt"
     assert Localization(LOCALE_ROOT, "ru-RU").tr("common.generate") == "Создать промпт"
+    assert Localization(LOCALE_ROOT, "ko-KR").tr("common.generate") == "프롬프트 생성"
     assert "Wan 2.2" in Localization(LOCALE_ROOT, "en-US").tr(
         "profile.wan_2_2.description"
     )
@@ -69,6 +70,7 @@ def test_all_supported_locales_load():
         Localization(LOCALE_ROOT, "ru-RU").tr("profile.style")
         == "Стиль преобразования промпта"
     )
+    assert Localization(LOCALE_ROOT, "ko-KR").tr("profile.style") == "프롬프트 변환 스타일"
     assert "Krea 2" in Localization(LOCALE_ROOT, "en-US").tr(
         "profile.krea_2.description"
     )
@@ -99,12 +101,13 @@ def test_all_supported_locales_load():
 def test_locale_registry_and_files_match_canonical_keys_placeholders_and_order():
     assert DEFAULT_UI_LOCALE == "ja-JP"
     assert FALLBACK_LOCALE == "en-US"
-    assert SUPPORTED_LOCALES == ("ja-JP", "en-US", "zh-CN", "ru-RU")
+    assert SUPPORTED_LOCALES == ("ja-JP", "en-US", "zh-CN", "ru-RU", "ko-KR")
     assert [item.native_name for item in LOCALE_DEFINITIONS] == [
         "日本語",
         "English",
         "简体中文",
         "Русский",
+        "한국어",
     ]
     russian = locale_definition("ru-RU")
     assert (
@@ -113,6 +116,13 @@ def test_locale_registry_and_files_match_canonical_keys_placeholders_and_order()
         russian.llm_language_name,
         russian.output_language_code,
     ) == ("ru-RU", "Русский", "Russian", "ru")
+    korean = locale_definition("ko-KR")
+    assert (
+        korean.locale_id,
+        korean.native_name,
+        korean.llm_language_name,
+        korean.output_language_code,
+    ) == ("ko-KR", "한국어", "Korean", "ko")
     english, duplicates = _load_without_duplicate_keys(LOCALE_ROOT / "en-US.json")
     assert duplicates == []
     assert isinstance(english, dict)
@@ -190,3 +200,7 @@ def test_existing_config_migrates_to_japanese_and_supported_locales_persist(tmp_
     config.ui_locale = "ru-RU"
     manager.save(config)
     assert manager.load().ui_locale == "ru-RU"
+    config = manager.load()
+    config.ui_locale = "ko-KR"
+    manager.save(config)
+    assert manager.load().ui_locale == "ko-KR"

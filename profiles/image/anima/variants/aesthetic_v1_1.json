@@ -6,7 +6,8 @@
     "en-US": "Aesthetic v1.1 profile with quality-only fixed components for its curated tuning.",
     "ja-JP": "品質系だけの固定componentを使う高品質調整済みAesthetic v1.1向けです。",
     "zh-CN": "采用仅限质量类固定组件、经过精选调优的Aesthetic v1.1 Profile。",
-    "ru-RU": "Профиль Aesthetic v1.1 с тщательно настроенными фиксированными компонентами только для качества."
+    "ru-RU": "Профиль Aesthetic v1.1 с тщательно настроенными фиксированными компонентами только для качества.",
+    "ko-KR": "정교하게 조정된 품질 전용 고정 구성 요소를 사용하는 Aesthetic v1.1 프로필입니다."
   },
   "required_prompt": {},
   "recommended_prompt": {

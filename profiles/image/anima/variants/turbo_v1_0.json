@@ -6,7 +6,8 @@
     "en-US": "Fast Turbo v1.0 profile with quality-only fixed Positive and Negative components.",
     "ja-JP": "品質系だけの固定Positive/Negative componentを使う高速なTurbo v1.0向けです。",
     "zh-CN": "采用仅限质量类固定Positive/Negative组件的高速Turbo v1.0 Profile。",
-    "ru-RU": "Быстрый профиль Turbo v1.0 с фиксированными компонентами Positive/Negative только для качества."
+    "ru-RU": "Быстрый профиль Turbo v1.0 с фиксированными компонентами Positive/Negative только для качества.",
+    "ko-KR": "품질 전용 고정 Positive/Negative 구성 요소를 사용하는 빠른 Turbo v1.0 프로필입니다."
   },
   "required_prompt": {},
   "recommended_prompt": {

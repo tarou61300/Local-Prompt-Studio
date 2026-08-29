@@ -337,7 +337,13 @@ class MiniMaxH3Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        if locale_id == "ru-RU":
+        if locale_id == "ko-KR":
+            descriptions = {
+                "Faithful": "요청의 동작 순서, 카메라, 대사를 최우선으로 유지하며 지정되지 않은 연출은 거의 추가하지 않습니다.",
+                "Balanced": "요청을 유지하면서 H3가 이해하기 쉬운 움직임, 시간, 음향, 카메라 세부 정보를 적절히 보완합니다.",
+                "Creative": "요청의 핵심을 유지하면서 영화적 연출, 카메라, 움직임, 분위기를 적극적으로 보완합니다.",
+            }
+        elif locale_id == "ru-RU":
             descriptions = {
                 "Faithful": "Сохраняет прежде всего порядок действий, камеру и реплики из запроса, почти не добавляя неуказанную постановку.",
                 "Balanced": "Сохраняет запрос и умеренно добавляет понятные H3 детали движения, времени, звука и камеры.",
@@ -560,7 +566,13 @@ class Wan22Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        if locale_id == "ru-RU":
+        if locale_id == "ko-KR":
+            descriptions = {
+                "Faithful": "요청의 피사체, 동작, 순서, 카메라를 최우선으로 유지하며 지정되지 않은 Wan 장면 요소는 추가하지 않습니다.",
+                "Balanced": "요청을 유지하면서 Wan에 적합한 움직임, 구도, 조명, 환경 세부 정보를 적절히 보완합니다.",
+                "Creative": "요청을 유지하면서 Wan에 적합한 영화적 연출, 움직임, 조명, 분위기를 적극적으로 보완합니다.",
+            }
+        elif locale_id == "ru-RU":
             descriptions = {
                 "Faithful": "Сохраняет прежде всего объект, действие, порядок и камеру из запроса, не добавляя неуказанные элементы сцены Wan.",
                 "Balanced": "Сохраняет запрос и умеренно добавляет подходящие Wan детали движения, композиции, освещения и окружения.",
@@ -727,7 +739,13 @@ class LTX23Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        if locale_id == "ru-RU":
+        if locale_id == "ko-KR":
+            descriptions = {
+                "Faithful": "요청의 시간 순서, 동작, 카메라, 음향을 최우선으로 유지하며 지정되지 않은 의미 요소는 추가하지 않습니다.",
+                "Balanced": "요청을 유지하면서 LTX에 적합한 연속성, 조명, 카메라, 동기화된 음향 세부 정보를 적절히 보완합니다.",
+                "Creative": "요청을 유지하면서 LTX에 적합한 환경, 움직임, 카메라, 음향 연출을 적극적으로 보완합니다.",
+            }
+        elif locale_id == "ru-RU":
             descriptions = {
                 "Faithful": "Сохраняет прежде всего хронологию, действие, камеру и звук из запроса, не добавляя неуказанные смысловые детали.",
                 "Balanced": "Сохраняет запрос и умеренно добавляет подходящие LTX детали непрерывности, освещения, камеры и синхронного звука.",
@@ -894,7 +912,13 @@ class Krea2Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        if locale_id == "ru-RU":
+        if locale_id == "ko-KR":
+            descriptions = {
+                "Faithful": "지정되지 않은 사물, 특징, 장면 설정을 추가하지 않고 자연어 요청을 가볍게 정리합니다.",
+                "Balanced": "요청을 유지하면서 Krea에 적합한 구도, 프레이밍, 조명, 질감 세부 정보를 적절히 보완합니다.",
+                "Creative": "요청을 유지하면서 Krea에 적합한 구도, 조명, 분위기, 표현을 적극적으로 보완합니다.",
+            }
+        elif locale_id == "ru-RU":
             descriptions = {
                 "Faithful": "Слегка выравнивает запрос на естественном языке, не добавляя неуказанные объекты, признаки или детали сцены.",
                 "Balanced": "Сохраняет запрос и умеренно добавляет подходящие Krea детали композиции, кадрирования, освещения и текстуры.",
@@ -1058,7 +1082,13 @@ class AnimaRenderer:
     renderer_id = "anima"
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        if locale_id == "ru-RU":
+        if locale_id == "ko-KR":
+            descriptions = {
+                "Faithful": "Natural, Tag 또는 Hybrid 형식과 명시된 제약을 유지하며 Anima 해석을 최소화합니다.",
+                "Balanced": "입력 형식과 제약을 유지하면서 Anima에 적합한 구도와 표현 세부 정보를 적절히 보완합니다.",
+                "Creative": "입력 형식과 제약을 유지하면서 Anima에 적합한 조명, 분위기, 배경, 스타일을 적극적으로 보완합니다.",
+            }
+        elif locale_id == "ru-RU":
             descriptions = {
                 "Faithful": "Сохраняет формат Natural, Tag или Hybrid и явные ограничения с минимальной интерпретацией Anima.",
                 "Balanced": "Сохраняет формат и ограничения ввода, умеренно добавляя детали композиции и подачи для Anima.",

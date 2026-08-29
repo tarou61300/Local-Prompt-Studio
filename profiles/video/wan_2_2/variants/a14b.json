@@ -6,7 +6,8 @@
     "en-US": "Prompt guidance for Wan 2.2 T2V-A14B and I2V-A14B.",
     "ja-JP": "Wan 2.2 T2V-A14B / I2V-A14B向けのPrompt規則です。",
     "zh-CN": "适用于Wan 2.2 T2V-A14B和I2V-A14B的Prompt规则。",
-    "ru-RU": "Правила промпта для Wan 2.2 T2V-A14B и I2V-A14B."
+    "ru-RU": "Правила промпта для Wan 2.2 T2V-A14B и I2V-A14B.",
+    "ko-KR": "Wan 2.2 T2V-A14B 및 I2V-A14B용 프롬프트 지침입니다."
   },
   "required_prompt": {
     "positive_prefix": [],
