@@ -337,19 +337,24 @@ class MiniMaxH3Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        descriptions = (
-            {
-                "Faithful": "入力の動作順・カメラ・台詞を最優先し、未指定の演出を極力追加しません。",
+        if locale_id == "zh-CN":
+            descriptions = {
+                "Faithful": "优先保留输入中的动作顺序、镜头和台词，尽量不添加未指定的演出。",
+                "Balanced": "在保持输入内容的同时，适度补充便于H3理解的动作、时间、声音和镜头细节。",
+                "Creative": "保持输入核心内容，并积极补充影像演出、镜头、动作和氛围。",
+            }
+        elif locale_id == "ja-JP":
+            descriptions = {
+                "Faithful": "输入の動作順・カメラ・台詞を最優先し、未指定の演出を極力追加しません。",
                 "Balanced": "入力を維持し、H3に伝わりやすい動き・時間・音・カメラの補足を適度に加えます。",
                 "Creative": "入力の中心を維持し、映像演出・カメラ・動き・雰囲気を積極的に補います。",
             }
-            if locale_id == "ja-JP"
-            else {
+        else:
+            descriptions = {
                 "Faithful": "Prioritizes the requested action order, camera, and speech, adding almost no unspecified direction.",
                 "Balanced": "Preserves the request while adding restrained H3-friendly motion, timing, sound, and camera detail.",
                 "Creative": "Preserves the core request while actively enriching cinematic direction, camera, motion, and atmosphere.",
             }
-        )
         return descriptions.get(processing, "")
 
     def analyze_request(self, request: str) -> RendererAnalysis:
@@ -549,19 +554,24 @@ class Wan22Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        descriptions = (
-            {
+        if locale_id == "zh-CN":
+            descriptions = {
+                "Faithful": "优先保留输入中的主体、动作、顺序和镜头，不添加未指定的Wan场景元素。",
+                "Balanced": "在保持输入内容的同时，适度补充适合Wan的动作、构图、照明和环境细节。",
+                "Creative": "保持输入内容，并积极补充适合Wan的影像表现、动作、照明和氛围。",
+            }
+        elif locale_id == "ja-JP":
+            descriptions = {
                 "Faithful": "入力の被写体・動作・順序・カメラを優先し、Wan向けの未指定要素を追加しません。",
                 "Balanced": "入力を維持し、Wan向けの動き・構図・照明・環境描写を適度に補います。",
                 "Creative": "入力を維持しつつ、Wan向けの映像表現・動き・照明・雰囲気を積極的に補います。",
             }
-            if locale_id == "ja-JP"
-            else {
+        else:
+            descriptions = {
                 "Faithful": "Prioritizes the requested subject, action, order, and camera without adding unspecified Wan scene elements.",
                 "Balanced": "Preserves the request while adding restrained Wan motion, framing, lighting, and environment detail.",
                 "Creative": "Preserves the request while actively enriching Wan cinematography, motion, lighting, and atmosphere.",
             }
-        )
         return descriptions.get(processing, "")
 
     def analyze_request(self, request: str) -> RendererAnalysis:
@@ -705,19 +715,24 @@ class LTX23Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        descriptions = (
-            {
+        if locale_id == "zh-CN":
+            descriptions = {
+                "Faithful": "优先保留输入中的时间顺序、动作、镜头和声音，不添加未指定的语义细节。",
+                "Balanced": "在保持输入内容的同时，适度补充适合LTX的连续性、照明、镜头和同步声音细节。",
+                "Creative": "保持输入内容，并积极补充适合LTX的环境、动作、镜头和声音设计。",
+            }
+        elif locale_id == "ja-JP":
+            descriptions = {
                 "Faithful": "入力の時系列・動作・カメラ・音声を優先し、未指定の意味要素を追加しません。",
                 "Balanced": "入力を維持し、LTX向けの連続性・照明・カメラ・同期音声を適度に補います。",
                 "Creative": "入力を維持しつつ、LTX向けの環境・動き・カメラ・音響を積極的に補います。",
             }
-            if locale_id == "ja-JP"
-            else {
+        else:
+            descriptions = {
                 "Faithful": "Prioritizes the requested chronology, action, camera, and audio without adding missing semantic detail.",
                 "Balanced": "Preserves the request while adding restrained LTX continuity, lighting, camera, and synchronized audio detail.",
                 "Creative": "Preserves the request while actively enriching LTX environment, motion, camera, and sound direction.",
             }
-        )
         return descriptions.get(processing, "")
 
     def analyze_request(self, request: str) -> RendererAnalysis:
@@ -861,19 +876,24 @@ class Krea2Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        descriptions = (
-            {
+        if locale_id == "zh-CN":
+            descriptions = {
+                "Faithful": "仅轻度整理自然语言输入，不添加未指定的物体、特征或场景设定。",
+                "Balanced": "在保持输入内容的同时，适度补充适合Krea的构图、取景、照明和质感细节。",
+                "Creative": "保持输入内容，并积极补充适合Krea的构图、照明、氛围和表现方式。",
+            }
+        elif locale_id == "ja-JP":
+            descriptions = {
                 "Faithful": "入力の自然言語を軽く整えるだけで、未指定の物・特徴・設定を追加しません。",
                 "Balanced": "入力を維持し、Krea向けの構図・画角・照明・質感を適度に補います。",
                 "Creative": "入力を維持しつつ、Krea向けの構図・照明・雰囲気・表現を積極的に補います。",
             }
-            if locale_id == "ja-JP"
-            else {
+        else:
+            descriptions = {
                 "Faithful": "Lightly polishes the natural-language request without adding unspecified objects, traits, or setting facts.",
                 "Balanced": "Preserves the request while adding restrained Krea composition, framing, lighting, and texture detail.",
                 "Creative": "Preserves the request while actively enriching Krea composition, lighting, atmosphere, and presentation.",
             }
-        )
         return descriptions.get(processing, "")
 
     def analyze_request(self, request: str) -> RendererAnalysis:
@@ -1014,19 +1034,24 @@ class AnimaRenderer:
     renderer_id = "anima"
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        descriptions = (
-            {
+        if locale_id == "zh-CN":
+            descriptions = {
+                "Faithful": "优先保留Natural、Tag或Hybrid形式及明确约束，以最少的Anima解释整理Prompt。",
+                "Balanced": "保持输入形式和约束，并适度补充适合Anima的构图与表现细节。",
+                "Creative": "保持输入形式和约束，并积极补充适合Anima的照明、氛围、背景和画风。",
+            }
+        elif locale_id == "ja-JP":
+            descriptions = {
                 "Faithful": "Natural/Tag/Hybrid形式と指定内容を優先し、最小限の解釈でAnima Promptを整えます。",
                 "Balanced": "入力形式と指定内容を維持し、Anima向けの構図・見せ方を適度に補います。",
                 "Creative": "入力形式と指定内容を維持しつつ、Anima向けの照明・雰囲気・背景・画風を積極的に補います。",
             }
-            if locale_id == "ja-JP"
-            else {
+        else:
+            descriptions = {
                 "Faithful": "Prioritizes the Natural, Tag, or Hybrid form and explicit constraints with minimal Anima interpretation.",
                 "Balanced": "Preserves the input form and constraints while adding restrained Anima composition and presentation detail.",
                 "Creative": "Preserves the input form and constraints while actively enriching Anima lighting, atmosphere, background, and style.",
             }
-        )
         return descriptions.get(processing, "")
 
     @staticmethod

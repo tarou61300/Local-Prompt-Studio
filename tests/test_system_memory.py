@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import core.system_memory as system_memory
+from core.localization import Localization
 from core.system_memory import (
     GIB,
     MemoryInfo,
@@ -12,6 +13,9 @@ from core.system_memory import (
     format_memory_status,
     memory_warnings,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_low_total_and_available_memory_warnings():
@@ -76,6 +80,26 @@ def test_total_and_available_ram_are_formatted_as_separate_values():
     memory = MemoryInfo(total_bytes=int(12.7 * GIB), available_bytes=int(5.3 * GIB))
     text = format_memory_status(memory)
     assert text == "RAM: Available 5.3 GB / Total 12.7 GB"
+
+
+def test_memory_status_details_and_warnings_use_selected_ui_locale():
+    tr = Localization(ROOT / "locales", "zh-CN").tr
+    memory = MemoryInfo(total_bytes=int(8.0 * GIB), available_bytes=int(3.0 * GIB))
+    assessment = assess_memory(
+        8192,
+        model_name="Synthetic Model",
+        model_filename="synthetic.gguf",
+        model_size_bytes=int(5.0 * GIB),
+        memory=memory,
+        tr=tr,
+    )
+
+    assert format_memory_status(memory, tr) == "RAM：可用3.0 GB / 总计8.0 GB"
+    details = format_assessment_details(assessment, tr)
+    assert "当前可用RAM" in details
+    assert "所选模型：Synthetic Model" in details
+    assert assessment.warnings
+    assert all("搭載RAM" not in warning for warning in assessment.warnings)
 
 
 def test_estimate_is_derived_from_model_size_and_context():

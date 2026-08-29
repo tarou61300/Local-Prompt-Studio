@@ -904,7 +904,7 @@ def test_h3_generation_requires_skill_but_wan_and_ltx_do_not(
         mock.server_close()
 
 
-def test_main_window_uses_persisted_english_and_japanese_locales(tmp_path):
+def test_main_window_uses_persisted_supported_locales(tmp_path):
     app = QApplication.instance() or QApplication([])
     mock, url = start_mock_server()
     try:
@@ -931,6 +931,8 @@ def test_main_window_uses_persisted_english_and_japanese_locales(tmp_path):
         assert english.unload_model_button.text() == "Unload model"
         assert "RAM/GPU memory" in english.unload_model_button.toolTip()
         assert english.mode_supplement_toggle.text() == "Mode supplement"
+        assert "[speech:en]Hello[/speech]" in english.literal_hint.text()
+        assert "[text:en]Moonlit Coffee[/text]" in english.request_text.toolTip()
         assert english.profile_variant_help.text()
         assert english.prompt_style_help.text()
         english.close()
@@ -959,9 +961,87 @@ def test_main_window_uses_persisted_english_and_japanese_locales(tmp_path):
         assert japanese.unload_model_button.text() == "モデルをアンロード"
         assert "RAM/GPUメモリ" in japanese.unload_model_button.toolTip()
         assert japanese.mode_supplement_toggle.text() == "モード補足"
+        assert "[speech:ja]こんにちは[/speech]" in japanese.literal_hint.text()
+        assert "[text:ja]月夜珈琲[/text]" in japanese.request_text.toolTip()
         assert "標準Prompt規則" in japanese.profile_variant_help.text()
         assert japanese.prompt_style_help.text()
         japanese.close()
+        app.processEvents()
+
+        chinese_manager = ConfigManager(tmp_path / "chinese")
+        chinese_manager.save(AppConfig(ui_locale="zh-CN"))
+        chinese = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=chinese_manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        assert chinese.generate_button.text() == "生成Prompt"
+        assert chinese.settings_action.text() == "设置"
+        assert chinese.profile_category.currentData() == "video"
+        assert "LLM模型: 未设置" in chinese.readiness.text()
+        assert chinese.duration.suffix() == " 秒"
+        chinese_style_label = chinese.processing.parentWidget().layout().labelForField(
+            chinese.processing
+        )
+        assert chinese_style_label.text() == "Prompt转换风格"
+        assert chinese.auto_quality_tags.text() == "自动添加质量标签"
+        assert chinese.system_details_toggle.text() == "详细信息"
+        assert chinese.system_details_group.title() == "系统详细信息"
+        assert chinese.unload_model_button.text() == "卸载模型"
+        assert "RAM/GPU" in chinese.unload_model_button.toolTip()
+        assert chinese.mode_supplement_toggle.text() == "模式补充"
+        assert "[speech:zh]你好[/speech]" in chinese.literal_hint.text()
+        assert "[text:zh]月夜咖啡[/text]" in chinese.request_text.toolTip()
+        assert chinese.send_comfyui_button.text() == "发送到ComfyUI"
+        assert "标准Prompt规则" in chinese.profile_variant_help.text()
+        assert chinese.prompt_style_help.text()
+        chinese.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
+
+
+def test_chinese_combo_display_names_keep_stable_internal_values(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    manager = ConfigManager(tmp_path)
+    manager.save(AppConfig(ui_locale="zh-CN"))
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+
+        window.processing.setCurrentIndex(window.processing.findData("Creative"))
+        window.camera.setCurrentIndex(window.camera.findData("Static camera"))
+        window.shot.setCurrentIndex(window.shot.findData("Allow cuts"))
+        window.motion.setCurrentIndex(window.motion.findData("High"))
+        window.mode.setCurrentIndex(window.mode.findData("Ref2VA"))
+        window._add_reference()
+        kind = window.references.cellWidget(0, 0)
+        assert isinstance(kind, QComboBox)
+        kind.setCurrentIndex(kind.findData("Video"))
+
+        settings = window._collect_settings()
+
+        assert window.processing.currentText() == "创意"
+        assert window.camera.currentText() == "固定镜头"
+        assert window.shot.currentText() == "允许剪辑"
+        assert window.motion.currentText() == "高"
+        assert kind.currentText() == "视频"
+        assert settings.processing == "Creative"
+        assert settings.camera == "Static camera"
+        assert settings.shot == "Allow cuts"
+        assert settings.motion == "High"
+        assert settings.references[0].kind == "Video"
+        assert window.mode.currentText() == "Ref2VA"
+        assert window.mode.currentData() == "Ref2VA"
+        assert settings.mode == "Ref2VA"
+        window.close()
         app.processEvents()
     finally:
         mock.shutdown()
@@ -1058,14 +1138,52 @@ def test_settings_language_selection_persists_stable_locale_id(tmp_path, monkeyp
     )
     dialog = SettingsDialog(manager, PROJECT_ROOT)
     try:
-        dialog.ui_locale.setCurrentIndex(dialog.ui_locale.findData("en-US"))
+        assert [
+            dialog.ui_locale.itemData(index)
+            for index in range(dialog.ui_locale.count())
+        ] == ["ja-JP", "en-US", "zh-CN"]
+        assert [
+            dialog.ui_locale.itemText(index)
+            for index in range(dialog.ui_locale.count())
+        ] == ["日本語", "English", "简体中文"]
+        dialog.ui_locale.setCurrentIndex(dialog.ui_locale.findData("zh-CN"))
         dialog.accept()
-        assert manager.load().ui_locale == "en-US"
-        assert manager.path.read_text(encoding="utf-8").count('"en-US"') == 1
+        assert manager.load().ui_locale == "zh-CN"
+        assert manager.path.read_text(encoding="utf-8").count('"zh-CN"') == 1
         assert messages
     finally:
         dialog.close()
         app.processEvents()
+
+
+def test_settings_language_selection_matches_saved_locale_without_changes(
+    tmp_path, monkeypatch
+):
+    app = QApplication.instance() or QApplication([])
+    messages = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args: messages.append(args),
+    )
+    expected_locales = (
+        ("ja-JP", "日本語"),
+        ("en-US", "English"),
+        ("zh-CN", "简体中文"),
+    )
+    for locale_id, native_name in expected_locales:
+        manager = ConfigManager(tmp_path / locale_id)
+        manager.save(AppConfig(ui_locale=locale_id))
+        dialog = SettingsDialog(manager, PROJECT_ROOT)
+        try:
+            assert dialog.ui_locale.currentData() == locale_id
+            assert dialog.ui_locale.currentText() == native_name
+            dialog.accept()
+            assert manager.load().ui_locale == locale_id
+        finally:
+            dialog.close()
+            app.processEvents()
+    assert messages == []
 
 
 def test_generate_button_flow_uses_mock_without_model(tmp_path):
@@ -1320,7 +1438,7 @@ def test_settings_switches_between_cpu_and_vulkan_with_auto_layers(tmp_path, mon
         assert "AMD Radeon Graphics (Vulkan0)" in dialog.backend_info.text()
         assert "UMA" in dialog.backend_info.text()
         assert dialog.gpu_layers.value() == GPU_LAYERS_AUTO
-        assert dialog.gpu_layers.text() == "Auto"
+        assert dialog.gpu_layers.text() == "自動"
         dialog.accept()
         saved = manager.load()
         assert saved.inference_backend == BACKEND_VULKAN
@@ -1329,6 +1447,43 @@ def test_settings_switches_between_cpu_and_vulkan_with_auto_layers(tmp_path, mon
     finally:
         dialog.close()
         app.processEvents()
+
+
+def test_settings_localizes_unknown_vulkan_memory_classification(
+    tmp_path, monkeypatch
+):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(
+        "core.llama_manager.LlamaServerManager.detect_vulkan_devices",
+        lambda self: [BackendDevice("Vulkan0", "Test GPU", is_uma=None)],
+    )
+    monkeypatch.setattr(
+        "core.llama_manager.LlamaServerManager.runtime_available",
+        lambda self, backend: True,
+    )
+    expected = {
+        "ja-JP": "UMA / discrete分類: 不明",
+        "en-US": "UMA / discrete classification: unknown",
+        "zh-CN": "UMA / discrete分类：未知",
+    }
+    for locale_id, classification in expected.items():
+        manager = ConfigManager(tmp_path / locale_id)
+        manager.save(
+            AppConfig(
+                ui_locale=locale_id,
+                inference_backend=BACKEND_VULKAN,
+                backend_device="Vulkan0",
+            )
+        )
+        dialog = SettingsDialog(manager, PROJECT_ROOT)
+        try:
+            assert classification in dialog.backend_info.text()
+            if locale_id != "ja-JP":
+                assert "分類" not in dialog.backend_info.text()
+                assert "不明" not in dialog.backend_info.text()
+        finally:
+            dialog.close()
+            app.processEvents()
 
 
 def test_window_close_terminates_only_owned_llama_server(tmp_path):

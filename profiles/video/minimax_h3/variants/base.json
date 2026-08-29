@@ -4,7 +4,8 @@
   "target_model_version": null,
   "description": {
     "en-US": "Standard MiniMax H3 prompt rules for all supported H3 video tasks.",
-    "ja-JP": "MiniMax H3の全対応動画タスクで使う標準Prompt規則です。"
+    "ja-JP": "MiniMax H3の全対応動画タスクで使う標準Prompt規則です。",
+    "zh-CN": "适用于MiniMax H3所有受支持视频Task的标准Prompt规则。"
   },
   "required_prompt": {
     "positive_prefix": [],

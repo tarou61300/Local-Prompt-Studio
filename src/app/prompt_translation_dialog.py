@@ -20,9 +20,9 @@ from PySide6.QtWidgets import (
 )
 
 from core.prompt_translation import (
-    JAPANESE_TO_ORIGINAL,
-    ORIGINAL_TO_JAPANESE,
     ProtectedSpan,
+    SOURCE_TO_UI_LOCALE,
+    UI_LOCALE_TO_SOURCE,
     protected_spans,
     structure_tokens,
 )
@@ -155,7 +155,7 @@ class PromptTranslationDialog(QDialog):
         self.initial_original_text = original_text
         self.protected_terms = tuple(protected_terms)
         self._revision = 0
-        self._last_direction = ORIGINAL_TO_JAPANESE
+        self._last_direction = SOURCE_TO_UI_LOCALE
         self._initial_translation_scheduled = False
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
@@ -235,20 +235,20 @@ class PromptTranslationDialog(QDialog):
         original_layout.addWidget(self.original_edit)
         splitter.addWidget(original_group)
 
-        japanese_group = QGroupBox(self.tr("translation.japanese"))
-        japanese_layout = QVBoxLayout(japanese_group)
-        self.japanese_edit = StructureAwarePlainTextEdit(
+        translated_group = QGroupBox(self.tr("translation.translated"))
+        translated_layout = QVBoxLayout(translated_group)
+        self.translated_edit = StructureAwarePlainTextEdit(
             self.protected_terms,
-            japanese_group,
+            translated_group,
         )
-        self.japanese_edit.setObjectName("translation_japanese")
-        self.japanese_edit.setSizePolicy(
+        self.translated_edit.setObjectName("translation_translated")
+        self.translated_edit.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
         )
-        self.japanese_edit.set_programmatic_text("")
-        japanese_layout.addWidget(self.japanese_edit)
-        splitter.addWidget(japanese_group)
+        self.translated_edit.set_programmatic_text("")
+        translated_layout.addWidget(self.translated_edit)
+        splitter.addWidget(translated_group)
 
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)
@@ -279,13 +279,13 @@ class PromptTranslationDialog(QDialog):
         self.original_edit.textChanged.connect(
             lambda: self._on_user_edit(
                 self.original_edit,
-                ORIGINAL_TO_JAPANESE,
+                SOURCE_TO_UI_LOCALE,
             )
         )
-        self.japanese_edit.textChanged.connect(
+        self.translated_edit.textChanged.connect(
             lambda: self._on_user_edit(
-                self.japanese_edit,
-                JAPANESE_TO_ORIGINAL,
+                self.translated_edit,
+                UI_LOCALE_TO_SOURCE,
             )
         )
         self.structure_protection.toggled.connect(
@@ -318,7 +318,7 @@ class PromptTranslationDialog(QDialog):
             return
         self._debounce.stop()
         self._revision += 1
-        self._last_direction = ORIGINAL_TO_JAPANESE
+        self._last_direction = SOURCE_TO_UI_LOCALE
         self._update_source_label()
         self.update_translation_button.setEnabled(True)
         self._request_translation()
@@ -355,8 +355,8 @@ class PromptTranslationDialog(QDialog):
         if revision != self._revision or direction != self._last_direction:
             return False
         target = (
-            self.japanese_edit
-            if direction == ORIGINAL_TO_JAPANESE
+            self.translated_edit
+            if direction == SOURCE_TO_UI_LOCALE
             else self.original_edit
         )
         target.set_programmatic_text(translated)
@@ -379,8 +379,8 @@ class PromptTranslationDialog(QDialog):
     def _source_editor(self, direction: str) -> StructureAwarePlainTextEdit:
         return (
             self.original_edit
-            if direction == ORIGINAL_TO_JAPANESE
-            else self.japanese_edit
+            if direction == SOURCE_TO_UI_LOCALE
+            else self.translated_edit
         )
 
     def _on_user_edit(
@@ -409,7 +409,7 @@ class PromptTranslationDialog(QDialog):
 
     def _on_structure_protection_toggled(self, enabled: bool) -> None:
         self.original_edit.set_structure_protection(enabled)
-        self.japanese_edit.set_structure_protection(enabled)
+        self.translated_edit.set_structure_protection(enabled)
         self.protection_warning.setVisible(not enabled)
         self.schedule_translation(self._last_direction)
 
@@ -435,7 +435,7 @@ class PromptTranslationDialog(QDialog):
     def _update_source_label(self) -> None:
         key = (
             "translation.source.original"
-            if self._last_direction == ORIGINAL_TO_JAPANESE
-            else "translation.source.japanese"
+            if self._last_direction == SOURCE_TO_UI_LOCALE
+            else "translation.source.translated"
         )
         self.source_label.setText(self.tr(key))

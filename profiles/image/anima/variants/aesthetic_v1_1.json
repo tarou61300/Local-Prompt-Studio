@@ -4,7 +4,8 @@
   "target_model_version": "Anima-Aesthetic v1.1",
   "description": {
     "en-US": "Aesthetic v1.1 profile with quality-only fixed components for its curated tuning.",
-    "ja-JP": "品質系だけの固定componentを使う高品質調整済みAesthetic v1.1向けです。"
+    "ja-JP": "品質系だけの固定componentを使う高品質調整済みAesthetic v1.1向けです。",
+    "zh-CN": "采用仅限质量类固定组件、经过精选调优的Aesthetic v1.1 Profile。"
   },
   "required_prompt": {},
   "recommended_prompt": {

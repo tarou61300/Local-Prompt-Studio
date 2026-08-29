@@ -21,8 +21,8 @@ from core.localization import Localization
 from core.protected_terms import normalize_protected_terms
 from core.renderers import MiniMaxH3Renderer, RendererContext
 from core.prompt_translation import (
-    JAPANESE_TO_ORIGINAL,
-    ORIGINAL_TO_JAPANESE,
+    UI_LOCALE_TO_SOURCE,
+    SOURCE_TO_UI_LOCALE,
     PromptTranslationService,
     TRANSLATION_STRUCTURE_NOT_PRESERVED,
     protected_spans,
@@ -51,7 +51,7 @@ def test_translation_masks_and_restores_all_protected_span_types():
     )
     request = service.request_payload(
         source,
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
         protected_terms=("SYNTHETIC_TOKEN",),
     )
     masked = request.payload["messages"][-1]["content"]
@@ -98,7 +98,7 @@ def test_translation_rejects_missing_or_reordered_structure_placeholder():
     service = PromptTranslationService()
     request = service.request_payload(
         "<Picture 1> [Shot 1] 00:01.000 synthetic text",
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
     )
     masked = request.payload["messages"][-1]["content"]
     first = request.placeholders[0][0]
@@ -120,7 +120,7 @@ def test_protection_off_keeps_user_structural_edits_as_current_content():
     user_edited = "[Shot 2] 00:08.000 Synthetic scene."
     request = service.request_payload(
         user_edited,
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
         structure_protection=False,
     )
     assert request.placeholders == ()
@@ -153,38 +153,38 @@ def test_translation_dialog_last_real_user_edit_wins_without_programmatic_loop()
         debounce_ms=1000,
     )
     initial_revision = dialog.revision
-    dialog.schedule_translation(ORIGINAL_TO_JAPANESE)
+    dialog.schedule_translation(SOURCE_TO_UI_LOCALE)
     dialog._debounce.stop()
     original_revision = dialog.revision
 
     assert dialog.apply_translation_result(
         original_revision,
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
         "[Shot 1] 架空の場面。",
     )
     assert dialog.revision == original_revision
-    assert dialog.last_direction == ORIGINAL_TO_JAPANESE
+    assert dialog.last_direction == SOURCE_TO_UI_LOCALE
 
-    dialog.japanese_edit.setPlainText("[Shot 1] 更新された場面。")
+    dialog.translated_edit.setPlainText("[Shot 1] 更新された場面。")
     dialog._debounce.stop()
     japanese_revision = dialog.revision
     assert japanese_revision > original_revision
-    assert dialog.last_direction == JAPANESE_TO_ORIGINAL
+    assert dialog.last_direction == UI_LOCALE_TO_SOURCE
 
     assert not dialog.apply_translation_result(
         original_revision,
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
         "[Shot 1] 古い応答。",
     )
-    assert "更新された" in dialog.japanese_edit.toPlainText()
+    assert "更新された" in dialog.translated_edit.toPlainText()
 
     assert dialog.apply_translation_result(
         japanese_revision,
-        JAPANESE_TO_ORIGINAL,
+        UI_LOCALE_TO_SOURCE,
         "[Shot 1] Updated scene.",
     )
     assert dialog.revision == japanese_revision
-    assert dialog.last_direction == JAPANESE_TO_ORIGINAL
+    assert dialog.last_direction == UI_LOCALE_TO_SOURCE
     assert initial_revision == 0
     dialog.close()
     app.processEvents()
@@ -210,7 +210,7 @@ def test_translation_dialog_debounces_user_edits():
     QTest.qWait(1050)
     app.processEvents()
     assert len(emitted) == 1
-    assert emitted[0][1] == ORIGINAL_TO_JAPANESE
+    assert emitted[0][1] == SOURCE_TO_UI_LOCALE
     dialog.close()
 
 
@@ -237,8 +237,9 @@ def test_dialog_blocks_structural_user_edit_on_and_keeps_it_off():
 
 
 def test_request_guide_is_localized_neutral_and_appends_without_overwrite(tmp_path):
-    ja_entries = request_guide_entries("ja-JP", profile_id="minimax_h3")
-    en_entries = request_guide_entries("en-US", profile_id="anima")
+    ja_entries = request_guide_entries(_tr("ja-JP"), profile_id="minimax_h3")
+    en_entries = request_guide_entries(_tr("en-US"), profile_id="anima")
+    zh_entries = request_guide_entries(_tr("zh-CN"), profile_id="wan_2_2")
     assert [entry.key for entry in ja_entries] == [
         "time",
         "fixed_camera",
@@ -247,9 +248,19 @@ def test_request_guide_is_localized_neutral_and_appends_without_overwrite(tmp_pa
         "visible_text",
     ]
     assert [entry.key for entry in en_entries] == [entry.key for entry in ja_entries]
+    assert [entry.key for entry in zh_entries] == [entry.key for entry in ja_entries]
     assert "[speech:ja]" in next(item.example for item in ja_entries if item.key == "speech")
     assert "[text:ja]" in next(item.example for item in ja_entries if item.key == "visible_text")
-    assert all("[Shot" not in item.example for item in (*ja_entries, *en_entries))
+    assert "[speech:zh]" in next(
+        item.example for item in zh_entries if item.key == "speech"
+    )
+    assert "[text:zh]" in next(
+        item.example for item in zh_entries if item.key == "visible_text"
+    )
+    assert all(
+        "[Shot" not in item.example
+        for item in (*ja_entries, *en_entries, *zh_entries)
+    )
 
     app = QApplication.instance() or QApplication([])
     mock, url = start_mock_server()
@@ -283,6 +294,8 @@ def test_translation_editor_cancel_apply_and_reopen_protection(tmp_path):
             server_url=url,
             dev_skill_path=SKILL,
         )
+        window.show()
+        app.processEvents()
         initial = "[Shot 1] Synthetic original."
         window.output_text.setPlainText(initial)
         window._open_prompt_translation()
@@ -338,16 +351,122 @@ def test_both_translation_directions_use_faithful_target_language_rules():
     service = PromptTranslationService()
     to_ja = service.request_payload(
         "Synthetic scene.",
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
     )
     to_original = service.request_payload(
         "架空の場面。",
-        JAPANESE_TO_ORIGINAL,
+        UI_LOCALE_TO_SOURCE,
     )
-    assert "Translate only into Japanese" in to_ja.payload["messages"][0]["content"]
-    assert "Translate only into English" in to_original.payload["messages"][0]["content"]
+    assert "Translate only from English into Japanese" in to_ja.payload["messages"][0]["content"]
+    assert "Translate only from Japanese into English" in to_original.payload["messages"][0]["content"]
     assert service.finalize_response("架空の場面。", to_ja) == "架空の場面。"
     assert service.finalize_response("Synthetic scene.", to_original) == "Synthetic scene."
+
+
+def test_chinese_translation_directions_use_registry_language_names():
+    service = PromptTranslationService()
+    to_chinese = service.request_payload(
+        "Synthetic scene.",
+        SOURCE_TO_UI_LOCALE,
+        source_language_code="en",
+        ui_locale_id="zh-CN",
+    )
+    to_english = service.request_payload(
+        "合成场景。",
+        UI_LOCALE_TO_SOURCE,
+        source_language_code="en",
+        ui_locale_id="zh-CN",
+    )
+
+    assert to_chinese.source_language_name == "English"
+    assert to_chinese.target_language_name == "Simplified Chinese"
+    assert "from English into Simplified Chinese" in to_chinese.payload["messages"][0]["content"]
+    assert to_english.source_language_name == "Simplified Chinese"
+    assert to_english.target_language_name == "English"
+    assert "from Simplified Chinese into English" in to_english.payload["messages"][0]["content"]
+
+
+@pytest.mark.parametrize(
+    ("ui_locale_id", "translated_sentence"),
+    [
+        ("ja-JP", "架空の場面。"),
+        ("zh-CN", "合成场景。"),
+    ],
+)
+def test_translation_structure_is_preserved_for_each_translation_locale(
+    ui_locale_id,
+    translated_sentence,
+):
+    service = PromptTranslationService()
+    source = (
+        "<Subject 1>\n"
+        "subject_definitions: Synthetic subject\n"
+        "<Picture 1> [Shot 1] 00:10.000 Synthetic scene.\n"
+        "[speech:ja]こんにちは[/speech] [text:en]OPEN[/text]\n"
+        "Keep SYNTHETIC_TOKEN unchanged."
+    )
+    request = service.request_payload(
+        source,
+        SOURCE_TO_UI_LOCALE,
+        source_language_code="en",
+        ui_locale_id=ui_locale_id,
+        protected_terms=("SYNTHETIC_TOKEN",),
+    )
+    masked = request.payload["messages"][-1]["content"]
+    translated = masked.replace("Synthetic scene.", translated_sentence)
+
+    result = service.finalize_response(
+        translated,
+        request,
+        protected_terms=("SYNTHETIC_TOKEN",),
+    )
+
+    for protected in (
+        "<Subject 1>",
+        "subject_definitions:",
+        "<Picture 1>",
+        "[Shot 1]",
+        "00:10.000",
+        "[speech:ja]こんにちは[/speech]",
+        "[text:en]OPEN[/text]",
+        "SYNTHETIC_TOKEN",
+    ):
+        assert protected in result
+
+
+@pytest.mark.parametrize(
+    ("locale_id", "expected_visible"),
+    [("en-US", False), ("ja-JP", True), ("zh-CN", True)],
+)
+def test_translation_button_visibility_compares_ui_and_profile_languages(
+    tmp_path,
+    locale_id,
+    expected_visible,
+):
+    app = QApplication.instance() or QApplication([])
+    manager = ConfigManager(tmp_path / locale_id)
+    config = manager.load()
+    config.ui_locale = locale_id
+    manager.save(config)
+    mock, url = start_mock_server()
+    try:
+        window = MainWindow(
+            project_root=ROOT,
+            config_manager=manager,
+            server_url=url,
+            dev_skill_path=SKILL,
+            localization=Localization(ROOT / "locales", locale_id),
+        )
+        window.show()
+        app.processEvents()
+        assert window.profile is not None
+        assert window.profile.manifest.output_language == "en"
+        assert window.edit_prompt_button.isVisible() is expected_visible
+        window.close()
+        app.processEvents()
+    finally:
+        mock.shutdown()
+        mock.server_close()
 
 
 def test_translation_worker_reuses_prompt_model_and_one_server(tmp_path):
@@ -380,7 +499,7 @@ def test_translation_worker_reuses_prompt_model_and_one_server(tmp_path):
         server=server,
         config=AppConfig(model_path=str(model), context_size=4096),
         source_text="[Shot 1] Synthetic scene.",
-        direction=ORIGINAL_TO_JAPANESE,
+        direction=SOURCE_TO_UI_LOCALE,
         protected_terms=(),
         structure_protection=True,
         revision=7,
@@ -399,7 +518,7 @@ def test_translation_worker_reuses_prompt_model_and_one_server(tmp_path):
     assert server.preflights == 1
     assert server.generations == 1
     assert results == [
-        (7, ORIGINAL_TO_JAPANESE, "[Shot 1] 架空の場面。")
+        (7, SOURCE_TO_UI_LOCALE, "[Shot 1] 架空の場面。")
     ]
 
 
@@ -481,11 +600,11 @@ def test_protected_spans_are_highlighted_without_changing_prompt_text():
     translated = source.replace("A synthetic scene.", "架空の場面。")
     assert dialog.apply_translation_result(
         0,
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
         translated,
     )
-    assert dialog.japanese_edit.toPlainText() == translated
-    assert {span.text for span in dialog.japanese_edit.highlighted_spans} == expected
+    assert dialog.translated_edit.toPlainText() == translated
+    assert {span.text for span in dialog.translated_edit.highlighted_spans} == expected
     assert dialog.original_text() == source
     dialog.close()
     app.processEvents()
@@ -548,39 +667,39 @@ def test_auto_translate_off_waits_for_manual_update_and_uses_last_real_edit():
     QTest.qWait(80)
     app.processEvents()
     assert emitted == []
-    assert dialog.last_direction == ORIGINAL_TO_JAPANESE
+    assert dialog.last_direction == SOURCE_TO_UI_LOCALE
     assert dialog.source_label.text() == "Source: Original Prompt"
 
     dialog.update_translation_button.click()
     assert len(emitted) == 1
     first_revision = emitted[0][0]
     assert emitted[0][1:3] == (
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
         "Synthetic original edited.",
     )
 
-    dialog.japanese_edit.setPlainText("架空の日本語編集。")
+    dialog.translated_edit.setPlainText("架空の日本語編集。")
     QTest.qWait(80)
     app.processEvents()
     assert len(emitted) == 1
-    assert dialog.last_direction == JAPANESE_TO_ORIGINAL
-    assert dialog.source_label.text() == "Source: Japanese Translation"
+    assert dialog.last_direction == UI_LOCALE_TO_SOURCE
+    assert dialog.source_label.text() == "Source: Translation"
     dialog.update_translation_button.click()
     assert len(emitted) == 2
     latest_revision = emitted[-1][0]
     assert latest_revision > first_revision
     assert emitted[-1][1:3] == (
-        JAPANESE_TO_ORIGINAL,
+        UI_LOCALE_TO_SOURCE,
         "架空の日本語編集。",
     )
     assert not dialog.apply_translation_result(
         first_revision,
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
         "古い応答。",
     )
     assert dialog.apply_translation_result(
         latest_revision,
-        JAPANESE_TO_ORIGINAL,
+        UI_LOCALE_TO_SOURCE,
         "Final synthetic original.",
     )
     assert dialog.original_text() == "Final synthetic original."
@@ -608,7 +727,7 @@ def test_manual_update_is_immediate_with_auto_translate_on():
     dialog.update_translation_button.click()
     assert len(emitted) == 1
     assert emitted[0][1:3] == (
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
         "Immediate synthetic edit.",
     )
     QTest.qWait(1050)
@@ -634,6 +753,13 @@ def test_manual_update_is_immediate_with_auto_translate_on():
             "Auto translate",
             "Update Translation",
             "Source: Original Prompt",
+        ),
+        (
+            "zh-CN",
+            "翻译并编辑",
+            "自动翻译",
+            "更新翻译",
+            "来源：Original Prompt",
         ),
     ],
 )
@@ -779,12 +905,12 @@ def test_editor_runs_exactly_one_initial_translation_while_auto_remains_off():
     assert len(emitted) == 1
     initial_revision = emitted[0][0]
     assert emitted[0][1:3] == (
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
         "Synthetic original.",
     )
     assert dialog.apply_translation_result(
         initial_revision,
-        ORIGINAL_TO_JAPANESE,
+        SOURCE_TO_UI_LOCALE,
         "架空の初回翻訳。",
     )
     assert not dialog.auto_translate.isChecked()
@@ -827,7 +953,7 @@ def test_skill_locked_alignment_templates_are_single_protected_spans(alignment):
     assert spans[0].text == alignment
 
     service = PromptTranslationService()
-    request = service.request_payload(alignment, ORIGINAL_TO_JAPANESE)
+    request = service.request_payload(alignment, SOURCE_TO_UI_LOCALE)
     masked = request.payload["messages"][-1]["content"]
     assert alignment not in masked
     assert masked == "__LPS_STRUCTURE_0000__"

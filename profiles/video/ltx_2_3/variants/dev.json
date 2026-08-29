@@ -4,7 +4,8 @@
   "target_model_version": "LTX-2.3 22B Dev",
   "description": {
     "en-US": "Full 22B Dev profile for production-quality two-stage generation.",
-    "ja-JP": "高品質な2段階生成向けの22B Devプロファイルです。"
+    "ja-JP": "高品質な2段階生成向けの22B Devプロファイルです。",
+    "zh-CN": "适用于制作级双阶段生成的完整22B Dev Profile。"
   },
   "required_prompt": {
     "positive_prefix": [],

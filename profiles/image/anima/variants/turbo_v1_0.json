@@ -4,7 +4,8 @@
   "target_model_version": "Anima-Turbo v1.0",
   "description": {
     "en-US": "Fast Turbo v1.0 profile with quality-only fixed Positive and Negative components.",
-    "ja-JP": "品質系だけの固定Positive/Negative componentを使う高速なTurbo v1.0向けです。"
+    "ja-JP": "品質系だけの固定Positive/Negative componentを使う高速なTurbo v1.0向けです。",
+    "zh-CN": "采用仅限质量类固定Positive/Negative组件的高速Turbo v1.0 Profile。"
   },
   "required_prompt": {},
   "recommended_prompt": {

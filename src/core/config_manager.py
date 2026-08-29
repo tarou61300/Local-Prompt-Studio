@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .inference_backends import BACKEND_CPU, BACKENDS, GPU_LAYERS_AUTO, normalize_backend_id
+from .localization import DEFAULT_UI_LOCALE, SUPPORTED_LOCALES
 
 
 PORTABLE_WRITE_ERROR = (
@@ -83,7 +84,7 @@ class AppConfig:
     theme: str = THEME_NORMAL
     setup_completed: bool = False
     comfyui_url: str = field(default=DEFAULT_COMFYUI_URL, repr=False)
-    ui_locale: str = "ja-JP"
+    ui_locale: str = DEFAULT_UI_LOCALE
     selected_profile: str = "minimax_h3"
     selected_variant: str = "base"
     auto_quality_tags: bool = True
@@ -107,7 +108,11 @@ class AppConfig:
             self.comfyui_url = DEFAULT_COMFYUI_URL
         else:
             self.comfyui_url = self.comfyui_url.strip()
-        self.ui_locale = self.ui_locale if self.ui_locale in {"en-US", "ja-JP"} else "ja-JP"
+        self.ui_locale = (
+            self.ui_locale
+            if self.ui_locale in SUPPORTED_LOCALES
+            else DEFAULT_UI_LOCALE
+        )
         if not isinstance(self.selected_profile, str) or not self.selected_profile.strip():
             self.selected_profile = "minimax_h3"
         if not isinstance(self.selected_variant, str) or not self.selected_variant.strip():

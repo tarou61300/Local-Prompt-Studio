@@ -80,6 +80,7 @@ def make_window(
             skill_location=str(SKILL_FIXTURE),
             setup_completed=True,
             comfyui_url=comfyui_url,
+            ui_locale="en-US",
         )
     )
     return MainWindow(

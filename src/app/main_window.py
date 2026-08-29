@@ -40,12 +40,12 @@ from core.comfyui_bridge import ComfyUIBridgeError, ComfyUIBridgeService
 from core.chat_engine import ChatEngine
 from core.chat_attachments import ChatImageAttachment, ChatImageError
 from core.chat_renderers import PromptTransferRenderer, ReferenceImageRenderer
-from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
+from core.config_manager import ConfigManager
 from core.history_manager import HistoryManager
 from core.inference_backends import BACKEND_VULKAN, backend_spec
 from core.llama_manager import LlamaServerManager
 from core.literal_content import parse_literal_content
-from core.localization import Localization
+from core.localization import Localization, locale_matches_language
 from core.model_manager import inspect_model
 from core.profile_loader import ProfileLoader
 from core.profile_models import LoadedProfile
@@ -92,14 +92,46 @@ from .theme import apply_prompt_editor_theme, current_application_theme
 from .workers import (
     ChatThread,
     ComfyUISendThread,
+    GENERATION_CANCELLED,
+    GENERATION_UNKNOWN_ERROR,
     GenerationThread,
     TranslationThread,
 )
 
 
-CAMERAS = ("Free", "Static camera", "Slow push-in", "Slow pull-out", "Pan", "Tilt", "Tracking", "Handheld")
-SHOTS = ("Single continuous shot", "Allow cuts")
-MOTIONS = ("Low", "Natural", "Medium", "High")
+PROCESSING_OPTIONS = (
+    ("profile.style.option.faithful", "Faithful"),
+    ("profile.style.option.balanced", "Balanced"),
+    ("profile.style.option.creative", "Creative"),
+)
+CAMERA_OPTIONS = (
+    ("video.camera.free", "Free"),
+    ("video.camera.static", "Static camera"),
+    ("video.camera.push_in", "Slow push-in"),
+    ("video.camera.pull_out", "Slow pull-out"),
+    ("video.camera.pan", "Pan"),
+    ("video.camera.tilt", "Tilt"),
+    ("video.camera.tracking", "Tracking"),
+    ("video.camera.handheld", "Handheld"),
+)
+SHOT_OPTIONS = (
+    ("video.shot.single", "Single continuous shot"),
+    ("video.shot.cuts", "Allow cuts"),
+)
+MOTION_OPTIONS = (
+    ("video.motion.low", "Low"),
+    ("video.motion.natural", "Natural"),
+    ("video.motion.medium", "Medium"),
+    ("video.motion.high", "High"),
+)
+REFERENCE_KIND_OPTIONS = (
+    ("reference.kind.picture", "Picture"),
+    ("reference.kind.video", "Video"),
+    ("reference.kind.audio", "Audio"),
+)
+CAMERAS = tuple(value for _key, value in CAMERA_OPTIONS)
+SHOTS = tuple(value for _key, value in SHOT_OPTIONS)
+MOTIONS = tuple(value for _key, value in MOTION_OPTIONS)
 
 
 MAIN_MODE_TABS_STYLE = """
@@ -189,6 +221,9 @@ COMFYUI_SEND_ERROR_MESSAGES = {
         "The selected ComfyUI session cannot receive text with this Bridge version."
     ),
 }
+COMFYUI_SEND_ERROR_KEYS = {
+    code: f"comfyui.send_error.{code}" for code in COMFYUI_SEND_ERROR_MESSAGES
+}
 
 
 _VISUAL_STYLE_KEYS = (
@@ -200,7 +235,12 @@ _VISUAL_STYLE_KEYS = (
 _VISUAL_STYLE_SUPPORTED_RENDERERS = frozenset({"minimax_h3"})
 
 
-def comfyui_send_error_message(code: str) -> str:
+def comfyui_send_error_message(
+    code: str,
+    tr: Callable[..., str] | None = None,
+) -> str:
+    if tr is not None:
+        return tr(COMFYUI_SEND_ERROR_KEYS.get(code, "comfyui.send_error.generic"))
     return COMFYUI_SEND_ERROR_MESSAGES.get(
         code,
         "The text could not be sent to ComfyUI.",
@@ -315,6 +355,7 @@ class MainWindow(QMainWindow):
         self.translation_worker: TranslationThread | None = None
         self.translation_dialog: PromptTranslationDialog | None = None
         self._translation_active = False
+        self._translation_source_language_code = ""
         self._pending_translation: tuple[int, str, str, bool] | None = None
         self._last_protected_terms: tuple[str, ...] = ()
         self.chat_messages: list[dict[str, Any]] = []
@@ -479,7 +520,7 @@ class MainWindow(QMainWindow):
         )
         self.mode = QComboBox()
         self.mode.setObjectName("profile_task")
-        self.processing = self._combo(("Faithful", "Balanced", "Creative"))
+        self.processing = self._combo(PROCESSING_OPTIONS)
         self.processing.setObjectName("prompt_style")
         self.prompt_style_help = QLabel()
         self.prompt_style_help.setObjectName("prompt_style_help")
@@ -525,25 +566,25 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
-        self.camera = self._combo(CAMERAS)
-        self.shot = self._combo(SHOTS)
-        self.motion = self._combo(MOTIONS)
+        self.camera = self._combo(CAMERA_OPTIONS)
+        self.shot = self._combo(SHOT_OPTIONS)
+        self.motion = self._combo(MOTION_OPTIONS)
         entries = (
-            ("Duration", self.duration),
-            ("Motion", self.motion),
-            ("Camera", self.camera),
-            ("Shot", self.shot),
+            (self.tr("video.duration"), self.duration),
+            (self.tr("video.motion"), self.motion),
+            (self.tr("video.camera"), self.camera),
+            (self.tr("video.shot"), self.shot),
         )
         for index, (label, widget) in enumerate(entries):
             grid.addWidget(QLabel(label), index * 2, 0)
             grid.addWidget(widget, index * 2 + 1, 0)
             widget.setMinimumWidth(180)
         audio_column = QVBoxLayout()
-        self.environment_audio = QCheckBox("Environmental / scene audio")
+        self.environment_audio = QCheckBox(self.tr("video.audio.environment"))
         self.environment_audio.setChecked(True)
-        self.dialogue_audio = QCheckBox("Dialogue")
+        self.dialogue_audio = QCheckBox(self.tr("video.audio.dialogue"))
         self.dialogue_audio.setChecked(True)
-        self.music_audio = QCheckBox("Background music")
+        self.music_audio = QCheckBox(self.tr("video.audio.music"))
         for audio_option in (
             self.environment_audio,
             self.dialogue_audio,
@@ -556,7 +597,7 @@ class MainWindow(QMainWindow):
         audio_column.addWidget(self.environment_audio)
         audio_column.addWidget(self.dialogue_audio)
         audio_column.addWidget(self.music_audio)
-        grid.addWidget(QLabel("Audio"), 8, 0)
+        grid.addWidget(QLabel(self.tr("video.audio")), 8, 0)
         grid.addLayout(audio_column, 9, 0)
         grid.setColumnStretch(0, 1)
         left_layout.addWidget(self.legacy_video_settings_group)
@@ -672,7 +713,13 @@ class MainWindow(QMainWindow):
         self.references = QTableWidget(0, 3)
         self.references.setMinimumHeight(110)
         self.references.setMaximumHeight(150)
-        self.references.setHorizontalHeaderLabels(["Reference type", "Number", "Description"])
+        self.references.setHorizontalHeaderLabels(
+            [
+                self.tr("reference.header.type"),
+                self.tr("reference.header.number"),
+                self.tr("reference.header.description"),
+            ]
+        )
         self.references.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         mode_layout.addWidget(self.references)
         self.reference_actions = QWidget()
@@ -744,7 +791,7 @@ class MainWindow(QMainWindow):
         )
         guide_menu = QMenu(self.request_guide_button)
         for entry in request_guide_entries(
-            self.localization.locale_id,
+            self.tr,
             profile_id=self.profile.manifest.id if self.profile else None,
         ):
             action = guide_menu.addAction(f"{entry.title}: {entry.example}")
@@ -833,10 +880,8 @@ class MainWindow(QMainWindow):
         save_button = QPushButton(self.tr("common.save"))
         save_button.setObjectName("save_button")
         save_button.clicked.connect(self._save_output)
-        self.send_comfyui_button = QPushButton("Send to ComfyUI")
-        self.send_comfyui_button.setToolTip(
-            "Send the current edited output to the selected ComfyUI text field."
-        )
+        self.send_comfyui_button = QPushButton(self.tr("comfyui.send"))
+        self.send_comfyui_button.setToolTip(self.tr("comfyui.send_current"))
         self.send_comfyui_button.clicked.connect(self._send_to_comfyui)
         self.regenerate_button = QPushButton(self.tr("common.regenerate"))
         self.regenerate_button.clicked.connect(self.generate)
@@ -889,7 +934,9 @@ class MainWindow(QMainWindow):
         self.profile_model.currentIndexChanged.connect(self._profile_model_changed)
         self.profile_variant.currentIndexChanged.connect(self._profile_variant_changed)
         self.mode.currentTextChanged.connect(self._task_changed)
-        self.processing.currentTextChanged.connect(self._update_prompt_style_help)
+        self.processing.currentIndexChanged.connect(
+            lambda _index: self._update_prompt_style_help()
+        )
         self.auto_quality_tags.toggled.connect(self._persist_auto_quality_tags)
         self._populate_profile_selectors()
         self.chat_page.set_target_catalog(
@@ -931,10 +978,10 @@ class MainWindow(QMainWindow):
         for editor in (self.request_text, self.output_text):
             apply_prompt_editor_theme(editor, theme)
 
-    @staticmethod
-    def _combo(values: tuple[str, ...]) -> QComboBox:
+    def _combo(self, values: tuple[tuple[str, str], ...]) -> QComboBox:
         combo = QComboBox()
-        combo.addItems(values)
+        for key, value in values:
+            combo.addItem(self.tr(key), value)
         MainWindow._stabilize_combo(combo)
         return combo
 
@@ -1107,6 +1154,7 @@ class MainWindow(QMainWindow):
         )
         self.negative_output_group.setVisible(separate_negative)
         self.copy_negative_button.setVisible(separate_negative)
+        self._update_translation_button_visibility()
         if separate_negative:
             self.send_comfyui_button.setToolTip(
                 self.tr("comfyui.send_positive_only")
@@ -1116,6 +1164,16 @@ class MainWindow(QMainWindow):
             self.send_comfyui_button.setToolTip(
                 self.tr("comfyui.send_current")
             )
+
+    def _update_translation_button_visibility(self) -> None:
+        visible = bool(
+            self.profile is not None
+            and not locale_matches_language(
+                self.localization.locale_id,
+                self.profile.manifest.output_language,
+            )
+        )
+        self.edit_prompt_button.setVisible(visible)
 
     def _populate_variants(self) -> None:
         self.profile_variant.blockSignals(True)
@@ -1221,7 +1279,7 @@ class MainWindow(QMainWindow):
         if self.profile is not None:
             renderer = self.renderer_registry.get(self.profile.manifest.renderer)
             text = renderer.prompt_style_description(
-                processing or self.processing.currentText(),
+                processing or str(self.processing.currentData() or "Faithful"),
                 self.localization.locale_id,
             )
         self.prompt_style_help.setText(text)
@@ -1244,7 +1302,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 self.tr("settings.title"),
-                PORTABLE_WRITE_ERROR,
+                self.tr("error.portable_write"),
             )
 
     def _persist_auto_quality_tags(self, enabled: bool) -> None:
@@ -1257,7 +1315,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 self.tr("settings.title"),
-                PORTABLE_WRITE_ERROR,
+                self.tr("error.portable_write"),
             )
 
     def _update_mode_fields(self, mode: str) -> None:
@@ -1353,12 +1411,17 @@ class MainWindow(QMainWindow):
         row = self.references.rowCount()
         self.references.insertRow(row)
         kind = QComboBox()
-        kind.addItems(["Picture", "Video", "Audio"])
+        for key, value in REFERENCE_KIND_OPTIONS:
+            kind.addItem(self.tr(key), value)
         self.references.setCellWidget(row, 0, kind)
         number = QSpinBox()
         number.setRange(1, 9)
         number.setValue(row + 1)
-        kind.currentTextChanged.connect(lambda value, box=number: box.setMaximum(REFERENCE_LIMITS[value]))
+        kind.currentIndexChanged.connect(
+            lambda index, combo=kind, box=number: box.setMaximum(
+                REFERENCE_LIMITS[str(combo.itemData(index))]
+            )
+        )
         self.references.setCellWidget(row, 1, number)
         self.references.setItem(row, 2, QTableWidgetItem(""))
 
@@ -1374,14 +1437,20 @@ class MainWindow(QMainWindow):
             number_widget = self.references.cellWidget(row, 1)
             description_item = self.references.item(row, 2)
             if isinstance(kind_widget, QComboBox) and isinstance(number_widget, QSpinBox):
-                refs.append(H3Reference(kind_widget.currentText(), number_widget.value(), description_item.text() if description_item else ""))
+                refs.append(
+                    H3Reference(
+                        str(kind_widget.currentData()),
+                        number_widget.value(),
+                        description_item.text() if description_item else "",
+                    )
+                )
         return PromptSettings(
             mode=self.mode.currentText(),
             duration=self.duration.value(),
-            processing=self.processing.currentText(),
-            camera=self.camera.currentText(),
-            shot=self.shot.currentText(),
-            motion=self.motion.currentText(),
+            processing=str(self.processing.currentData()),
+            camera=str(self.camera.currentData()),
+            shot=str(self.shot.currentData()),
+            motion=str(self.motion.currentData()),
             environmental_audio=self.environment_audio.isChecked(),
             dialogue=self.dialogue_audio.isChecked(),
             background_music=self.music_audio.isChecked(),
@@ -1426,7 +1495,7 @@ class MainWindow(QMainWindow):
 
     def _insert_request_guide(self, key: str) -> None:
         entries = request_guide_entries(
-            self.localization.locale_id,
+            self.tr,
             profile_id=self.profile.manifest.id if self.profile else None,
         )
         entry = next((item for item in entries if item.key == key), None)
@@ -1768,12 +1837,15 @@ class MainWindow(QMainWindow):
     def _open_prompt_translation(self) -> None:
         original = self.output_text.toPlainText()
         if (
-            not original.strip()
+            not self.edit_prompt_button.isVisible()
+            or self.profile is None
+            or not original.strip()
             or self._generation_active
             or self._chat_active
             or self._translation_active
         ):
             return
+        self._translation_source_language_code = self.profile.manifest.output_language
         dialog = PromptTranslationDialog(
             self.tr,
             original,
@@ -1824,6 +1896,8 @@ class MainWindow(QMainWindow):
             structure_protection=structure_protection,
             revision=revision,
             mock_mode=self.mock_mode,
+            source_language_code=self._translation_source_language_code,
+            ui_locale_id=self.localization.locale_id,
             parent=self,
         )
         self.translation_worker.status_changed.connect(
@@ -2024,11 +2098,11 @@ class MainWindow(QMainWindow):
         try:
             service = self._bridge_service_factory(config.comfyui_url)
         except ComfyUIBridgeError as exc:
-            self.status_label.setText(comfyui_send_error_message(exc.code))
+            self.status_label.setText(comfyui_send_error_message(exc.code, self.tr))
             return
         except Exception:
             self.status_label.setText(
-                comfyui_send_error_message("bridge_unavailable")
+                comfyui_send_error_message("bridge_unavailable", self.tr)
             )
             return
         self._send_succeeded = False
@@ -2039,7 +2113,7 @@ class MainWindow(QMainWindow):
         worker.error_occurred.connect(self._comfyui_send_failed)
         worker.finished.connect(self._comfyui_send_finished)
         worker.finished.connect(worker.deleteLater)
-        self.status_label.setText("Sending to ComfyUI...")
+        self.status_label.setText(self.tr("comfyui.sending"))
         self._set_send_conflicting_actions_enabled(False)
         self._update_send_button_state()
         worker.start()
@@ -2058,10 +2132,10 @@ class MainWindow(QMainWindow):
         self._set_send_conflicting_actions_enabled(True)
         self._update_send_button_state()
         if self._send_succeeded:
-            self.status_label.setText("Sent to ComfyUI.")
+            self.status_label.setText(self.tr("comfyui.sent"))
         elif self._send_error_code is not None:
             self.status_label.setText(
-                comfyui_send_error_message(self._send_error_code)
+                comfyui_send_error_message(self._send_error_code, self.tr)
             )
 
     def _request_close_after_send(self) -> None:
@@ -2094,7 +2168,9 @@ class MainWindow(QMainWindow):
         self._refresh_memory_display()
         request = self.request_text.toPlainText().strip()
         if not request:
-            QMessageBox.information(self, "Request", "Requestを入力してください。")
+            QMessageBox.information(
+                self, self.tr("input.request"), self.tr("input.required")
+            )
             return
         self.config = self.config_manager.load()
         self._refresh_readiness()
@@ -2115,8 +2191,11 @@ class MainWindow(QMainWindow):
         if not self.mock_mode and not self.server.runtime_available(self.config.inference_backend):
             QMessageBox.warning(
                 self,
-                "Runtime未導入",
-                f"{backend_spec(self.config.inference_backend).display_name}用 llama.cpp runtimeがありません。設定でCPUを選択してください。",
+                self.tr("error.runtime_missing_title"),
+                self.tr(
+                    "error.runtime_missing",
+                    backend=backend_spec(self.config.inference_backend).display_name,
+                ),
             )
             return
         if not self.mock_mode and self.config.inference_backend == BACKEND_VULKAN:
@@ -2127,8 +2206,8 @@ class MainWindow(QMainWindow):
             ):
                 QMessageBox.warning(
                     self,
-                    "Vulkan GPU未検出",
-                    "llama.cppで選択されたVulkan GPUを検出できませんでした。設定でCPUを選択してください。",
+                    self.tr("error.vulkan_not_detected_title"),
+                    self.tr("error.vulkan_not_detected"),
                 )
                 return
         # Take a second fresh sample immediately before making the safety decision.
@@ -2139,11 +2218,12 @@ class MainWindow(QMainWindow):
         if warnings and assessment is not None:
             answer = QMessageBox.warning(
                 self,
-                "メモリ使用量の警告",
-                format_assessment_details(assessment)
+                self.tr("memory.warning.title"),
+                format_assessment_details(assessment, self.tr)
                 + "\n\n"
                 + "\n\n".join(warnings)
-                + "\n\nCPU/GPU生成は数分かかる場合があります。生成を続けますか？",
+                + "\n\n"
+                + self.tr("memory.warning.continue"),
                 QMessageBox.Ok | QMessageBox.Cancel,
                 QMessageBox.Cancel,
             )
@@ -2151,7 +2231,11 @@ class MainWindow(QMainWindow):
                 self._refresh_memory_display()
                 return
         if self.profile is None:
-            QMessageBox.warning(self, "PROFILE_INVALID", self.tr("error.profile_invalid"))
+            QMessageBox.warning(
+                self,
+                self.tr("error.profile_invalid_title"),
+                self.tr("error.profile_invalid"),
+            )
             return
         variant_id = str(self.profile_variant.currentData() or self.profile.manifest.default_variant)
         prompt_settings = self._collect_settings()
@@ -2198,7 +2282,7 @@ class MainWindow(QMainWindow):
         if self.worker is not None and self.worker.isRunning():
             self.worker.requestInterruption()
             self.server.cancel()
-            self.status_label.setText("キャンセルしています…")
+            self.status_label.setText(self.tr("status.cancelling"))
             self._refresh_memory_display()
 
     def _generation_complete(self, result: RenderResult) -> None:
@@ -2216,20 +2300,20 @@ class MainWindow(QMainWindow):
                 profile_version=self.profile.manifest.profile_version if self.profile else "1.0.0",
                 variant_id=str(self.profile_variant.currentData() or "base"),
                 renderer_id=self.profile.manifest.renderer if self.profile else "minimax_h3",
-                processing_mode=self.processing.currentText(),
+                processing_mode=str(self.processing.currentData()),
                 profile_hash=self.profile.content_hash if self.profile else "",
                 common_supplement=self.common_note.toPlainText(),
             )
         except (OSError, sqlite3.Error):
             QMessageBox.warning(
                 self,
-                "履歴を保存できませんでした",
-                PORTABLE_WRITE_ERROR,
+                self.tr("error.history_save_title"),
+                self.tr("error.portable_write"),
             )
 
     def _generation_error(self, message: str) -> None:
         self._invalidate_generation_output()
-        self.status_label.setText("エラー")
+        self.status_label.setText(self.tr("status.error"))
         schema_message = task_schema_validation_user_message(
             self.localization,
             message,
@@ -2248,6 +2332,10 @@ class MainWindow(QMainWindow):
             message = self.tr("error.danbooru_output_invalid")
         elif message == ANIMA_HYBRID_OUTPUT_INVALID:
             message = self.tr("error.anima_hybrid_output_invalid")
+        elif message == GENERATION_CANCELLED:
+            message = self.tr("error.generation_cancelled")
+        elif message == GENERATION_UNKNOWN_ERROR:
+            message = self.tr("error.generation_unknown")
         QMessageBox.warning(self, self.tr("error.generation_title"), message)
 
     def _set_generation_status(self, status: str) -> None:
@@ -2315,7 +2403,8 @@ class MainWindow(QMainWindow):
                 devices[0] if devices else None,
             )
             device_text = (
-                f" / {self.tr('readiness.device')}: {selected.display_name} / {selected.uma_label}"
+                f" / {self.tr('readiness.device')}: {selected.display_name} / "
+                f"{self.tr(f'backend.memory_classification.{selected.memory_classification}')}"
                 if selected is not None
                 else f" / {self.tr('readiness.device')}: {self.tr('readiness.not_detected')}"
             )
@@ -2368,6 +2457,7 @@ class MainWindow(QMainWindow):
                 if self.config.inference_backend == BACKEND_VULKAN
                 else None
             ),
+            tr=self.tr,
         )
 
     def _memory_warnings(self, assessment: MemoryAssessment | None = None) -> list[str]:
@@ -2385,22 +2475,27 @@ class MainWindow(QMainWindow):
         self._last_memory_info = memory
         assessment = self._memory_assessment(memory)
         if assessment is None:
-            self.memory_status.setText(format_memory_status(memory))
+            self.memory_status.setText(format_memory_status(memory, self.tr))
             self.memory_status.setStyleSheet("")
             self._system_memory_warning = False
             self._update_system_summary()
             self._update_unload_button_state()
             return
         text = (
-            format_memory_status(memory)
-            + f" / Model: {assessment.model_name}"
-            + f" / GGUF: {assessment.model_filename} ({assessment.model_size_gib:.2f} GiB)"
-            + f" / Backend: {backend_spec(self.config.inference_backend).display_name}"
-            + f" / Context: {assessment.context_size}"
-            + f" / Estimated RAM: {assessment.estimated_required_gib:.1f} GB（概算）"
+            format_memory_status(memory, self.tr)
+            + " / "
+            + self.tr(
+                "memory.summary",
+                model=assessment.model_name,
+                filename=assessment.model_filename,
+                size=assessment.model_size_gib,
+                backend=backend_spec(self.config.inference_backend).display_name,
+                context=assessment.context_size,
+                estimated=assessment.estimated_required_gib,
+            )
         )
         if self.config.inference_backend == BACKEND_VULKAN:
-            text += "\nGPUメモリ情報はSystem RAMへ加算していません（UMA安全優先）。"
+            text += "\n" + self.tr("memory.gpu_not_added")
         if assessment.warnings:
             text += "\n⚠ " + "\n⚠ ".join(assessment.warnings)
             self.memory_status.setStyleSheet("color: #d68a00;")
@@ -2482,7 +2577,7 @@ class MainWindow(QMainWindow):
             self,
             self.tr("common.save"),
             "prompt.txt",
-            "Text File (*.txt)",
+            self.tr("save.text_filter"),
         )
         if path:
             try:

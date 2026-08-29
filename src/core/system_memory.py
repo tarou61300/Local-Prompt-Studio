@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 
 
@@ -98,6 +99,7 @@ def assess_memory(
     model_size_bytes: int,
     memory: MemoryInfo | None = None,
     reported_gpu_memory_bytes: int | None = None,
+    tr: Callable[..., str] | None = None,
 ) -> MemoryAssessment:
     """Build a dynamic assessment for the currently selected GGUF."""
     measured = memory if memory is not None else get_system_memory()
@@ -107,8 +109,12 @@ def assess_memory(
 
     if context_size == 4096:
         warnings.append(
-            "4096（Low Memory）は、MiniMax H3 Skill全文・ユーザー入力・生成結果が"
-            "同時に収まらない場合があります。可能なら8192（Recommended）を使用してください。"
+            tr("memory.warning.context_low")
+            if tr is not None
+            else (
+                "4096（Low Memory）は、MiniMax H3 Skill全文・ユーザー入力・生成結果が"
+                "同時に収まらない場合があります。可能なら8192（Recommended）を使用してください。"
+            )
         )
 
     if measured is not None:
@@ -116,20 +122,43 @@ def assess_memory(
         recommended_total_gib = estimated_gib + max(4.0, estimated_gib * 0.4)
         if measured.total_gib < recommended_total_gib:
             warnings.append(
-                f"搭載RAMは約{measured.total_gib:.1f} GBです。選択モデル「{model_name}」と"
-                f"Context {context_size}の推定必要RAMは約{estimated_gib:.1f} GBで、"
-                f"Windows等の使用分を含めると約{recommended_total_gib:.1f} GB以上が目安です。"
+                tr(
+                    "memory.warning.total_low",
+                    total=measured.total_gib,
+                    model=model_name,
+                    context=context_size,
+                    estimated=estimated_gib,
+                    recommended=recommended_total_gib,
+                )
+                if tr is not None
+                else (
+                    f"搭載RAMは約{measured.total_gib:.1f} GBです。選択モデル「{model_name}」と"
+                    f"Context {context_size}の推定必要RAMは約{estimated_gib:.1f} GBで、"
+                    f"Windows等の使用分を含めると約{recommended_total_gib:.1f} GB以上が目安です。"
+                )
             )
         if measured.available_gib < estimated_gib:
             warnings.append(
-                f"現在利用可能なRAMは約{measured.available_gib:.1f} GBです。選択モデル"
-                f"「{model_name}」とContext {context_size}には約{estimated_gib:.1f} GBを"
-                "目安に、他のアプリを閉じてから生成してください（概算）。"
+                tr(
+                    "memory.warning.available_low",
+                    available=measured.available_gib,
+                    model=model_name,
+                    context=context_size,
+                    estimated=estimated_gib,
+                )
+                if tr is not None
+                else (
+                    f"現在利用可能なRAMは約{measured.available_gib:.1f} GBです。選択モデル"
+                    f"「{model_name}」とContext {context_size}には約{estimated_gib:.1f} GBを"
+                    "目安に、他のアプリを閉じてから生成してください（概算）。"
+                )
             )
 
     if context_size >= 16384:
         warnings.append(
-            f"Context Size {context_size}は高メモリ向けです。通常は8192（Recommended）を使用してください。"
+            tr("memory.warning.context_high", context=context_size)
+            if tr is not None
+            else f"Context Size {context_size}は高メモリ向けです。通常は8192（Recommended）を使用してください。"
         )
 
     return MemoryAssessment(
@@ -144,22 +173,53 @@ def assess_memory(
     )
 
 
-def format_memory_status(memory: MemoryInfo | None) -> str:
+def format_memory_status(
+    memory: MemoryInfo | None,
+    tr: Callable[..., str] | None = None,
+) -> str:
     if memory is None:
-        return "RAM: Available 不明 / Total 不明"
+        return tr("memory.status.unknown") if tr is not None else "RAM: Available 不明 / Total 不明"
+    if tr is not None:
+        return tr(
+            "memory.status",
+            available=memory.available_gib,
+            total=memory.total_gib,
+        )
     return f"RAM: Available {memory.available_gib:.1f} GB / Total {memory.total_gib:.1f} GB"
 
 
-def format_assessment_details(assessment: MemoryAssessment) -> str:
+def format_assessment_details(
+    assessment: MemoryAssessment,
+    tr: Callable[..., str] | None = None,
+) -> str:
     memory = assessment.memory
-    if memory is None:
+    if memory is None and tr is not None:
+        memory_lines = [
+            tr("memory.details.available_unknown"),
+            tr("memory.details.total_unknown"),
+        ]
+    elif memory is None:
         memory_lines = ["現在利用可能なRAM: 不明", "搭載RAM: 不明"]
+    elif tr is not None:
+        memory_lines = [
+            tr("memory.details.available", available=memory.available_gib),
+            tr("memory.details.total", total=memory.total_gib),
+        ]
     else:
         memory_lines = [
             f"現在利用可能なRAM: 約{memory.available_gib:.1f} GB",
             f"搭載RAM: 約{memory.total_gib:.1f} GB",
         ]
-    detail_lines = memory_lines + [
+    if tr is not None:
+        detail_lines = memory_lines + [
+            tr("memory.details.model", model=assessment.model_name),
+            tr("memory.details.gguf_file", filename=assessment.model_filename),
+            tr("memory.details.gguf_size", size=assessment.model_size_gib),
+            tr("memory.details.context", context=assessment.context_size),
+            tr("memory.details.estimated", estimated=assessment.estimated_required_gib),
+        ]
+    else:
+        detail_lines = memory_lines + [
             f"選択モデル: {assessment.model_name}",
             f"GGUFファイル: {assessment.model_filename}",
             f"GGUFサイズ: 約{assessment.model_size_gib:.2f} GB",
@@ -167,10 +227,18 @@ def format_assessment_details(assessment: MemoryAssessment) -> str:
             f"推定必要RAM: 約{assessment.estimated_required_gib:.1f} GB（概算）",
         ]
     if assessment.reported_gpu_memory_bytes is not None:
-        detail_lines.append(
-            "llama.cpp報告GPUメモリ: "
-            f"約{assessment.reported_gpu_memory_bytes / GIB:.1f} GiB（情報表示のみ・System RAMへ加算しません）"
-        )
+        if tr is not None:
+            detail_lines.append(
+                tr(
+                    "memory.details.gpu",
+                    memory=assessment.reported_gpu_memory_bytes / GIB,
+                )
+            )
+        else:
+            detail_lines.append(
+                "llama.cpp報告GPUメモリ: "
+                f"約{assessment.reported_gpu_memory_bytes / GIB:.1f} GiB（情報表示のみ・System RAMへ加算しません）"
+            )
     return "\n".join(detail_lines)
 
 

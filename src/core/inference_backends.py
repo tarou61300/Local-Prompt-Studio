@@ -55,12 +55,12 @@ class BackendDevice:
         return f"{self.name} ({self.identifier})"
 
     @property
-    def uma_label(self) -> str:
+    def memory_classification(self) -> str:
         if self.is_uma is True:
-            return "UMA / 統合メモリ（llama.cpp検出）"
+            return "uma"
         if self.is_uma is False:
-            return "非UMA（llama.cpp検出）"
-        return "UMA / discrete分類は不明"
+            return "discrete"
+        return "unknown"
 
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")

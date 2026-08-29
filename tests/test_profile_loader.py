@@ -78,7 +78,7 @@ def test_builtin_h3_profile_discovery_and_manifest():
     assert "標準Prompt規則" in profile.variant().description("ja-JP")
 
 
-def test_all_builtin_variants_provide_english_and_japanese_descriptions():
+def test_all_builtin_variants_provide_all_supported_locale_descriptions():
     profiles = ProfileLoader(BUILTIN_ROOT, PROJECT_ROOT / ".tmp-unused").discover().profiles
 
     variants = [
@@ -90,6 +90,7 @@ def test_all_builtin_variants_provide_english_and_japanese_descriptions():
     for variant in variants:
         assert variant.description("en-US")
         assert variant.description("ja-JP")
+        assert variant.description("zh-CN")
         assert variant.description("unsupported-locale") == variant.description("en-US")
 
 
@@ -216,6 +217,22 @@ def test_custom_profile_is_discovered_separately(tmp_path):
     assert "minimax_h3" in catalog.profiles
     assert "custom_video" in catalog.custom_profiles
     assert catalog.custom_profiles["custom_video"].variant().description("ja-JP") == ""
+
+
+def test_custom_variant_without_chinese_description_falls_back_to_english(tmp_path):
+    profile = _write_profile(
+        tmp_path / "data" / "profiles" / "custom",
+        "custom_video",
+    )
+    variant_path = profile / "variants" / "base.json"
+    variant = json.loads(variant_path.read_text(encoding="utf-8"))
+    variant["description"] = {"en-US": "Synthetic English description."}
+    variant_path.write_text(json.dumps(variant), encoding="utf-8")
+
+    catalog = ProfileLoader(BUILTIN_ROOT, tmp_path / "data").discover()
+    loaded = catalog.custom_profiles["custom_video"].variant()
+
+    assert loaded.description("zh-CN") == "Synthetic English description."
 
 
 def test_broken_custom_profile_isolated(tmp_path):

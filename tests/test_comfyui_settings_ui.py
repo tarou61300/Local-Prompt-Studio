@@ -26,6 +26,7 @@ from core.comfyui_bridge import (
 )
 from core.comfyui_credentials import ComfyUICredentialStore
 from core.config_manager import AppConfig, ConfigManager, DEFAULT_COMFYUI_URL
+from core.localization import Localization
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -270,6 +271,7 @@ def make_dialog(
     dialog = SettingsDialog(
         manager,
         PROJECT_ROOT,
+        localization=Localization(PROJECT_ROOT / "locales", "en-US"),
         bridge_service_factory=factory,
     )
     return dialog, manager
@@ -291,6 +293,43 @@ def test_settings_default_and_open_close_perform_zero_bridge_network(tmp_path, a
     app.processEvents()
     assert service.test_calls == 0
     assert service.start_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("locale_id", "test_label", "status_label", "pair_label"),
+    [
+        ("ja-JP", "接続テスト", "未Pairing", "ComfyUIとPairing"),
+        ("en-US", "Test Connection", "Not paired", "Pair with ComfyUI"),
+        ("zh-CN", "测试连接", "未配对", "与ComfyUI配对"),
+    ],
+)
+def test_comfyui_settings_controls_are_localized_without_network(
+    tmp_path,
+    app,
+    locale_id,
+    test_label,
+    status_label,
+    pair_label,
+):
+    manager = ConfigManager(tmp_path / locale_id)
+    manager.save(AppConfig(ui_locale=locale_id))
+    factory = FakeServiceFactory()
+    dialog = SettingsDialog(
+        manager,
+        PROJECT_ROOT,
+        localization=Localization(PROJECT_ROOT / "locales", locale_id),
+        bridge_service_factory=factory,
+    )
+    try:
+        assert dialog.comfyui_test_button.text() == test_label
+        assert dialog.comfyui_pairing_status.text() == status_label
+        assert dialog.comfyui_pair_button.text() == pair_label
+        service = factory.services[DEFAULT_COMFYUI_URL]
+        assert service.test_calls == 0
+        assert service.start_calls == 0
+    finally:
+        dialog.close()
+        app.processEvents()
 
 
 def test_application_window_startup_creates_no_comfyui_worker_or_network(
@@ -341,6 +380,7 @@ def test_actual_valid_current_url_credential_displays_paired(tmp_path, app):
     dialog = SettingsDialog(
         ConfigManager(tmp_path),
         PROJECT_ROOT,
+        localization=Localization(PROJECT_ROOT / "locales", "en-US"),
         bridge_service_factory=lambda url: ComfyUIBridgeService(
             url,
             credential_store=store,
@@ -362,6 +402,7 @@ def test_actual_corrupt_credential_displays_not_paired(tmp_path, app):
     dialog = SettingsDialog(
         ConfigManager(tmp_path),
         PROJECT_ROOT,
+        localization=Localization(PROJECT_ROOT / "locales", "en-US"),
         bridge_service_factory=lambda url: ComfyUIBridgeService(
             url,
             credential_store=store,
@@ -384,6 +425,7 @@ def test_actual_credential_url_mismatch_displays_not_paired(tmp_path, app):
     dialog = SettingsDialog(
         manager,
         PROJECT_ROOT,
+        localization=Localization(PROJECT_ROOT / "locales", "en-US"),
         bridge_service_factory=lambda url: ComfyUIBridgeService(
             url,
             credential_store=store,
@@ -405,6 +447,7 @@ def test_actual_dpapi_failure_displays_not_paired_without_raw_error(tmp_path, ap
     dialog = SettingsDialog(
         ConfigManager(tmp_path),
         PROJECT_ROOT,
+        localization=Localization(PROJECT_ROOT / "locales", "en-US"),
         bridge_service_factory=lambda url: ComfyUIBridgeService(
             url,
             credential_store=unreadable,
@@ -436,6 +479,7 @@ def test_actual_paired_state_check_uses_no_http_dns_or_worker(
     dialog = SettingsDialog(
         ConfigManager(tmp_path),
         PROJECT_ROOT,
+        localization=Localization(PROJECT_ROOT / "locales", "en-US"),
         bridge_service_factory=lambda url: ComfyUIBridgeService(
             url,
             credential_store=store,
@@ -915,6 +959,7 @@ def test_close_during_pair_start_never_shows_code_or_polls_after_cancel(
     dialog = SettingsDialog(
         ConfigManager(tmp_path),
         PROJECT_ROOT,
+        localization=Localization(PROJECT_ROOT / "locales", "en-US"),
         bridge_service_factory=lambda _url: service,
     )
     dialog.show()
@@ -992,6 +1037,7 @@ def test_in_flight_paired_response_shutdown_never_saves_credential(tmp_path, app
     dialog = SettingsDialog(
         ConfigManager(tmp_path),
         PROJECT_ROOT,
+        localization=Localization(PROJECT_ROOT / "locales", "en-US"),
         bridge_service_factory=lambda _url: service,
     )
     dialog.show()

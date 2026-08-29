@@ -38,7 +38,6 @@ from core.config_manager import (
     AppConfig,
     ConfigManager,
     CONTEXT_PRESETS,
-    PORTABLE_WRITE_ERROR,
     PROMPT_LIBRARY_DETAIL_LINES_RANGE,
     PROMPT_LIBRARY_RESULT_ROWS_RANGE,
     PROMPT_LIBRARY_TAG_ROWS_RANGE,
@@ -51,7 +50,12 @@ from core.inference_backends import (
     GPU_LAYERS_AUTO,
 )
 from core.llama_manager import LlamaServerManager
-from core.localization import Localization
+from core.localization import (
+    DEFAULT_UI_LOCALE,
+    LOCALE_DEFINITIONS,
+    SUPPORTED_LOCALES,
+    Localization,
+)
 from core.model_manager import inspect_model
 from core.skill_manager import SkillError, SkillManager
 from core.system_memory import (
@@ -76,27 +80,39 @@ BRIDGE_ERROR_MESSAGES = {
     "timeout": "The ComfyUI Bridge request timed out.",
     "malformed_response": "ComfyUI Bridge returned an invalid response.",
 }
+BRIDGE_ERROR_KEYS = {
+    code: f"comfyui.error.{code}" for code in BRIDGE_ERROR_MESSAGES
+}
 
 
-def bridge_error_message(code: str) -> str:
+def bridge_error_message(code: str, tr: Callable[..., str] | None = None) -> str:
+    if tr is not None:
+        return tr(BRIDGE_ERROR_KEYS.get(code, "comfyui.error.generic"))
     return BRIDGE_ERROR_MESSAGES.get(code, "The ComfyUI Bridge operation failed.")
 
 
 class PairingVerificationDialog(QDialog):
     cancel_requested = Signal()
 
-    def __init__(self, verification_code: str, parent=None) -> None:
+    def __init__(
+        self,
+        verification_code: str,
+        parent=None,
+        *,
+        tr: Callable[..., str],
+    ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Pairing with ComfyUI")
+        self.tr = tr
+        self.setWindowTitle(self.tr("comfyui.pairing.title"))
         self.setWindowModality(Qt.WindowModal)
         self.setMinimumWidth(430)
         self._allow_close = False
         self._cancel_pending = False
 
         layout = QVBoxLayout(self)
-        title = QLabel("Pairing with ComfyUI")
+        title = QLabel(self.tr("comfyui.pairing.title"))
         layout.addWidget(title)
-        instruction = QLabel("Verify that this code is also shown in ComfyUI:")
+        instruction = QLabel(self.tr("comfyui.pairing.verify_code"))
         instruction.setWordWrap(True)
         layout.addWidget(instruction)
         rendered_code = (
@@ -108,10 +124,10 @@ class PairingVerificationDialog(QDialog):
         self.code_label.setAlignment(Qt.AlignCenter)
         self.code_label.setStyleSheet("font-size: 26px; font-weight: bold;")
         layout.addWidget(self.code_label)
-        self.waiting_label = QLabel("Waiting for approval...")
+        self.waiting_label = QLabel(self.tr("comfyui.pairing.waiting"))
         self.waiting_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.waiting_label)
-        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button = QPushButton(self.tr("common.cancel"))
         self.cancel_button.clicked.connect(self._request_cancel)
         layout.addWidget(self.cancel_button)
 
@@ -120,7 +136,7 @@ class PairingVerificationDialog(QDialog):
             return
         self._cancel_pending = True
         self.cancel_button.setEnabled(False)
-        self.waiting_label.setText("Cancelling...")
+        self.waiting_label.setText(self.tr("comfyui.pairing.cancelling"))
         self.cancel_requested.emit()
 
     def finish(self) -> None:
@@ -222,7 +238,7 @@ class SettingsDialog(QDialog):
         browse_model = QPushButton(self.tr("settings.choose_gguf"))
         browse_model.clicked.connect(self._choose_model)
         model_row.addWidget(browse_model)
-        form.addRow("LLM Model Path", model_row)
+        form.addRow(self.tr("settings.model_path"), model_row)
 
         self.model_info = QLabel()
         self.model_info.setWordWrap(True)
@@ -240,7 +256,7 @@ class SettingsDialog(QDialog):
         if backend_index < 0 or not self.backend.model().item(backend_index).isEnabled():
             backend_index = self.backend.findData(BACKEND_CPU)
         self.backend.setCurrentIndex(backend_index)
-        form.addRow("Inference Backend", self.backend)
+        form.addRow(self.tr("settings.inference_backend"), self.backend)
 
         self.backend_device = QComboBox()
         for device in self.vulkan_devices:
@@ -248,7 +264,7 @@ class SettingsDialog(QDialog):
         configured_device = self.backend_device.findData(self.config.backend_device)
         if configured_device >= 0:
             self.backend_device.setCurrentIndex(configured_device)
-        form.addRow("Vulkan Device", self.backend_device)
+        form.addRow(self.tr("settings.vulkan_device"), self.backend_device)
 
         self.backend_info = QLabel()
         self.backend_info.setWordWrap(True)
@@ -256,15 +272,15 @@ class SettingsDialog(QDialog):
 
         self.cpu_threads = QSpinBox()
         self.cpu_threads.setRange(0, 256)
-        self.cpu_threads.setSpecialValueText("Auto")
+        self.cpu_threads.setSpecialValueText(self.tr("common.auto"))
         self.cpu_threads.setValue(self.config.cpu_threads)
-        form.addRow("CPU Threads", self.cpu_threads)
+        form.addRow(self.tr("settings.cpu_threads"), self.cpu_threads)
 
         self.gpu_layers = QSpinBox()
         self.gpu_layers.setRange(-1, 999)
-        self.gpu_layers.setSpecialValueText("Auto")
+        self.gpu_layers.setSpecialValueText(self.tr("common.auto"))
         self.gpu_layers.setValue(self.config.gpu_layers)
-        form.addRow("GPU Offload（Advanced）", self.gpu_layers)
+        form.addRow(self.tr("settings.gpu_offload"), self.gpu_layers)
         self.backend.currentIndexChanged.connect(self._update_backend_controls)
         self.backend.currentIndexChanged.connect(lambda _index: self._update_memory_warning())
         self.backend_device.currentIndexChanged.connect(self._update_backend_controls)
@@ -273,15 +289,21 @@ class SettingsDialog(QDialog):
         )
 
         self.context_size = QComboBox()
-        for value, description in CONTEXT_PRESETS:
-            self.context_size.addItem(f"{value} — {description}", value)
+        for value, _description in CONTEXT_PRESETS:
+            description_key = f"settings.context_preset.{value}"
+            self.context_size.addItem(
+                f"{value} — {self.tr(description_key)}", value
+            )
         context_index = self.context_size.findData(self.config.context_size)
         if context_index < 0:
-            self.context_size.addItem(f"{self.config.context_size} — Custom", self.config.context_size)
+            self.context_size.addItem(
+                f"{self.config.context_size} — {self.tr('settings.context_preset.custom')}",
+                self.config.context_size,
+            )
             context_index = self.context_size.count() - 1
         self.context_size.setCurrentIndex(context_index)
         self.context_size.currentIndexChanged.connect(self._update_memory_warning)
-        form.addRow("Context Size（Advanced）", self.context_size)
+        form.addRow(self.tr("settings.context_size"), self.context_size)
 
         self.memory_info = QLabel()
         self.memory_info.setWordWrap(True)
@@ -349,7 +371,7 @@ class SettingsDialog(QDialog):
         browse_skill = QPushButton(self.tr("settings.choose_folder"))
         browse_skill.clicked.connect(self._choose_skill_folder)
         skill_row.addWidget(browse_skill)
-        form.addRow("Skill Location", skill_row)
+        form.addRow(self.tr("settings.skill_location"), skill_row)
 
         skill_actions = QHBoxLayout()
         check_update = QPushButton(self.tr("settings.skill_update"))
@@ -363,7 +385,7 @@ class SettingsDialog(QDialog):
 
         self.history_enabled = QCheckBox(self.tr("settings.history_enabled"))
         self.history_enabled.setChecked(self.config.history_enabled)
-        form.addRow("History", self.history_enabled)
+        form.addRow(self.tr("settings.history"), self.history_enabled)
 
         self.theme = QComboBox()
         self.theme.setObjectName("theme")
@@ -375,10 +397,12 @@ class SettingsDialog(QDialog):
 
         self.ui_locale = QComboBox()
         self.ui_locale.setObjectName("ui_locale")
-        self.ui_locale.addItem(self.tr("locale.en-US"), "en-US")
-        self.ui_locale.addItem(self.tr("locale.ja-JP"), "ja-JP")
+        for definition in LOCALE_DEFINITIONS:
+            self.ui_locale.addItem(definition.native_name, definition.locale_id)
         locale_index = self.ui_locale.findData(self.config.ui_locale)
-        self.ui_locale.setCurrentIndex(max(0, locale_index))
+        if locale_index < 0:
+            locale_index = self.ui_locale.findData(DEFAULT_UI_LOCALE)
+        self.ui_locale.setCurrentIndex(locale_index)
         form.addRow(self.tr("settings.language"), self.ui_locale)
 
         self.prompt_library_group = QGroupBox(
@@ -418,7 +442,7 @@ class SettingsDialog(QDialog):
         )
         layout.addWidget(self.prompt_library_group)
 
-        comfyui_group = QGroupBox("ComfyUI Integration")
+        comfyui_group = QGroupBox(self.tr("comfyui.settings.title"))
         comfyui_form = QFormLayout(comfyui_group)
         comfyui_form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
@@ -427,14 +451,14 @@ class SettingsDialog(QDialog):
         self.comfyui_url = QLineEdit(self._saved_comfyui_url)
         self._configure_path_field(self.comfyui_url)
         self.comfyui_url.textChanged.connect(self._update_comfyui_paired_state)
-        comfyui_form.addRow("ComfyUI URL", self.comfyui_url)
+        comfyui_form.addRow(self.tr("comfyui.url"), self.comfyui_url)
 
-        self.comfyui_test_button = QPushButton("Test Connection")
+        self.comfyui_test_button = QPushButton(self.tr("comfyui.test_connection"))
         self.comfyui_test_button.clicked.connect(self._test_comfyui_connection)
         comfyui_form.addRow("", self.comfyui_test_button)
 
         self.comfyui_pairing_status = QLabel()
-        comfyui_form.addRow("Pairing status:", self.comfyui_pairing_status)
+        comfyui_form.addRow(self.tr("comfyui.pairing.status"), self.comfyui_pairing_status)
         self.comfyui_pair_button = QPushButton()
         self.comfyui_pair_button.clicked.connect(self._pair_with_comfyui)
         comfyui_form.addRow("", self.comfyui_pair_button)
@@ -537,8 +561,12 @@ class SettingsDialog(QDialog):
 
     def _update_comfyui_paired_state(self) -> None:
         paired = self._current_url_is_paired()
-        self.comfyui_pairing_status.setText("Paired" if paired else "Not paired")
-        self.comfyui_pair_button.setText("Pair Again" if paired else "Pair with ComfyUI")
+        self.comfyui_pairing_status.setText(
+            self.tr("comfyui.pairing.paired" if paired else "comfyui.pairing.not_paired")
+        )
+        self.comfyui_pair_button.setText(
+            self.tr("comfyui.pair_again" if paired else "comfyui.pair")
+        )
 
     def _set_comfyui_controls_enabled(self, enabled: bool) -> None:
         self.comfyui_url.setEnabled(enabled)
@@ -547,7 +575,7 @@ class SettingsDialog(QDialog):
         self.buttons.button(QDialogButtonBox.Save).setEnabled(enabled)
 
     def _show_bridge_error(self, title: str, code: str) -> None:
-        QMessageBox.warning(self, title, bridge_error_message(code))
+        QMessageBox.warning(self, title, bridge_error_message(code, self.tr))
 
     def _test_comfyui_connection(self) -> None:
         if self._test_worker is not None or self._pair_worker is not None:
@@ -555,11 +583,11 @@ class SettingsDialog(QDialog):
         try:
             service = self._bridge_service_factory(self._normalized_entered_comfyui_url())
         except ComfyUIBridgeError as exc:
-            self._show_bridge_error("ComfyUI Connection", exc.code)
+            self._show_bridge_error(self.tr("comfyui.connection.title"), exc.code)
             return
         self._test_result = None
         self._test_error_code = None
-        self.comfyui_feedback.setText("Testing connection...")
+        self.comfyui_feedback.setText(self.tr("comfyui.connection.testing"))
         worker = ComfyUITestThread(service, parent=self)
         self._test_worker = worker
         worker.result_ready.connect(self._test_connection_succeeded)
@@ -583,11 +611,16 @@ class SettingsDialog(QDialog):
         self._set_comfyui_controls_enabled(True)
         if self._test_result is not None:
             self.comfyui_feedback.setText(
-                f"MMH3 Prompt Bridge v{self._test_result.version} detected."
+                self.tr(
+                    "comfyui.connection.detected",
+                    version=self._test_result.version,
+                )
             )
         elif self._test_error_code is not None:
-            self.comfyui_feedback.setText("Connection test failed.")
-            self._show_bridge_error("ComfyUI Connection", self._test_error_code)
+            self.comfyui_feedback.setText(self.tr("comfyui.connection.failed"))
+            self._show_bridge_error(
+                self.tr("comfyui.connection.title"), self._test_error_code
+            )
         else:
             self.comfyui_feedback.clear()
 
@@ -601,7 +634,7 @@ class SettingsDialog(QDialog):
         except ComfyUIBridgeError as exc:
             self._paired_url = None
             self._update_comfyui_paired_state()
-            self._show_bridge_error("ComfyUI Pairing", exc.code)
+            self._show_bridge_error(self.tr("comfyui.pairing.title"), exc.code)
             return False
         self._paired_url = None
         config = self.config_manager.load()
@@ -611,8 +644,8 @@ class SettingsDialog(QDialog):
         except OSError:
             QMessageBox.warning(
                 self,
-                "ComfyUI Pairing",
-                PORTABLE_WRITE_ERROR,
+                self.tr("comfyui.pairing.title"),
+                self.tr("error.portable_write"),
             )
             self._update_comfyui_paired_state()
             return False
@@ -627,7 +660,7 @@ class SettingsDialog(QDialog):
         try:
             pairing_url = self._normalized_entered_comfyui_url()
         except ComfyUIBridgeError as exc:
-            self._show_bridge_error("ComfyUI Pairing", exc.code)
+            self._show_bridge_error(self.tr("comfyui.pairing.title"), exc.code)
             return
         if not self._save_pairing_url_if_changed(pairing_url):
             return
@@ -635,7 +668,7 @@ class SettingsDialog(QDialog):
         self._pairing_url = pairing_url
         self._pair_succeeded = False
         self._pair_error_code = None
-        self.comfyui_feedback.setText("Starting pairing...")
+        self.comfyui_feedback.setText(self.tr("comfyui.pairing.starting"))
         worker = ComfyUIPairThread(service, parent=self)
         self._pair_worker = worker
         worker.verification_code_ready.connect(self._show_pairing_code)
@@ -649,16 +682,16 @@ class SettingsDialog(QDialog):
     def _show_pairing_code(self, verification_code: str) -> None:
         if self._close_requested or self._pair_worker is None:
             return
-        dialog = PairingVerificationDialog(verification_code, self)
+        dialog = PairingVerificationDialog(verification_code, self, tr=self.tr)
         dialog.cancel_requested.connect(self._cancel_pairing)
         self._pairing_dialog = dialog
-        self.comfyui_feedback.setText("Waiting for approval in ComfyUI...")
+        self.comfyui_feedback.setText(self.tr("comfyui.pairing.waiting_in_comfyui"))
         dialog.show()
 
     def _cancel_pairing(self) -> None:
         if self._pair_worker is not None:
             self._pair_worker.cancel()
-            self.comfyui_feedback.setText("Cancelling pairing...")
+            self.comfyui_feedback.setText(self.tr("comfyui.pairing.cancelling"))
 
     def _pairing_succeeded(self) -> None:
         self._pair_succeeded = True
@@ -681,12 +714,16 @@ class SettingsDialog(QDialog):
             return
         self._set_comfyui_controls_enabled(True)
         if self._pair_succeeded:
-            self.comfyui_feedback.setText("Pairing completed.")
+            self.comfyui_feedback.setText(self.tr("comfyui.pairing.completed"))
         elif self._pair_error_code == "pairing_cancelled":
-            self.comfyui_feedback.setText(bridge_error_message("pairing_cancelled"))
+            self.comfyui_feedback.setText(
+                bridge_error_message("pairing_cancelled", self.tr)
+            )
         elif self._pair_error_code is not None:
-            self.comfyui_feedback.setText("Pairing failed.")
-            self._show_bridge_error("ComfyUI Pairing", self._pair_error_code)
+            self.comfyui_feedback.setText(self.tr("comfyui.pairing.failed"))
+            self._show_bridge_error(
+                self.tr("comfyui.pairing.title"), self._pair_error_code
+            )
         else:
             self.comfyui_feedback.clear()
 
@@ -701,7 +738,9 @@ class SettingsDialog(QDialog):
             self._pair_worker.cancel()
         if self._pairing_dialog is not None:
             self._pairing_dialog.cancel_button.setEnabled(False)
-            self._pairing_dialog.waiting_label.setText("Cancelling...")
+            self._pairing_dialog.waiting_label.setText(
+                self.tr("comfyui.pairing.cancelling")
+            )
         self._finish_requested_close_if_idle()
 
     def _finish_requested_close_if_idle(self) -> None:
@@ -733,7 +772,9 @@ class SettingsDialog(QDialog):
         return super().eventFilter(watched, event)
 
     def _choose_model(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "GGUFモデルを選択", "", "GGUF Model (*.gguf)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, self.tr("settings.choose_model_title"), "", "GGUF Model (*.gguf)"
+        )
         if path:
             self.model_path.setText(str(Path(path).resolve()))
             self._switch_mmproj_target()
@@ -795,26 +836,37 @@ class SettingsDialog(QDialog):
         self.chat_model_browse.setEnabled(separate)
 
     def _choose_skill_folder(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "h3-prompt-writingフォルダを選択")
+        path = QFileDialog.getExistingDirectory(
+            self, self.tr("settings.choose_skill_folder_title")
+        )
         if path:
             self.skill_location.setText(str(Path(path).resolve()))
 
     def _update_model_info(self) -> None:
         path = self.model_path.text().strip()
         if not path:
-            self.model_info.setText("LLMモデルが設定されていません。")
+            self.model_info.setText(self.tr("settings.model.not_set"))
             self._update_memory_warning()
             return
         info = inspect_model(path)
         if not info.exists:
-            self.model_info.setText("ファイルが見つかりません。")
+            self.model_info.setText(self.tr("settings.model.not_found"))
             self._update_memory_warning()
             return
-        recommended = "推奨モデルです。" if info.is_recommended else "動作可能ですが、推奨モデルではありません。"
+        recommended = self.tr(
+            "settings.model.recommended"
+            if info.is_recommended
+            else "settings.model.not_recommended"
+        )
         self.model_info.setText(
-            f"選択モデル: {info.display_name}\n"
-            f"GGUFファイル: {info.filename}\n"
-            f"ファイルサイズ: {info.size_bytes:,} bytes（{info.size_gib:.2f} GiB） / {recommended}"
+            self.tr(
+                "settings.model.details",
+                model=info.display_name,
+                filename=info.filename,
+                bytes=info.size_bytes,
+                gib=info.size_gib,
+                recommendation=recommended,
+            )
         )
         self._update_memory_warning()
 
@@ -824,8 +876,9 @@ class SettingsDialog(QDialog):
         model = inspect_model(self.model_path.text().strip())
         if not model.exists:
             self.memory_info.setText(
-                format_memory_status(memory)
-                + f"\nContext: {context_size}\nGGUFモデルを選択すると推定必要RAMを表示します。"
+                format_memory_status(memory, self.tr)
+                + "\n"
+                + self.tr("settings.memory.choose_model", context=context_size)
             )
             self.memory_info.setStyleSheet("")
             return
@@ -836,14 +889,17 @@ class SettingsDialog(QDialog):
             model_size_bytes=model.size_bytes,
             memory=memory,
             reported_gpu_memory_bytes=self._selected_vulkan_memory_bytes(),
+            tr=self.tr,
         )
-        text = format_assessment_details(assessment)
+        text = format_assessment_details(assessment, self.tr)
         if assessment.warnings:
             text += "\n⚠ " + "\n⚠ ".join(assessment.warnings)
             self.memory_info.setText(text)
             self.memory_info.setStyleSheet("color: #d68a00;")
         else:
-            self.memory_info.setText(text + "\n8192（Recommended）が標準です。")
+            self.memory_info.setText(
+                text + "\n" + self.tr("settings.memory.context_standard")
+            )
             self.memory_info.setStyleSheet("")
 
     def _update_backend_controls(self) -> None:
@@ -851,35 +907,47 @@ class SettingsDialog(QDialog):
         self.backend_device.setEnabled(is_vulkan and bool(self.vulkan_devices))
         self.gpu_layers.setEnabled(is_vulkan)
         if not is_vulkan:
-            suffix = ""
+            suffix_key = ""
             if not self.runtime_manager.runtime_available(BACKEND_VULKAN):
-                suffix = " Vulkan runtimeは未導入です。"
+                suffix_key = "settings.backend.cpu_no_vulkan_runtime"
             elif not self.vulkan_devices:
-                suffix = " 利用可能なVulkan GPUは検出されていません。"
-            self.backend_info.setText("CPUバックエンドを使用します。" + suffix)
+                suffix_key = "settings.backend.cpu_no_vulkan_device"
+            self.backend_info.setText(
+                self.tr("settings.backend.cpu", detail=self.tr(suffix_key) if suffix_key else "")
+            )
         elif self.vulkan_devices:
             selected_id = self.backend_device.currentData()
             selected = next(
                 (device for device in self.vulkan_devices if device.identifier == selected_id),
                 self.vulkan_devices[0],
             )
-            memory_text = "GPUメモリ情報なし"
+            memory_text = self.tr("settings.backend.gpu_memory_unknown")
             if selected.reported_memory_bytes is not None:
-                memory_text = f"llama.cpp報告GPUメモリ: 約{selected.reported_memory_bytes / (1024**3):.1f} GiB"
+                memory_text = self.tr(
+                    "settings.backend.gpu_memory",
+                    memory=selected.reported_memory_bytes / (1024**3),
+                )
             self.backend_info.setText(
-                f"検出: {selected.display_name}\n{selected.uma_label}\n{memory_text}（情報表示のみ）\n"
-                "GPUメモリはSystem RAMへ加算せず、生成前のRAM安全確認を継続します。"
+                self.tr(
+                    "settings.backend.vulkan_detected",
+                    device=selected.display_name,
+                    uma=self.tr(
+                        "backend.memory_classification."
+                        f"{selected.memory_classification}"
+                    ),
+                    memory=memory_text,
+                )
             )
         elif not self.runtime_manager.runtime_available(BACKEND_VULKAN):
             self.backend_info.setText(
-                "Vulkan用 llama.cpp runtime がありません。CPUは引き続き使用できます。"
+                self.tr("settings.backend.vulkan_runtime_missing")
             )
         elif not self.vulkan_devices:
             self.backend_info.setText(
-                "llama.cppで利用可能なVulkan GPUを検出できませんでした。CPUを使用してください。"
+                self.tr("settings.backend.vulkan_not_detected")
             )
         else:
-            self.backend_info.setText("Vulkan GPUを使用できません。CPUを選択してください。")
+            self.backend_info.setText(self.tr("settings.backend.vulkan_unavailable"))
 
     def _selected_vulkan_memory_bytes(self) -> int | None:
         if self.backend.currentData() != BACKEND_VULKAN:
@@ -897,15 +965,27 @@ class SettingsDialog(QDialog):
     def _check_update(self) -> None:
         try:
             update = self._skill_manager().check_for_update()
-            text = "公式Skillの更新があります。" if update else "ローカルSkillは最新です。"
-            QMessageBox.information(self, "Skill更新確認", text)
+            text = self.tr(
+                "settings.skill.update_available"
+                if update
+                else "settings.skill.up_to_date"
+            )
+            QMessageBox.information(
+                self, self.tr("settings.skill.update_title"), text
+            )
         except SkillError as exc:
-            QMessageBox.warning(self, "Skill更新確認", str(exc))
+            QMessageBox.warning(
+                self, self.tr("settings.skill.update_title"), str(exc)
+            )
 
     def _open_skill_folder(self) -> None:
         path = Path(self.skill_location.text().strip())
         if not path.exists():
-            QMessageBox.warning(self, "Skillフォルダ", "Skillフォルダが見つかりません。")
+            QMessageBox.warning(
+                self,
+                self.tr("settings.skill.folder_title"),
+                self.tr("settings.skill.folder_not_found"),
+            )
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
 
@@ -940,7 +1020,7 @@ class SettingsDialog(QDialog):
         try:
             normalized_comfyui_url = self._normalized_entered_comfyui_url()
         except ComfyUIBridgeError as exc:
-            self._show_bridge_error("ComfyUI URL", exc.code)
+            self._show_bridge_error(self.tr("comfyui.url"), exc.code)
             return
         config = self.config_manager.load()
         try:
@@ -953,7 +1033,7 @@ class SettingsDialog(QDialog):
             except ComfyUIBridgeError as exc:
                 self._paired_url = None
                 self._update_comfyui_paired_state()
-                self._show_bridge_error("ComfyUI Pairing", exc.code)
+                self._show_bridge_error(self.tr("comfyui.pairing.title"), exc.code)
                 return
             self._paired_url = None
         config.model_path = self.model_path.text().strip()
@@ -978,12 +1058,21 @@ class SettingsDialog(QDialog):
         config.prompt_library_result_rows = self.prompt_library_result_rows.value()
         config.prompt_library_detail_lines = self.prompt_library_detail_lines.value()
         previous_locale = config.ui_locale
-        config.ui_locale = str(self.ui_locale.currentData())
+        selected_locale = self.ui_locale.currentData()
+        config.ui_locale = (
+            str(selected_locale)
+            if selected_locale in SUPPORTED_LOCALES
+            else DEFAULT_UI_LOCALE
+        )
         config.comfyui_url = normalized_comfyui_url
         try:
             self.config_manager.save(config)
         except OSError:
-            QMessageBox.warning(self, "設定を保存できませんでした", PORTABLE_WRITE_ERROR)
+            QMessageBox.warning(
+                self,
+                self.tr("error.settings_save_title"),
+                self.tr("error.portable_write"),
+            )
             return
         self._saved_comfyui_url = normalized_comfyui_url
         if self._application is not None:

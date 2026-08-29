@@ -4,7 +4,8 @@
   "target_model_version": "Wan2.2 T2V-A14B / I2V-A14B",
   "description": {
     "en-US": "Prompt guidance for Wan 2.2 T2V-A14B and I2V-A14B.",
-    "ja-JP": "Wan 2.2 T2V-A14B / I2V-A14B向けのPrompt規則です。"
+    "ja-JP": "Wan 2.2 T2V-A14B / I2V-A14B向けのPrompt規則です。",
+    "zh-CN": "适用于Wan 2.2 T2V-A14B和I2V-A14B的Prompt规则。"
   },
   "required_prompt": {
     "positive_prefix": [],

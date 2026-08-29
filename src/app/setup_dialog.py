@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWizardPage,
 )
 
-from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
+from core.config_manager import ConfigManager
 from core.inference_backends import BACKEND_CPU, BACKEND_VULKAN, GPU_LAYERS_AUTO
 from core.llama_manager import LlamaServerManager
 from core.localization import Localization
@@ -48,6 +48,7 @@ class SetupDialog(QWizard):
         self.localization = localization or Localization(
             project_root / "locales", self.config.ui_locale
         )
+        self.tr = self.localization.tr
         self.runtime_manager = LlamaServerManager(project_root / "runtime")
         self.vulkan_devices = self.runtime_manager.detect_vulkan_devices()
         self.setWindowTitle(
@@ -56,6 +57,10 @@ class SetupDialog(QWizard):
         self.setWizardStyle(QWizard.ModernStyle)
         self.setMinimumSize(680, 470)
         self.setOption(QWizard.NoBackButtonOnStartPage)
+        self.setButtonText(QWizard.BackButton, self.tr("setup.back"))
+        self.setButtonText(QWizard.NextButton, self.tr("setup.next"))
+        self.setButtonText(QWizard.FinishButton, self.tr("setup.finish"))
+        self.setButtonText(QWizard.CancelButton, self.tr("common.cancel"))
 
         self._create_model_page()
         self._create_skill_page()
@@ -72,19 +77,19 @@ class SetupDialog(QWizard):
 
     def _create_model_page(self) -> None:
         page, layout = self._new_page(
-            "Step 1 — GGUFモデル",
-            "Recommended: Qwen3-8B Q4_K_M（モデルはアプリへコピーしません）",
+            self.tr("setup.model.title"),
+            self.tr("setup.model.subtitle"),
         )
         self.model_path = QLineEdit(self.config.model_path)
         self.model_path.setReadOnly(True)
         layout.addWidget(self.model_path)
-        choose = QPushButton("既存のGGUFを選択")
+        choose = QPushButton(self.tr("setup.model.choose"))
         choose.clicked.connect(self._choose_model)
         layout.addWidget(choose)
-        open_page = QPushButton("推奨モデルの公式ページを開く")
+        open_page = QPushButton(self.tr("setup.model.open_recommended"))
         open_page.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(RECOMMENDED_MODEL_URL)))
         layout.addWidget(open_page)
-        self.model_status = QLabel("LLMモデルが設定されていません。")
+        self.model_status = QLabel(self.tr("settings.model.not_set"))
         self.model_status.setWordWrap(True)
         layout.addWidget(self.model_status)
         layout.addStretch()
@@ -92,8 +97,8 @@ class SetupDialog(QWizard):
 
     def _create_skill_page(self) -> None:
         page, layout = self._new_page(
-            "Step 2 — MiniMax H3 Prompt Skill",
-            self.localization.tr("setup.h3_skill_optional"),
+            self.tr("setup.skill.title"),
+            self.tr("setup.h3_skill_optional"),
         )
         portable_skill_path = self.config_manager.data_dir / "skills" / "h3-prompt-writing"
         self.skill_path = (
@@ -104,15 +109,17 @@ class SetupDialog(QWizard):
         self.skill_status = QLabel()
         self.skill_status.setWordWrap(True)
         layout.addWidget(self.skill_status)
-        fetch = QPushButton("MiniMax公式H3 Prompt Skillを取得")
+        fetch = QPushButton(self.tr("setup.skill.fetch"))
         fetch.clicked.connect(self._fetch_skill)
         layout.addWidget(fetch)
         layout.addStretch()
         self.addPage(page)
 
     def _create_inference_page(self) -> None:
-        page, layout = self._new_page("Step 3 — Inference", "最初はCPUを推奨します。")
-        self.cpu_radio = QRadioButton("CPU（デフォルト）")
+        page, layout = self._new_page(
+            self.tr("setup.inference.title"), self.tr("setup.inference.subtitle")
+        )
+        self.cpu_radio = QRadioButton(self.tr("setup.inference.cpu"))
         self.gpu_radio = QRadioButton("Vulkan GPU (AMD / Intel / NVIDIA)")
         group = QButtonGroup(self)
         group.addButton(self.cpu_radio)
@@ -122,15 +129,21 @@ class SetupDialog(QWizard):
         vulkan_available = self.runtime_manager.runtime_available(BACKEND_VULKAN)
         self.gpu_radio.setEnabled(vulkan_available and bool(self.vulkan_devices))
         if not vulkan_available:
-            layout.addWidget(QLabel("Vulkan用 llama.cpp runtime がありません。CPUのまま完了できます。"))
+            layout.addWidget(QLabel(self.tr("setup.inference.vulkan_runtime_missing")))
         elif not self.vulkan_devices:
-            layout.addWidget(QLabel("llama.cppでVulkan GPUを検出できませんでした。CPUを使用してください。"))
+            layout.addWidget(QLabel(self.tr("setup.inference.vulkan_not_detected")))
         else:
             detected = self.vulkan_devices[0]
             layout.addWidget(
                 QLabel(
-                    f"検出: {detected.display_name}\n{detected.uma_label}\n"
-                    "GPUメモリはSystem RAMと合算しません。"
+                    self.tr(
+                        "setup.inference.vulkan_detected",
+                        device=detected.display_name,
+                        uma=self.tr(
+                            "backend.memory_classification."
+                            f"{detected.memory_classification}"
+                        ),
+                    )
                 )
             )
         if self.config.inference_backend == BACKEND_VULKAN and self.gpu_radio.isEnabled():
@@ -141,7 +154,9 @@ class SetupDialog(QWizard):
         self.addPage(page)
 
     def _create_confirmation_page(self) -> None:
-        page, layout = self._new_page("Step 4 — 確認", "内容を確認して「完了」を押してください。")
+        page, layout = self._new_page(
+            self.tr("setup.confirm.title"), self.tr("setup.confirm.subtitle")
+        )
         self.confirmation = QLabel()
         self.confirmation.setAlignment(Qt.AlignTop)
         self.confirmation.setWordWrap(True)
@@ -149,42 +164,61 @@ class SetupDialog(QWizard):
         self.addPage(page)
 
     def _choose_model(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "GGUFモデルを選択", "", "GGUF Model (*.gguf)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, self.tr("settings.choose_model_title"), "", "GGUF Model (*.gguf)"
+        )
         if path:
             resolved = str(Path(path).resolve())
             self.model_path.setText(resolved)
-            self.model_status.setText(f"選択済み: {resolved}")
+            self.model_status.setText(self.tr("setup.model.selected", path=resolved))
 
     def _fetch_skill(self) -> None:
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             status = SkillManager(self.skill_path).install_or_update()
             self.skill_status.setText(
-                f"Installed\n最終取得日時: {status.fetched_at}\nSHA256: {status.sha256.get('SKILL.md', '')}"
+                self.tr(
+                    "setup.skill.installed_details",
+                    fetched_at=status.fetched_at,
+                    sha256=status.sha256.get("SKILL.md", ""),
+                )
             )
         except SkillError as exc:
-            QMessageBox.warning(self, "Skill取得失敗", str(exc))
+            QMessageBox.warning(self, self.tr("setup.skill.fetch_failed"), str(exc))
         except OSError:
-            QMessageBox.warning(self, "Skill取得失敗", PORTABLE_WRITE_ERROR)
+            QMessageBox.warning(
+                self,
+                self.tr("setup.skill.fetch_failed"),
+                self.tr("error.portable_write"),
+            )
         finally:
             QApplication.restoreOverrideCursor()
 
     def _refresh_current_page(self, page_id: int) -> None:
         status = SkillManager(self.skill_path).status()
         self.skill_status.setText(
-            f"Installed\n最終取得日時: {status.fetched_at or '不明'}" if status.valid else "Not installed"
+            self.tr(
+                "setup.skill.status_installed",
+                fetched_at=status.fetched_at or self.tr("common.unknown"),
+            )
+            if status.valid
+            else self.tr("readiness.not_installed")
         )
         if page_id == 3:
             self.confirmation.setText(
-                "モデル:\n"
-                + (self.model_path.text() or "未設定")
-                + "\n\nSkill:\n"
-                + ("Installed" if status.valid else "Not installed")
-                + "\n\n推論方式:\n"
-                + (
-                    "Vulkan GPU (AMD / Intel / NVIDIA)"
-                    if self.gpu_radio.isChecked()
-                    else "CPU"
+                self.tr(
+                    "setup.confirm.summary",
+                    model=self.model_path.text() or self.tr("readiness.not_set"),
+                    skill=(
+                        self.tr("readiness.installed")
+                        if status.valid
+                        else self.tr("readiness.not_installed")
+                    ),
+                    inference=(
+                        "Vulkan GPU (AMD / Intel / NVIDIA)"
+                        if self.gpu_radio.isChecked()
+                        else "CPU"
+                    ),
                 )
             )
 
@@ -192,7 +226,7 @@ class SetupDialog(QWizard):
         try:
             validate_model(self.model_path.text())
         except ValueError as exc:
-            QMessageBox.warning(self, "セットアップ未完了", str(exc))
+            QMessageBox.warning(self, self.tr("setup.incomplete"), str(exc))
             return
         self.config.model_path = self.model_path.text()
         self.config.skill_location = str(self.skill_path.resolve())
@@ -207,6 +241,10 @@ class SetupDialog(QWizard):
         try:
             self.config_manager.save(self.config)
         except OSError:
-            QMessageBox.warning(self, "設定を保存できませんでした", PORTABLE_WRITE_ERROR)
+            QMessageBox.warning(
+                self,
+                self.tr("error.settings_save_title"),
+                self.tr("error.portable_write"),
+            )
             return
         super().accept()

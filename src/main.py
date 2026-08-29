@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 from app.main_window import MainWindow
 from app.setup_dialog import SetupDialog
 from app.theme import apply_application_theme
-from core.config_manager import ConfigManager, PORTABLE_WRITE_ERROR
+from core.config_manager import ConfigManager
 from core.localization import Localization
 from core.version import APP_VERSION, INTERNAL_APPLICATION_ID, PRODUCT_NAME
 
@@ -79,7 +79,11 @@ def main() -> int:
     except OSError:
         from PySide6.QtWidgets import QMessageBox
 
-        QMessageBox.critical(None, "保存場所エラー", PORTABLE_WRITE_ERROR)
+        QMessageBox.critical(
+            None,
+            localization.tr("error.storage_title"),
+            localization.tr("error.portable_write"),
+        )
         return 1
 
     mock_server = None

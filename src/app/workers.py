@@ -34,11 +34,13 @@ from core.renderers import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+GENERATION_CANCELLED = "GENERATION_CANCELLED"
+GENERATION_UNKNOWN_ERROR = "GENERATION_UNKNOWN_ERROR"
 
 
 def generation_error_message(exc: Exception) -> str:
     if not isinstance(exc, TransformationError):
-        return str(exc) or "生成中に不明なエラーが発生しました。"
+        return str(exc) or GENERATION_UNKNOWN_ERROR
     details = getattr(exc, "literal_diagnostics", None)
     if details is not None:
         items = "; ".join(
@@ -208,7 +210,7 @@ class GenerationThread(QThread):
                     self.status_changed.emit(rendered.warnings[0])
         except Exception as exc:  # GUI boundary: never show a Python traceback to the user.
             if self.isInterruptionRequested():
-                self.error_occurred.emit("生成はユーザーによってキャンセルされました。")
+                self.error_occurred.emit(GENERATION_CANCELLED)
             else:
                 self.error_occurred.emit(generation_error_message(exc))
 
@@ -232,6 +234,8 @@ class TranslationThread(QThread):
         structure_protection: bool,
         revision: int,
         mock_mode: bool,
+        source_language_code: str = "en",
+        ui_locale_id: str = "ja-JP",
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -244,12 +248,16 @@ class TranslationThread(QThread):
         self.structure_protection = structure_protection
         self.revision = revision
         self.mock_mode = mock_mode
+        self.source_language_code = source_language_code
+        self.ui_locale_id = ui_locale_id
 
     def run(self) -> None:
         try:
             request = self.service.request_payload(
                 self.source_text,
                 self.direction,
+                source_language_code=self.source_language_code,
+                ui_locale_id=self.ui_locale_id,
                 protected_terms=self.protected_terms,
                 structure_protection=self.structure_protection,
             )

@@ -4,11 +4,15 @@ from dataclasses import dataclass, field
 import re
 from typing import Any, Iterable
 
+from .localization import language_definition, locale_definition
 from .protected_terms import ProtectedTerm
 
 
-ORIGINAL_TO_JAPANESE = "original_to_japanese"
-JAPANESE_TO_ORIGINAL = "japanese_to_original"
+SOURCE_TO_UI_LOCALE = "source_to_ui_locale"
+UI_LOCALE_TO_SOURCE = "ui_locale_to_source"
+# Compatibility aliases for callers migrating from the Japanese-only editor.
+ORIGINAL_TO_JAPANESE = SOURCE_TO_UI_LOCALE
+JAPANESE_TO_ORIGINAL = UI_LOCALE_TO_SOURCE
 TRANSLATION_STRUCTURE_NOT_PRESERVED = "TRANSLATION_STRUCTURE_NOT_PRESERVED"
 TRANSLATION_EMPTY_RESPONSE = "TRANSLATION_EMPTY_RESPONSE"
 TRANSLATION_MAX_OUTPUT_TOKENS = 2048
@@ -72,6 +76,8 @@ class TranslationRequest:
     source_structure_tokens: tuple[str, ...] = field(repr=False)
     structure_protection: bool
     direction: str
+    source_language_name: str
+    target_language_name: str
 
 
 def _term_texts(values: Iterable[str | ProtectedTerm]) -> tuple[str, ...]:
@@ -136,13 +142,26 @@ class PromptTranslationService:
         source_text: str,
         direction: str,
         *,
+        source_language_code: str = "en",
+        ui_locale_id: str = "ja-JP",
         protected_terms: Iterable[str | ProtectedTerm] = (),
         structure_protection: bool = True,
     ) -> TranslationRequest:
-        if direction not in {ORIGINAL_TO_JAPANESE, JAPANESE_TO_ORIGINAL}:
+        if direction not in {SOURCE_TO_UI_LOCALE, UI_LOCALE_TO_SOURCE}:
             raise ValueError("TRANSLATION_DIRECTION_INVALID")
         if not source_text.strip():
             raise ValueError(TRANSLATION_EMPTY_RESPONSE)
+
+        source_language = language_definition(source_language_code)
+        if source_language is None:
+            raise ValueError("TRANSLATION_SOURCE_LANGUAGE_INVALID")
+        ui_language = locale_definition(ui_locale_id)
+        if direction == SOURCE_TO_UI_LOCALE:
+            source_language_name = source_language.llm_language_name
+            target_language_name = ui_language.llm_language_name
+        else:
+            source_language_name = ui_language.llm_language_name
+            target_language_name = source_language.llm_language_name
 
         term_values = _term_texts(protected_terms)
         source_tokens = structure_tokens(source_text, term_values)
@@ -161,7 +180,6 @@ class PromptTranslationService:
             chunks.append(source_text[offset:])
             translation_source = "".join(chunks)
 
-        target = "Japanese" if direction == ORIGINAL_TO_JAPANESE else "English"
         protection_rule = (
             "Tokens matching __LPS_STRUCTURE_0000__ and similar placeholders are "
             "immutable. Copy every placeholder exactly once, in the same order."
@@ -170,7 +188,8 @@ class PromptTranslationService:
         )
         system = (
             "You are a faithful prompt translator, not a prompt writer or renderer. "
-            f"Translate only into {target}. Do not add, remove, summarize, improve, "
+            f"Translate only from {source_language_name} into {target_language_name}. "
+            "Do not add, remove, summarize, improve, "
             "reorder, or infer any content. Do not add camera, style, quality, rating, "
             "score, artist, demographic, identity, era, or safety details. Preserve "
             "line breaks, headings, field order, punctuation, tags, identifiers, numbers, "
@@ -195,6 +214,8 @@ class PromptTranslationService:
             source_structure_tokens=source_tokens,
             structure_protection=structure_protection,
             direction=direction,
+            source_language_name=source_language_name,
+            target_language_name=target_language_name,
         )
 
     def finalize_response(
