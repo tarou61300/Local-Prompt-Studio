@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.1.1 — 2026-08-29
+
+Multilingual UI and prompt translation update.
+
+### Added
+
+- Added Simplified Chinese, Russian, and Korean UI locales while retaining Japanese and English.
+- Added a centralized locale registry with English fallback.
+- Generalized the Prompt Translation Editor to translate between the selected Profile output language and UI language.
+- Hid the Translation Editor when the UI language and Profile output language are the same.
+- Localized the normal Python/Qt UI scope, Request Guide, Renderer descriptions, Builtin Variant descriptions, Settings, Setup, Memory, and Desktop ComfyUI integration.
+
+### Compatibility
+
+- Kept Task tokens, schema fields, internal IDs, Model names, and technical identifiers unchanged.
+- Kept language changes restart-required.
+- ComfyUI browser extension JavaScript localization and multilingual README files are not included.
+
 ## 3.1.0 — 2026-08-28
 
 Prompt Library browsing and dataset management update.

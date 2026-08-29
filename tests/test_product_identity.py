@@ -17,10 +17,28 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def test_local_prompt_studio_identity_and_version():
     assert PRODUCT_NAME == "Local Prompt Studio"
     assert INTERNAL_APPLICATION_ID == "local_prompt_studio"
-    assert APP_VERSION == "3.1.0"
-    assert APP_DISPLAY_VERSION == "v3.1.0"
-    assert APP_RELEASE_DATE == "2026-08-28"
+    assert APP_VERSION == "3.1.1"
+    assert APP_DISPLAY_VERSION == "v3.1.1"
+    assert APP_RELEASE_DATE == "2026-08-29"
     assert REPOSITORY_URL == "https://github.com/tarou61300/Local-Prompt-Studio"
+
+    version_file = (PROJECT_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    windows_version = (PROJECT_ROOT / "packaging" / "version_info.txt").read_text(
+        encoding="utf-8"
+    )
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    changelog = (PROJECT_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert version_file == "3.1.1"
+    assert "filevers=(3, 1, 1, 0)" in windows_version
+    assert "prodvers=(3, 1, 1, 0)" in windows_version
+    assert "StringStruct(u'FileVersion', u'3.1.1.0')" in windows_version
+    assert "StringStruct(u'ProductVersion', u'3.1.1')" in windows_version
+    assert readme.startswith("# Local Prompt Studio v3.1.1\n")
+    assert "Release date: 2026-08-29" in readme
+    assert "Local-Prompt-Studio-v3.1.1-win-x64-portable.zip" in readme
+    assert "Local-Prompt-Studio-v3.1.1-win-x64-portable`フォルダ" in readme
+    assert changelog.startswith("# Changelog\n\n## 3.1.1 — 2026-08-29\n")
 
 
 def test_repository_identity_is_used_by_current_user_facing_surfaces():

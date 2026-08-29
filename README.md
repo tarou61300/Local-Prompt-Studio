@@ -1,8 +1,8 @@
-# Local Prompt Studio v3.1.0
+# Local Prompt Studio v3.1.1
 
 **Windows x64 portable stable release**
 
-Release date: 2026-08-28
+Release date: 2026-08-29
 
 Repository: [https://github.com/tarou61300/Local-Prompt-Studio](https://github.com/tarou61300/Local-Prompt-Studio)
 
@@ -98,8 +98,8 @@ Python、Git、pip、llama.cpp、PySide6、Visual Studio、CUDA、PATH設定、�
 
 ## 起動方法
 
-1. `Local-Prompt-Studio-v3.1.0-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
-2. 展開した`Local-Prompt-Studio-v3.1.0-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
+1. `Local-Prompt-Studio-v3.1.1-win-x64-portable.zip`を、書き込み可能なフォルダへ展開します。
+2. 展開した`Local-Prompt-Studio-v3.1.1-win-x64-portable`フォルダ内の`LocalPromptStudio.exe`を起動します。
 
 既存v1.xリリースは上書きせず、別フォルダへ展開してください。
 
