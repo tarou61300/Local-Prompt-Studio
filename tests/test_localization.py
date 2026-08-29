@@ -48,6 +48,7 @@ def test_all_supported_locales_load():
     assert Localization(LOCALE_ROOT, "en-US").tr("common.generate") == "Generate Prompt"
     assert Localization(LOCALE_ROOT, "ja-JP").tr("common.generate") == "Promptを生成"
     assert Localization(LOCALE_ROOT, "zh-CN").tr("common.generate") == "生成Prompt"
+    assert Localization(LOCALE_ROOT, "ru-RU").tr("common.generate") == "Создать промпт"
     assert "Wan 2.2" in Localization(LOCALE_ROOT, "en-US").tr(
         "profile.wan_2_2.description"
     )
@@ -64,6 +65,10 @@ def test_all_supported_locales_load():
     )
     assert Localization(LOCALE_ROOT, "ja-JP").tr("profile.style") == "Prompt変換スタイル"
     assert Localization(LOCALE_ROOT, "zh-CN").tr("profile.style") == "Prompt转换风格"
+    assert (
+        Localization(LOCALE_ROOT, "ru-RU").tr("profile.style")
+        == "Стиль преобразования промпта"
+    )
     assert "Krea 2" in Localization(LOCALE_ROOT, "en-US").tr(
         "profile.krea_2.description"
     )
@@ -94,12 +99,20 @@ def test_all_supported_locales_load():
 def test_locale_registry_and_files_match_canonical_keys_placeholders_and_order():
     assert DEFAULT_UI_LOCALE == "ja-JP"
     assert FALLBACK_LOCALE == "en-US"
-    assert SUPPORTED_LOCALES == ("ja-JP", "en-US", "zh-CN")
+    assert SUPPORTED_LOCALES == ("ja-JP", "en-US", "zh-CN", "ru-RU")
     assert [item.native_name for item in LOCALE_DEFINITIONS] == [
         "日本語",
         "English",
         "简体中文",
+        "Русский",
     ]
+    russian = locale_definition("ru-RU")
+    assert (
+        russian.locale_id,
+        russian.native_name,
+        russian.llm_language_name,
+        russian.output_language_code,
+    ) == ("ru-RU", "Русский", "Russian", "ru")
     english, duplicates = _load_without_duplicate_keys(LOCALE_ROOT / "en-US.json")
     assert duplicates == []
     assert isinstance(english, dict)
@@ -164,7 +177,7 @@ def test_unknown_locale_uses_japanese_ui_default(tmp_path):
     assert locale_definition("unsupported").locale_id == "ja-JP"
 
 
-def test_existing_config_migrates_to_japanese_and_chinese_locale_persists(tmp_path):
+def test_existing_config_migrates_to_japanese_and_supported_locales_persist(tmp_path):
     manager = ConfigManager(tmp_path)
     manager.path.parent.mkdir(parents=True, exist_ok=True)
     manager.path.write_text('{"config_version": 4}', encoding="utf-8")
@@ -173,3 +186,7 @@ def test_existing_config_migrates_to_japanese_and_chinese_locale_persists(tmp_pa
     config.ui_locale = "zh-CN"
     manager.save(config)
     assert manager.load().ui_locale == "zh-CN"
+    config = manager.load()
+    config.ui_locale = "ru-RU"
+    manager.save(config)
+    assert manager.load().ui_locale == "ru-RU"

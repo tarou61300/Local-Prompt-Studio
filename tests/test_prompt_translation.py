@@ -240,6 +240,7 @@ def test_request_guide_is_localized_neutral_and_appends_without_overwrite(tmp_pa
     ja_entries = request_guide_entries(_tr("ja-JP"), profile_id="minimax_h3")
     en_entries = request_guide_entries(_tr("en-US"), profile_id="anima")
     zh_entries = request_guide_entries(_tr("zh-CN"), profile_id="wan_2_2")
+    ru_entries = request_guide_entries(_tr("ru-RU"), profile_id="ltx_2_3")
     assert [entry.key for entry in ja_entries] == [
         "time",
         "fixed_camera",
@@ -249,6 +250,7 @@ def test_request_guide_is_localized_neutral_and_appends_without_overwrite(tmp_pa
     ]
     assert [entry.key for entry in en_entries] == [entry.key for entry in ja_entries]
     assert [entry.key for entry in zh_entries] == [entry.key for entry in ja_entries]
+    assert [entry.key for entry in ru_entries] == [entry.key for entry in ja_entries]
     assert "[speech:ja]" in next(item.example for item in ja_entries if item.key == "speech")
     assert "[text:ja]" in next(item.example for item in ja_entries if item.key == "visible_text")
     assert "[speech:zh]" in next(
@@ -257,9 +259,15 @@ def test_request_guide_is_localized_neutral_and_appends_without_overwrite(tmp_pa
     assert "[text:zh]" in next(
         item.example for item in zh_entries if item.key == "visible_text"
     )
+    assert "[speech:ru]" in next(
+        item.example for item in ru_entries if item.key == "speech"
+    )
+    assert "[text:ru]" in next(
+        item.example for item in ru_entries if item.key == "visible_text"
+    )
     assert all(
         "[Shot" not in item.example
-        for item in (*ja_entries, *en_entries, *zh_entries)
+        for item in (*ja_entries, *en_entries, *zh_entries, *ru_entries)
     )
 
     app = QApplication.instance() or QApplication([])
@@ -288,9 +296,11 @@ def test_translation_editor_cancel_apply_and_reopen_protection(tmp_path):
     app = QApplication.instance() or QApplication([])
     mock, url = start_mock_server()
     try:
+        manager = ConfigManager(tmp_path)
+        manager.save(AppConfig(ui_locale="ru-RU"))
         window = MainWindow(
             project_root=ROOT,
-            config_manager=ConfigManager(tmp_path),
+            config_manager=manager,
             server_url=url,
             dev_skill_path=SKILL,
         )
@@ -318,6 +328,7 @@ def test_translation_editor_cancel_apply_and_reopen_protection(tmp_path):
         app.processEvents()
         second = window.translation_dialog
         assert second is not None
+        assert second.auto_translate.text() == "Автоперевод"
         assert second.structure_protection.isChecked()
         second.structure_protection.setChecked(False)
         second._debounce.stop()
@@ -386,11 +397,35 @@ def test_chinese_translation_directions_use_registry_language_names():
     assert "from Simplified Chinese into English" in to_english.payload["messages"][0]["content"]
 
 
+def test_russian_translation_directions_use_registry_language_names():
+    service = PromptTranslationService()
+    to_russian = service.request_payload(
+        "Synthetic scene.",
+        SOURCE_TO_UI_LOCALE,
+        source_language_code="en",
+        ui_locale_id="ru-RU",
+    )
+    to_english = service.request_payload(
+        "Синтетическая сцена.",
+        UI_LOCALE_TO_SOURCE,
+        source_language_code="en",
+        ui_locale_id="ru-RU",
+    )
+
+    assert to_russian.source_language_name == "English"
+    assert to_russian.target_language_name == "Russian"
+    assert "from English into Russian" in to_russian.payload["messages"][0]["content"]
+    assert to_english.source_language_name == "Russian"
+    assert to_english.target_language_name == "English"
+    assert "from Russian into English" in to_english.payload["messages"][0]["content"]
+
+
 @pytest.mark.parametrize(
     ("ui_locale_id", "translated_sentence"),
     [
         ("ja-JP", "架空の場面。"),
         ("zh-CN", "合成场景。"),
+        ("ru-RU", "Синтетическая сцена."),
     ],
 )
 def test_translation_structure_is_preserved_for_each_translation_locale(
@@ -436,7 +471,7 @@ def test_translation_structure_is_preserved_for_each_translation_locale(
 
 @pytest.mark.parametrize(
     ("locale_id", "expected_visible"),
-    [("en-US", False), ("ja-JP", True), ("zh-CN", True)],
+    [("en-US", False), ("ja-JP", True), ("zh-CN", True), ("ru-RU", True)],
 )
 def test_translation_button_visibility_compares_ui_and_profile_languages(
     tmp_path,
@@ -760,6 +795,13 @@ def test_manual_update_is_immediate_with_auto_translate_on():
             "自动翻译",
             "更新翻译",
             "来源：Original Prompt",
+        ),
+        (
+            "ru-RU",
+            "Перевести и редактировать",
+            "Автоперевод",
+            "Обновить перевод",
+            "Источник: исходный промпт",
         ),
     ],
 )

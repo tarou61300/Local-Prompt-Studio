@@ -301,6 +301,7 @@ def test_settings_default_and_open_close_perform_zero_bridge_network(tmp_path, a
         ("ja-JP", "接続テスト", "未Pairing", "ComfyUIとPairing"),
         ("en-US", "Test Connection", "Not paired", "Pair with ComfyUI"),
         ("zh-CN", "测试连接", "未配对", "与ComfyUI配对"),
+        ("ru-RU", "Проверить подключение", "Не сопряжено", "Сопрячь с ComfyUI"),
     ],
 )
 def test_comfyui_settings_controls_are_localized_without_network(

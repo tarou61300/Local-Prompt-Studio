@@ -337,7 +337,13 @@ class MiniMaxH3Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        if locale_id == "zh-CN":
+        if locale_id == "ru-RU":
+            descriptions = {
+                "Faithful": "Сохраняет прежде всего порядок действий, камеру и реплики из запроса, почти не добавляя неуказанную постановку.",
+                "Balanced": "Сохраняет запрос и умеренно добавляет понятные H3 детали движения, времени, звука и камеры.",
+                "Creative": "Сохраняет основу запроса и активно дополняет кинематографическую постановку, камеру, движение и атмосферу.",
+            }
+        elif locale_id == "zh-CN":
             descriptions = {
                 "Faithful": "优先保留输入中的动作顺序、镜头和台词，尽量不添加未指定的演出。",
                 "Balanced": "在保持输入内容的同时，适度补充便于H3理解的动作、时间、声音和镜头细节。",
@@ -554,7 +560,13 @@ class Wan22Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        if locale_id == "zh-CN":
+        if locale_id == "ru-RU":
+            descriptions = {
+                "Faithful": "Сохраняет прежде всего объект, действие, порядок и камеру из запроса, не добавляя неуказанные элементы сцены Wan.",
+                "Balanced": "Сохраняет запрос и умеренно добавляет подходящие Wan детали движения, композиции, освещения и окружения.",
+                "Creative": "Сохраняет запрос и активно дополняет подходящие Wan кинематографию, движение, освещение и атмосферу.",
+            }
+        elif locale_id == "zh-CN":
             descriptions = {
                 "Faithful": "优先保留输入中的主体、动作、顺序和镜头，不添加未指定的Wan场景元素。",
                 "Balanced": "在保持输入内容的同时，适度补充适合Wan的动作、构图、照明和环境细节。",
@@ -715,7 +727,13 @@ class LTX23Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        if locale_id == "zh-CN":
+        if locale_id == "ru-RU":
+            descriptions = {
+                "Faithful": "Сохраняет прежде всего хронологию, действие, камеру и звук из запроса, не добавляя неуказанные смысловые детали.",
+                "Balanced": "Сохраняет запрос и умеренно добавляет подходящие LTX детали непрерывности, освещения, камеры и синхронного звука.",
+                "Creative": "Сохраняет запрос и активно дополняет подходящие LTX окружение, движение, камеру и звуковое оформление.",
+            }
+        elif locale_id == "zh-CN":
             descriptions = {
                 "Faithful": "优先保留输入中的时间顺序、动作、镜头和声音，不添加未指定的语义细节。",
                 "Balanced": "在保持输入内容的同时，适度补充适合LTX的连续性、照明、镜头和同步声音细节。",
@@ -876,7 +894,13 @@ class Krea2Renderer:
         )
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        if locale_id == "zh-CN":
+        if locale_id == "ru-RU":
+            descriptions = {
+                "Faithful": "Слегка выравнивает запрос на естественном языке, не добавляя неуказанные объекты, признаки или детали сцены.",
+                "Balanced": "Сохраняет запрос и умеренно добавляет подходящие Krea детали композиции, кадрирования, освещения и текстуры.",
+                "Creative": "Сохраняет запрос и активно дополняет подходящие Krea композицию, освещение, атмосферу и подачу.",
+            }
+        elif locale_id == "zh-CN":
             descriptions = {
                 "Faithful": "仅轻度整理自然语言输入，不添加未指定的物体、特征或场景设定。",
                 "Balanced": "在保持输入内容的同时，适度补充适合Krea的构图、取景、照明和质感细节。",
@@ -1034,7 +1058,13 @@ class AnimaRenderer:
     renderer_id = "anima"
 
     def prompt_style_description(self, processing: str, locale_id: str) -> str:
-        if locale_id == "zh-CN":
+        if locale_id == "ru-RU":
+            descriptions = {
+                "Faithful": "Сохраняет формат Natural, Tag или Hybrid и явные ограничения с минимальной интерпретацией Anima.",
+                "Balanced": "Сохраняет формат и ограничения ввода, умеренно добавляя детали композиции и подачи для Anima.",
+                "Creative": "Сохраняет формат и ограничения ввода, активно дополняя освещение, атмосферу, фон и стиль для Anima.",
+            }
+        elif locale_id == "zh-CN":
             descriptions = {
                 "Faithful": "优先保留Natural、Tag或Hybrid形式及明确约束，以最少的Anima解释整理Prompt。",
                 "Balanced": "保持输入形式和约束，并适度补充适合Anima的构图与表现细节。",

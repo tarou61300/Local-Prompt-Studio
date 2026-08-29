@@ -46,7 +46,7 @@ def test_repository_identity_is_used_by_current_user_facing_surfaces():
     assert '{{SOURCE_STATE}}", $SourceState' in build_script
     assert "Pair with Local Prompt Studio" in bridge_frontend
 
-    for locale_name in ("en-US.json", "ja-JP.json", "zh-CN.json"):
+    for locale_name in ("en-US.json", "ja-JP.json", "zh-CN.json", "ru-RU.json"):
         locale = json.loads(
             (PROJECT_ROOT / "locales" / locale_name).read_text(encoding="utf-8")
         )
@@ -69,6 +69,7 @@ def test_prompt_library_user_database_is_documented_ignored_and_banned_from_rele
     )
 
     assert '"_internal/locales/zh-CN.json"' in audit_script
+    assert '"_internal/locales/ru-RU.json"' in audit_script
 
     assert "<repository>/.dev-data/prompt_library.sqlite3" in portable_readme
     assert "prompt_library.sqlite3*" in gitignore

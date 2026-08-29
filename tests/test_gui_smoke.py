@@ -998,12 +998,45 @@ def test_main_window_uses_persisted_supported_locales(tmp_path):
         assert chinese.prompt_style_help.text()
         chinese.close()
         app.processEvents()
+
+        russian_manager = ConfigManager(tmp_path / "russian")
+        russian_manager.save(AppConfig(ui_locale="ru-RU"))
+        russian = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=russian_manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        assert russian.generate_button.text() == "Создать промпт"
+        assert russian.settings_action.text() == "Настройки"
+        assert russian.profile_category.currentData() == "video"
+        assert "LLM-модель: Не задано" in russian.readiness.text()
+        assert russian.duration.suffix() == " с"
+        russian_style_label = russian.processing.parentWidget().layout().labelForField(
+            russian.processing
+        )
+        assert russian_style_label.text() == "Стиль преобразования промпта"
+        assert russian.auto_quality_tags.text() == (
+            "Автоматически добавлять теги качества"
+        )
+        assert russian.system_details_toggle.text() == "Подробнее"
+        assert russian.system_details_group.title() == "Сведения о системе"
+        assert russian.unload_model_button.text() == "Выгрузить модель"
+        assert "RAM/GPU-память" in russian.unload_model_button.toolTip()
+        assert russian.mode_supplement_toggle.text() == "Дополнение режима"
+        assert "[speech:ru]Привет[/speech]" in russian.literal_hint.text()
+        assert "[text:ru]Лунное кафе[/text]" in russian.request_text.toolTip()
+        assert russian.send_comfyui_button.text() == "Отправить в ComfyUI"
+        assert "Стандартные правила промпта" in russian.profile_variant_help.text()
+        assert russian.prompt_style_help.text()
+        russian.close()
+        app.processEvents()
     finally:
         mock.shutdown()
         mock.server_close()
 
 
-def test_chinese_combo_display_names_keep_stable_internal_values(tmp_path):
+def test_localized_combo_display_names_keep_stable_internal_values(tmp_path):
     app = QApplication.instance() or QApplication([])
     manager = ConfigManager(tmp_path)
     manager.save(AppConfig(ui_locale="zh-CN"))
@@ -1042,6 +1075,42 @@ def test_chinese_combo_display_names_keep_stable_internal_values(tmp_path):
         assert window.mode.currentData() == "Ref2VA"
         assert settings.mode == "Ref2VA"
         window.close()
+        app.processEvents()
+
+        russian_manager = ConfigManager(tmp_path / "russian")
+        russian_manager.save(AppConfig(ui_locale="ru-RU"))
+        russian = MainWindow(
+            project_root=PROJECT_ROOT,
+            config_manager=russian_manager,
+            server_url=url,
+            dev_skill_path=FIXTURE,
+        )
+        russian.processing.setCurrentIndex(russian.processing.findData("Creative"))
+        russian.camera.setCurrentIndex(russian.camera.findData("Static camera"))
+        russian.shot.setCurrentIndex(russian.shot.findData("Allow cuts"))
+        russian.motion.setCurrentIndex(russian.motion.findData("High"))
+        russian.mode.setCurrentIndex(russian.mode.findData("Ref2VA"))
+        russian._add_reference()
+        russian_kind = russian.references.cellWidget(0, 0)
+        assert isinstance(russian_kind, QComboBox)
+        russian_kind.setCurrentIndex(russian_kind.findData("Video"))
+
+        russian_settings = russian._collect_settings()
+
+        assert russian.processing.currentText() == "Творчески"
+        assert russian.camera.currentText() == "Статичная камера"
+        assert russian.shot.currentText() == "Разрешить монтажные склейки"
+        assert russian.motion.currentText() == "Высокое"
+        assert russian_kind.currentText() == "Видео"
+        assert russian_settings.processing == "Creative"
+        assert russian_settings.camera == "Static camera"
+        assert russian_settings.shot == "Allow cuts"
+        assert russian_settings.motion == "High"
+        assert russian_settings.references[0].kind == "Video"
+        assert russian.mode.currentText() == "Ref2VA"
+        assert russian.mode.currentData() == "Ref2VA"
+        assert russian_settings.mode == "Ref2VA"
+        russian.close()
         app.processEvents()
     finally:
         mock.shutdown()
@@ -1141,15 +1210,15 @@ def test_settings_language_selection_persists_stable_locale_id(tmp_path, monkeyp
         assert [
             dialog.ui_locale.itemData(index)
             for index in range(dialog.ui_locale.count())
-        ] == ["ja-JP", "en-US", "zh-CN"]
+        ] == ["ja-JP", "en-US", "zh-CN", "ru-RU"]
         assert [
             dialog.ui_locale.itemText(index)
             for index in range(dialog.ui_locale.count())
-        ] == ["日本語", "English", "简体中文"]
-        dialog.ui_locale.setCurrentIndex(dialog.ui_locale.findData("zh-CN"))
+        ] == ["日本語", "English", "简体中文", "Русский"]
+        dialog.ui_locale.setCurrentIndex(dialog.ui_locale.findData("ru-RU"))
         dialog.accept()
-        assert manager.load().ui_locale == "zh-CN"
-        assert manager.path.read_text(encoding="utf-8").count('"zh-CN"') == 1
+        assert manager.load().ui_locale == "ru-RU"
+        assert manager.path.read_text(encoding="utf-8").count('"ru-RU"') == 1
         assert messages
     finally:
         dialog.close()
@@ -1170,6 +1239,7 @@ def test_settings_language_selection_matches_saved_locale_without_changes(
         ("ja-JP", "日本語"),
         ("en-US", "English"),
         ("zh-CN", "简体中文"),
+        ("ru-RU", "Русский"),
     )
     for locale_id, native_name in expected_locales:
         manager = ConfigManager(tmp_path / locale_id)
@@ -1465,6 +1535,7 @@ def test_settings_localizes_unknown_vulkan_memory_classification(
         "ja-JP": "UMA / discrete分類: 不明",
         "en-US": "UMA / discrete classification: unknown",
         "zh-CN": "UMA / discrete分类：未知",
+        "ru-RU": "классификация UMA / discrete: неизвестна",
     }
     for locale_id, classification in expected.items():
         manager = ConfigManager(tmp_path / locale_id)

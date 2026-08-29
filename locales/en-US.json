@@ -311,6 +311,7 @@
   "library.save_error": "Could not save to the Prompt Library. Check the entered values.",
   "library.existing_tag_used": "The existing tag “{tag}” will be used.",
   "locale.zh-CN": "Simplified Chinese",
+  "locale.ru-RU": "Russian",
   "translation.translated": "Translation",
   "translation.source.translated": "Source: Translation",
   "profile.style.option.faithful": "Faithful",

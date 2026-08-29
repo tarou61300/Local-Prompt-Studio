@@ -5,7 +5,8 @@
   "description": {
     "en-US": "Faster 22B Distilled 1.1 profile with the same prompt semantics.",
     "ja-JP": "同じPrompt規則を保った高速な22B Distilled 1.1向けです。",
-    "zh-CN": "保持相同Prompt语义的高速22B Distilled 1.1 Profile。"
+    "zh-CN": "保持相同Prompt语义的高速22B Distilled 1.1 Profile。",
+    "ru-RU": "Ускоренный профиль 22B Distilled 1.1 с сохранением той же семантики промпта."
   },
   "required_prompt": {
     "positive_prefix": [],

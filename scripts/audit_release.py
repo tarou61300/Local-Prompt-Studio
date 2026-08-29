@@ -20,6 +20,7 @@ APPLICATION_REQUIRED_FILES = (
     "_internal/locales/en-US.json",
     "_internal/locales/ja-JP.json",
     "_internal/locales/zh-CN.json",
+    "_internal/locales/ru-RU.json",
     "_internal/profiles/video/minimax_h3/manifest.json",
     "_internal/profiles/video/minimax_h3/instructions.md",
     "_internal/profiles/video/minimax_h3/variants/base.json",

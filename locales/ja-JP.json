@@ -311,6 +311,7 @@
   "library.save_error": "Prompt Libraryへ保存できませんでした。入力内容を確認してください。",
   "library.existing_tag_used": "既存Tag「{tag}」を使用します。",
   "locale.zh-CN": "簡体字中国語",
+  "locale.ru-RU": "ロシア語",
   "translation.translated": "翻訳",
   "translation.source.translated": "翻訳元: 翻訳",
   "profile.style.option.faithful": "忠実",

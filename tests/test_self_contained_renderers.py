@@ -557,14 +557,21 @@ def test_each_renderer_owns_model_specific_localized_prompt_style_descriptions()
             renderer.prompt_style_description(processing, "zh-CN")
             for processing in ("Faithful", "Balanced", "Creative")
         ]
+        russian = [
+            renderer.prompt_style_description(processing, "ru-RU")
+            for processing in ("Faithful", "Balanced", "Creative")
+        ]
         assert all(english)
         assert all(japanese)
         assert all(chinese)
+        assert all(russian)
         assert len(set(english)) == 3
         assert len(set(japanese)) == 3
         assert len(set(chinese)) == 3
+        assert len(set(russian)) == 3
         assert english != japanese
         assert english != chinese
+        assert english != russian
         balanced_descriptions.append(english[1])
     assert len(set(balanced_descriptions)) == 5
 
@@ -574,6 +581,7 @@ def test_locales_contain_the_same_literal_syntax_examples():
         "en-US": ("[speech:en]Hello[/speech]", "[text:en]Moonlit Coffee[/text]"),
         "ja-JP": ("[speech:ja]こんにちは[/speech]", "[text:ja]月夜珈琲[/text]"),
         "zh-CN": ("[speech:zh]你好[/speech]", "[text:zh]月夜咖啡[/text]"),
+        "ru-RU": ("[speech:ru]Привет[/speech]", "[text:ru]Лунное кафе[/text]"),
     }
     for locale, (speech, visible_text) in examples.items():
         values = json.loads((ROOT / "locales" / f"{locale}.json").read_text(encoding="utf-8"))
@@ -587,4 +595,11 @@ def test_locales_contain_the_same_literal_syntax_examples():
     assert [(item.kind, item.language, item.text) for item in chinese_literals] == [
         ("speech", "zh", "你好"),
         ("text", "zh", "月夜咖啡"),
+    ]
+    russian_literals = parse_literal_content(
+        "[speech:ru]Привет[/speech]\n[text:ru]Лунное кафе[/text]"
+    )
+    assert [(item.kind, item.language, item.text) for item in russian_literals] == [
+        ("speech", "ru", "Привет"),
+        ("text", "ru", "Лунное кафе"),
     ]

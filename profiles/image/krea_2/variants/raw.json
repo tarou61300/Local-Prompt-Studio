@@ -5,7 +5,8 @@
   "description": {
     "en-US": "Flexible base checkpoint for full-sampler inference and LoRA training.",
     "ja-JP": "フルSampler推論やLoRA学習向けの柔軟なBaseチェックポイントです。",
-    "zh-CN": "适用于完整Sampler推理和LoRA训练的灵活Base Checkpoint。"
+    "zh-CN": "适用于完整Sampler推理和LoRA训练的灵活Base Checkpoint。",
+    "ru-RU": "Гибкий базовый checkpoint для полноценного Sampler inference и обучения LoRA."
   },
   "required_prompt": {
     "positive_prefix": [],

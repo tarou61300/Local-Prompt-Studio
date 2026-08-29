@@ -91,6 +91,7 @@ def test_all_builtin_variants_provide_all_supported_locale_descriptions():
         assert variant.description("en-US")
         assert variant.description("ja-JP")
         assert variant.description("zh-CN")
+        assert variant.description("ru-RU")
         assert variant.description("unsupported-locale") == variant.description("en-US")
 
 
@@ -219,7 +220,7 @@ def test_custom_profile_is_discovered_separately(tmp_path):
     assert catalog.custom_profiles["custom_video"].variant().description("ja-JP") == ""
 
 
-def test_custom_variant_without_chinese_description_falls_back_to_english(tmp_path):
+def test_custom_variant_without_optional_locale_descriptions_falls_back_to_english(tmp_path):
     profile = _write_profile(
         tmp_path / "data" / "profiles" / "custom",
         "custom_video",
@@ -233,6 +234,7 @@ def test_custom_variant_without_chinese_description_falls_back_to_english(tmp_pa
     loaded = catalog.custom_profiles["custom_video"].variant()
 
     assert loaded.description("zh-CN") == "Synthetic English description."
+    assert loaded.description("ru-RU") == "Synthetic English description."
 
 
 def test_broken_custom_profile_isolated(tmp_path):

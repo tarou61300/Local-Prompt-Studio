@@ -311,6 +311,7 @@
   "library.save_error": "无法保存到Prompt Library。请检查输入内容。",
   "library.existing_tag_used": "将使用已有Tag“{tag}”。",
   "locale.zh-CN": "简体中文",
+  "locale.ru-RU": "俄语",
   "translation.translated": "翻译",
   "translation.source.translated": "来源：翻译",
   "profile.style.option.faithful": "忠实",
